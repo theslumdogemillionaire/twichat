@@ -32,6 +32,7 @@ const api: TwichatAPI = {
   markChannelActivity: channels => invoke('rooms:mark-activity', channels),
   chatterProfiles: logins => invoke('chatters:profiles', logins),
   userCard: login => invoke('user:card', login),
+  channelInfo: (channel, roomId) => invoke('channel:info', channel, roomId ?? ''),
   followStatus: (channel, roomId) => invoke('follow:status', channel, roomId ?? ''),
   thirdPartyEmotes: (channel, roomId) => invoke('emotes:third-party', channel, roomId),
   twitchEmotes: roomId => invoke('emotes:twitch', roomId),
@@ -97,6 +98,11 @@ const api: TwichatAPI = {
     const listener = () => callback()
     ipcRenderer.on('app:settings', listener)
     return () => ipcRenderer.removeListener('app:settings', listener)
+  },
+  onNavigate: callback => {
+    const listener = (_event: unknown, direction: 'back' | 'forward') => callback(direction)
+    ipcRenderer.on('app:navigate', listener)
+    return () => ipcRenderer.removeListener('app:navigate', listener)
   },
   onEvents: callback => {
     const listener = (_event: unknown, events: ChatEvent[]) => callback(events)

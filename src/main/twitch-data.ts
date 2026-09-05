@@ -1,8 +1,8 @@
 import { net } from 'electron'
 import { ExpiringCache } from './cache'
 import { channelName } from '../shared/validation'
-import type { FollowStatus, FollowedChannels, RoomProfile, StreamSummary, UserCard } from '../shared/types'
-import { combineHelix, followerTotal, helixUsersToProfiles, helixUserToCard, offlineFollowed, parseFollowedAt, parseFollowedChannels, parsePublicProfile, type FollowedChannel, type HelixStream, type HelixUser } from './twitch-data-parse'
+import type { ChannelInfo, FollowStatus, FollowedChannels, RoomProfile, StreamSummary, UserCard } from '../shared/types'
+import { channelTags, combineHelix, followerTotal, helixUsersToProfiles, helixUserToCard, offlineFollowed, parseFollowedAt, parseFollowedChannels, parsePublicProfile, type FollowedChannel, type HelixStream, type HelixUser } from './twitch-data-parse'
 import { fail, type ErrorKey } from '../shared/errors'
 import { locale } from '../shared/i18n'
 
@@ -21,12 +21,17 @@ interface LiveState { live: boolean; viewers?: number; title?: string; startedAt
 const identities = new ExpiringCache<Identity>(500)
 const liveStates = new ExpiringCache<LiveState>(500)
 const cards = new ExpiringCache<UserCard>(200)
+const channelInfos = new ExpiringCache<ChannelInfo>(200)
 const IDENTITY_TTL = 30 * 60_000
 const UNKNOWN_IDENTITY_TTL = 5 * 60_000
 // Kept well under the two minutes between two renderer refreshes: at an equal lifetime the entry
 // was still valid when the poll arrived, and the audience only moved every other round.
 const LIVE_TTL = 60_000
 const CARD_TTL = 10 * 60_000
+// A follower count and a list of tags move on the scale of a stream, not of a poll: this one is
+// read when a room opens, and the lifetime is what keeps a walk through the rooms from asking again.
+const CHANNEL_INFO_TTL = 10 * 60_000
+const EMPTY_CHANNEL_INFO_TTL = 60_000
 
 function rememberIdentity(channel: string, value: Partial<Identity>) {
   const previous = identities.get(channel)
@@ -296,4 +301,35 @@ export async function getUserCard(input: unknown, auth: HelixAuth): Promise<User
   // The live line has its own lifetime; the card reads whatever the shared cache already knows.
   if (!knownLive(login)) await refreshLiveWithHelix([login], auth).catch(() => {})
   return { ...card, ...(knownLive(login) ?? { live: false }) }
+}
+
+/**
+ * What the room header says about the channel itself, rather than about the connection that
+ * brought it: how many people follow it, and the tags it is listed under. Both hold while the
+ * channel is offline, which is why neither comes from `helix/streams`.
+ *
+ * Two independent calls: a channel with no tags still has followers, and an endpoint this token
+ * cannot reach costs its own line and nothing else.
+ */
+export async function getChannelInfo(input: unknown, hint: unknown, auth: HelixAuth): Promise<ChannelInfo> {
+  const channel = channelName(input)
+  const known = channelInfos.get(channel)
+  if (known) return known
+  const headers = { Authorization: `Bearer ${auth.token}`, 'Client-Id': auth.clientId }
+  const id = await broadcasterId(channel, typeof hint === 'string' ? hint : '', headers)
+  const [followers, tags] = await Promise.all([getFollowerTotal(id, auth), getChannelTags(id, headers)])
+  // Both calls swallow their own failure, so an answer with nothing in it is as likely to be a
+  // token that has just expired as a channel with no tags: it is held for a minute, not for ten,
+  // or the header would stay empty long after the session renewed itself.
+  const empty = followers === undefined && !tags.length
+  return channelInfos.set(channel, { channel, followers, tags }, empty ? EMPTY_CHANNEL_INFO_TTL : CHANNEL_INFO_TTL)
+}
+
+async function getChannelTags(broadcasterId: string, headers: Record<string, string>): Promise<string[]> {
+  try {
+    const response = await net.fetch(`https://api.twitch.tv/helix/channels?broadcaster_id=${broadcasterId}`, {
+      headers, signal: AbortSignal.timeout(10000)
+    })
+    return response.ok ? channelTags(await response.json()) : []
+  } catch { return [] }
 }

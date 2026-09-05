@@ -111,6 +111,7 @@ export const en = {
     linkForbidden: 'Link not allowed.',
     needAccountForAvatars: 'Connect your Twitch account to load chat avatars.',
     needAccountForProfile: 'Connect your Twitch account to show a profile.',
+    needAccountForChannelInfo: 'Connect your Twitch account to read a channel’s followers and tags.',
     needAccountForFollow: 'Connect your Twitch account to know whether you follow this channel.',
     missingElement: (selector: string) => `Missing element: ${selector}`
   },
@@ -186,6 +187,7 @@ export const en = {
     partnerChannel: 'Twitch partner channel',
     affiliateChannel: 'Twitch affiliate channel',
     followerCount: (followers: string, total: number) => `${followers} ${total === 1 ? 'person follows' : 'people follow'} this channel`,
+    followerCountFollowing: (followers: string, total: number) => total === 1 ? 'You are the only follower of this channel' : `${followers} people follow this channel, you among them`,
     youFollowOpens: (login: string) => `You follow ${login}. Opens their channel on Twitch.`,
     followOnTwitch: (login: string) => `Opens ${login} on Twitch, where following happens.`,
     loadingProfile: 'Loading the Twitch profile…',
@@ -289,6 +291,11 @@ export const en = {
     allCategories: 'All',
     viewerCount: (viewers: string, total: number) => `${viewers} viewer${total === 1 ? '' : 's'}`,
     filterOnGame: (game: string) => `Filter by ${game}`,
+    filterOnTag: (tag: string) => `Browse the directory for ${tag}`,
+    youFollowThisChannel: 'You follow this channel',
+    noChannelForTag: (tag: string) => `No loaded channel carries ${tag}.`,
+    noChannelForTagHint: 'Twitch does not search by tag: the directory filters the channels it has loaded. Refresh, or drop the tag.',
+    followerCountShort: (followers: string) => `${followers} followers`,
     openChannelOf: (name: string) => `Open ${name}'s channel`,
     joinChannelOf: (name: string) => `Join ${name}'s channel`,
     offlineChannels: (count: number) => `OFFLINE · ${count} CHANNEL${count === 1 ? '' : 'S'}`,
@@ -432,10 +439,17 @@ export const en = {
       noPageLoaded: 'NO TWITCH PAGE LOADED',
       label: {
         channels: 'Chat channels',
+        pages: 'Page navigation',
+        back: 'Previous page',
+        forward: 'Next page',
         account: 'Account and settings',
         channelActions: 'Channel actions',
         messageActions: 'Message actions',
         twitchProfile: 'Twitch profile',
+      },
+      title: {
+        back: 'Previous page (⌘ ←)',
+        forward: 'Next page (⌘ →)',
       },
       statusbar: 'Twitch, 7TV, BTTV and FFZ emotes · independent client · alpha',
     },
@@ -613,7 +627,6 @@ export const en = {
       connectionNote: 'Chat runs over IRC on TLS. A single connection serves all your channels.',
     },
     roomView: {
-      channelTitle: 'Twitch channel',
       title: {
         openOnTwitch: 'Open the channel on Twitch',
         leave: 'Leave the channel',

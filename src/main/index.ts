@@ -13,7 +13,7 @@ import { AccountStore } from './accounts'
 import { createAccountSession } from './account-session'
 import { AvatarStore } from './avatars'
 import { StreamResolver, withoutAds } from './streams'
-import { getFollowStatus, getFollowedChannels, getHelixProfiles, getHelixStreams, getRoomProfiles, getUserCard } from './twitch-data'
+import { getChannelInfo, getFollowStatus, getFollowedChannels, getHelixProfiles, getHelixStreams, getRoomProfiles, getUserCard } from './twitch-data'
 import { getThirdPartyEmotes } from './third-party-emotes'
 import { getTwitchEmotes } from './twitch-emotes'
 import { applyUpdate, watchUpdates } from './updates'
@@ -474,7 +474,7 @@ app.whenReady().then(async () => {
   handle('app:init', async () => {
     initialAccountRestore ??= account.restore()
     await initialAccountRestore
-    return { preferences, scope: activeScope, locale: activeLocale, commandKey: commandKey(), status: irc.status, account: irc.login, savedAccounts: await accountStore.list(), savedAvatars: await avatarStore.all(), roomStates: Object.fromEntries(irc.roomStates), userBadges: Object.fromEntries(irc.userBadges) }
+    return { preferences, scope: activeScope, locale: activeLocale, commandKey: commandKey(), insetWindowControls: process.platform === 'darwin', status: irc.status, account: irc.login, savedAccounts: await accountStore.list(), savedAvatars: await avatarStore.all(), roomStates: Object.fromEntries(irc.roomStates), userBadges: Object.fromEntries(irc.userBadges) }
   })
   handle('account:avatars', () => avatarStore.all())
   handle('chat:join', (channel: string) => irc.join(channel))
@@ -505,6 +505,7 @@ app.whenReady().then(async () => {
     return getHelixProfiles(logins, token, clientId)
   })
   handle('user:card', (login: unknown) => getUserCard(login, accountAuth('needAccountForProfile')))
+  handle('channel:info', (channel: unknown, roomId: unknown) => getChannelInfo(channel, roomId, accountAuth('needAccountForChannelInfo')))
   handle('emotes:third-party', (channel: unknown, roomId: unknown) => {
     const name = channelName(channel)
     if (typeof roomId !== 'string' || !/^\d{1,30}$/.test(roomId)) fail('roomIdInvalid')
@@ -862,6 +863,14 @@ app.whenReady().then(async () => {
     nativeTheme.on('updated', paintWindow)
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     window.webContents.on('will-navigate', event => event.preventDefault())
+    // The mouse's side buttons and a keyboard's browser keys, where the system reports them as a
+    // command rather than as a key press — Windows and Linux. macOS has no `app-command`: there
+    // they arrive in the window as ordinary mouse events, and the renderer reads them itself.
+    window.on('app-command', (event, command) => {
+      if (command !== 'browser-backward' && command !== 'browser-forward') return
+      event.preventDefault()
+      toRoom('app:navigate', command === 'browser-backward' ? 'back' : 'forward')
+    })
     // Pinch and Ctrl+wheel zoom belong to a document, not to an application window.
     void window.webContents.setVisualZoomLevelLimits(1, 1)
     window.webContents.on('zoom-changed', () => window?.webContents.setZoomFactor(1))

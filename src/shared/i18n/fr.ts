@@ -102,6 +102,7 @@ export const fr: Messages = {
     linkForbidden: 'Lien non autorisé.',
     needAccountForAvatars: 'Connectez votre compte Twitch pour charger les avatars du chat.',
     needAccountForProfile: 'Connectez votre compte Twitch pour afficher un profil.',
+    needAccountForChannelInfo: 'Connectez votre compte Twitch pour lire les abonnés et les tags d’une chaîne.',
     needAccountForFollow: 'Connectez votre compte Twitch pour savoir si vous suivez cette chaîne.',
     missingElement: (selector: string) => `Élément absent : ${selector}`
   },
@@ -179,6 +180,7 @@ export const fr: Messages = {
     partnerChannel: 'Chaîne partenaire Twitch',
     affiliateChannel: 'Chaîne affiliée Twitch',
     followerCount: (followers: string, total: number) => `${followers} ${total > 1 ? 'personnes suivent' : 'personne suit'} cette chaîne`,
+    followerCountFollowing: (followers: string, total: number) => total === 1 ? 'Vous êtes la seule personne à suivre cette chaîne' : `${followers} personnes suivent cette chaîne, vous compris`,
     youFollowOpens: (login: string) => `Vous suivez ${login}. Ouvre sa chaîne sur Twitch.`,
     followOnTwitch: (login: string) => `Ouvre ${login} sur Twitch, où se pose le suivi.`,
     loadingProfile: 'Chargement du profil Twitch…',
@@ -282,6 +284,11 @@ export const fr: Messages = {
     allCategories: 'Toutes',
     viewerCount: (viewers: string, total: number) => `${viewers} spectateur${total > 1 ? 's' : ''}`,
     filterOnGame: (game: string) => `Filtrer sur ${game}`,
+    filterOnTag: (tag: string) => `Parcourir l’annuaire sur ${tag}`,
+    youFollowThisChannel: 'Vous suivez cette chaîne',
+    noChannelForTag: (tag: string) => `Aucune chaîne chargée ne porte ${tag}.`,
+    noChannelForTagHint: 'Twitch ne cherche pas par tag : l’annuaire filtre les chaînes qu’il a chargées. Actualisez, ou retirez le tag.',
+    followerCountShort: (followers: string) => `${followers} followers`,
     openChannelOf: (name: string) => `Ouvrir la chaîne de ${name}`,
     joinChannelOf: (name: string) => `Rejoindre la chaîne de ${name}`,
     offlineChannels: (count: number) => `HORS LIGNE · ${count} CHAÎNE${count > 1 ? 'S' : ''}`,
@@ -644,10 +651,18 @@ export const fr: Messages = {
       noPageLoaded: 'AUCUNE PAGE TWITCH CHARGÉE',
       label: {
         channels: 'Chaînes de discussion',
+        pages: 'Navigation entre les pages',
+        back: 'Page précédente',
+        forward: 'Page suivante',
         account: 'Compte et réglages',
         channelActions: 'Actions de la chaîne',
         messageActions: 'Actions du message',
         twitchProfile: 'Profil Twitch',
+      },
+      // Le raccourci est écrit à la mode Mac : `hydrate` remplace `⌘` là où la touche est Ctrl.
+      title: {
+        back: 'Page précédente (⌘ ←)',
+        forward: 'Page suivante (⌘ →)',
       },
       statusbar: 'Emotes Twitch, 7TV, BTTV et FFZ · client indépendant · alpha',
     },
@@ -838,7 +853,6 @@ export const fr: Messages = {
       comfort: 'Confort · 6 s de retard, 30 s d’avance',
     },
     roomView: {
-      channelTitle: 'Chaîne Twitch',
       title: {
         openOnTwitch: 'Ouvrir la chaîne sur Twitch',
         leave: 'Quitter la chaîne',

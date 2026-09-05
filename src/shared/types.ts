@@ -120,6 +120,14 @@ export interface Snapshot {
    * it is the only side holding `process.platform`, and read by every shortcut and every label.
    */
   commandKey: CommandKey
+  /**
+   * Whether the window's own buttons are laid over the title bar, as macOS does with
+   * `hiddenInset`. Where they are, the bar's left corner belongs to them and anything the page
+   * puts there — the back and forward buttons — has to start after them. It is not read from
+   * `commandKey`: that one is pinned by the smoke checks to draw the Ctrl labels on a Mac,
+   * and the window's chrome does not move when it is.
+   */
+  insetWindowControls: boolean
   /** The language resolved by the main process: the account's choice, otherwise the system's. */
   locale: Locale
   /** The account these preferences belong to. It goes back unchanged on save. */
@@ -140,6 +148,17 @@ export interface RoomProfile {
   title?: string
   /** Start of the live stream, as Helix dates it in ISO 8601. Absent outside Helix: the public page does not carry it. */
   startedAt?: string
+}
+/**
+ * What the room header knows about the channel apart from its stream: the size of its audience
+ * over time, and the tags it is listed under. Both survive the stream going offline, so neither
+ * belongs to `RoomProfile`, which is refreshed for twenty rooms at a time.
+ */
+export interface ChannelInfo {
+  channel: string
+  /** Absent when the endpoint turned the token down: the header drops the line rather than showing a zero. */
+  followers?: number
+  tags: string[]
 }
 export interface StreamSummary {
   id: string
@@ -238,6 +257,8 @@ export interface TwichatAPI {
   profiles(channels: string[]): Promise<RoomProfile[]>
   chatterProfiles(logins: string[]): Promise<RoomProfile[]>
   userCard(login: string): Promise<UserCard>
+  /** Followers and tags of the open channel. `roomId` spares the id lookup when ROOMSTATE has given it. */
+  channelInfo(channel: string, roomId?: string): Promise<ChannelInfo>
   /** `roomId` avoids a round trip when ROOMSTATE has already given the channel's id. */
   followStatus(channel: string, roomId?: string): Promise<FollowStatus>
   thirdPartyEmotes(channel: string, roomId: string): Promise<ThirdPartyEmote[]>
@@ -300,6 +321,12 @@ export interface TwichatAPI {
   onPreferences(callback: (scoped: ScopedPreferences) => void): () => void
   /** The main process's Settings menu, on the platform's own accelerator. */
   onSettings(callback: () => void): () => void
+  /**
+   * The back and forward the system reports as a command rather than as a key press: the mouse's
+   * side buttons and a keyboard's browser keys, on the platforms where the window sees them
+   * before the page does.
+   */
+  onNavigate(callback: (direction: 'back' | 'forward') => void): () => void
   onEvents(callback: (events: ChatEvent[]) => void): () => void
   /** A release worth knowing about, sent once per version. */
   onUpdate(callback: (notice: UpdateNotice) => void): () => void

@@ -1,6 +1,6 @@
 import '@fontsource-variable/atkinson-hyperlegible-next'
 import './style.css'
-import type { BufferMode, ChatEvent, ChatMessage, ChatPreferences, Connection, FollowStatus, LayoutPreferences, NotificationPreferences, PlaybackPreferences, Preferences, RoomProfile, ScopedPreferences, Snapshot, StreamSummary, ThirdPartyEmote, TwitchEmote, UpdateNotice, UserCard } from '../shared/types'
+import type { BufferMode, ChannelInfo, ChatEvent, ChatMessage, ChatPreferences, Connection, FollowStatus, LayoutPreferences, NotificationPreferences, PlaybackPreferences, Preferences, RoomProfile, ScopedPreferences, Snapshot, StreamSummary, ThirdPartyEmote, TwitchEmote, UpdateNotice, UserCard } from '../shared/types'
 import { bufferMode, idleChannelHours } from '../shared/validation'
 import { hydrateIcons, icon } from './icons'
 import { ChatStore } from './chat-store'
@@ -16,15 +16,20 @@ import { exemptFromFollowersOnly, followNotice, followersOnlyMinutes } from './f
 import { setupTheme, currentTheme, applyTheme } from './theme'
 import { hydrate } from './hydrate'
 import { commandKey, composing, label as keyLabel, matches, platformKeys, setCommandKey, type Chord } from './keys'
+import { PageHistory, type Page } from './page-history'
 
 /**
  * Every shortcut the window answers, in one place. The modifier is named rather than assumed:
  * what `command` means is decided by the platform, in `keys.ts`.
  */
-const SHORTCUTS: Record<'join' | 'sidebar' | 'chatOnly', Chord> = {
+const SHORTCUTS: Record<'join' | 'sidebar' | 'chatOnly' | 'back' | 'forward', Chord> = {
   join: { key: 'k', command: true },
   sidebar: { key: 'b', command: true },
-  chatOnly: { key: 'v', command: true, shift: true }
+  chatOnly: { key: 'v', command: true, shift: true },
+  // The arrows rather than the brackets a browser uses: `[` is not a key on a French keyboard,
+  // it is an Option combination, and the modifier a shortcut needs cannot also be one of its keys.
+  back: { key: 'ArrowLeft', command: true },
+  forward: { key: 'ArrowRight', command: true }
 }
 import { clock, collator, compactNumbers, locale, m, numbers, resolveLocale, setLocale } from '../shared/i18n'
 import { errorKey, errorText } from '../shared/errors'
@@ -68,7 +73,21 @@ const followRetryAt = new Map<string, number>()
 const FOLLOW_RETRY_DELAY = 60_000
 const pendingChatterAvatars = new Set<string>()
 const userCards = new Map<string, UserCard>()
+// The followers and the tags of a channel, which say what it is rather than whether it is on air.
+// The main process holds them for ten minutes; this map is what the header paints from between
+// two answers, so opening a room again shows its line straight away.
+const channelInfos = new Map<string, ChannelInfo>()
+const channelInfoChecks = new Set<string>()
 const selectedCategories = new Set<string>()
+// Tags are filtered apart from the categories: a channel carries several, and 'Speedrun' is not a game.
+// Keyed by the folded tag, because Twitch does not spell one the same way in two payloads;
+// the value is the spelling to put on the chip.
+const selectedTags = new Map<string, string>()
+// The channels this account follows, by login. Twitch answers the whole list in one call, which
+// is what makes a badge on a catalog card affordable: asking channel by channel would be a
+// hundred requests for one grid. Positive only — the list stops at two thousand channels, so a
+// card without the mark is one we cannot vouch for, never one we know is not followed.
+const followedLogins = new Set<string>()
 let state: Snapshot
 let active = ''
 // The account display name, when Twitch gives one: a non-Latin nickname looks nothing like its login.
@@ -76,11 +95,80 @@ let accountDisplayName = ''
 type View = 'welcome' | 'room' | 'discover' | 'settings'
 const VIEWS: Record<View, string> = { welcome: '#welcome', room: '#room-view', discover: '#discover', settings: '#settings' }
 let currentView: View = 'welcome'
+const pageHistory = new PageHistory()
+// Walking the trail is not extending it: the pages reopened below must not be recorded as steps.
+let restoringPage = false
 /** A single view at a time: the four sections of `main` exclude one another. */
 function showView(view: View) {
   currentView = view
   for (const [name, selector] of Object.entries(VIEWS)) $(selector).hidden = name !== view
+  // The dock hangs from `main`, not from the room: the page it floats over decides where it sits.
+  $('#main').dataset.view = view
+  // Every page opened passes here, whoever opened it — a sidebar row, a raid, a notification —
+  // so the trail is written at the one door rather than at each of its callers.
+  if (!restoringPage) {
+    if (view === 'welcome') pageHistory.reset()
+    else pageHistory.push({ view, channel: view === 'room' ? active : undefined })
+  }
+  renderPageNav()
+  updateDockPresence()
   updateTitlebarNote()
+}
+
+/** The two buttons say what the trail allows: a dead end is disabled, never silently inert. */
+function renderPageNav() {
+  $<HTMLButtonElement>('#nav-back').disabled = !pageHistory.canBack()
+  $<HTMLButtonElement>('#nav-forward').disabled = !pageHistory.canForward()
+}
+/**
+ * Reopens a page of the trail through the same door a click would use: a room restored here
+ * rejoins, repaints its header and asks Twitch for its stream exactly as one opened from the
+ * sidebar. Only the recording is held back.
+ */
+function applyPage(page: Page) {
+  restoringPage = true
+  try {
+    if (page.view === 'room') { if (page.channel) activate(page.channel) }
+    else if (page.view === 'discover') openDiscover()
+    else openSettings()
+  } finally { restoringPage = false }
+  renderPageNav()
+}
+function goBack() { const page = pageHistory.back(); if (page) applyPage(page) }
+function goForward() { const page = pageHistory.forward(); if (page) applyPage(page) }
+$('#nav-back').addEventListener('click', goBack)
+$('#nav-forward').addEventListener('click', goForward)
+/**
+ * The same press, reported twice: a mouse whose driver sends both an application command and an
+ * ordinary button would take two steps back for one click. Two reports of the *same* direction
+ * within a frame or two are one press; two different ones are two presses, however quick, since
+ * no single click is both. The on-screen buttons and the keyboard are not concerned — what they
+ * report is never ambiguous.
+ */
+let lastSystemNavigation: { direction: 'back' | 'forward'; at: number } | null = null
+function systemNavigation(direction: 'back' | 'forward') {
+  const at = performance.now()
+  if (lastSystemNavigation?.direction === direction && at - lastSystemNavigation.at < 50) return
+  lastSystemNavigation = { direction, at }
+  if (direction === 'back') goBack(); else goForward()
+}
+/**
+ * The mouse's side buttons. `auxclick` is the event for a button that is neither the primary one
+ * nor the wheel, and 3 and 4 are the numbers the standard gives back and forward. Where the
+ * system claims them before the page sees them, they come through `onNavigate` instead.
+ */
+window.addEventListener('auxclick', event => {
+  if (event.button !== 3 && event.button !== 4) return
+  event.preventDefault()
+  systemNavigation(event.button === 3 ? 'back' : 'forward')
+})
+window.twichat.onNavigate(systemNavigation)
+/**
+ * The video outlives the room view: the explorer and the settings float over it rather than
+ * closing it. It shows as soon as a channel is open, and only the welcome page has none.
+ */
+function updateDockPresence() {
+  $('#main').dataset.dock = active && currentView !== 'welcome' ? 'on' : 'off'
 }
 /**
  * The note in the title bar names the open page. It is the workspace's one, not the session
@@ -112,6 +200,7 @@ let followedOffline: RoomProfile[] = []
 /** Twitch was still offering more than the list holds: the count above it says so. */
 let followedTruncated = false
 let discoveryScope: 'top' | 'followed' = 'top'
+let followedLoginsLoading = false
 /**
  * The errors that condemn a saved account: its row leaves the session screen.
  * The key decides, not the sentence — that one changes with the language.
@@ -287,6 +376,8 @@ function returnToSessionChoice() {
   virtualLog.setVisible(false)
   workspaceEntered = false
   currentView = 'welcome'
+  pageHistory.reset(); renderPageNav()
+  updateDockPresence()
   appRoot.hidden = true
   // The saved accounts are rewritten below; "Sign in" and "Continue anonymously", though, are the
   // same buttons as on the way in and would come back disabled.
@@ -383,9 +474,10 @@ function adoptScope({ scope, preferences: next, locale }: ScopedPreferences) {
   roomModes.clear(); roomProfiles.clear(); roomIds.clear(); roomBadges.clear()
   channelActivity.clear(); pendingActivity.clear(); idleExpanded = false
   followStatuses.clear(); followChecks.clear(); followRetryAt.clear()
+  channelInfos.clear(); channelInfoChecks.clear()
   twitchEmotes.clear(); twitchEmoteIds.clear(); twitchRoomKeys.clear()
   thirdPartyEmotes.clear(); thirdPartyRoomKeys.clear()
-  discoveredStreams = []; resetFollowed()
+  discoveredStreams = []; resetFollowed(); selectedTags.clear()
   joined.clear()
   accountDisplayName = ''
   resetMentionCache()
@@ -405,6 +497,9 @@ function adoptScope({ scope, preferences: next, locale }: ScopedPreferences) {
   renderRooms()
   void loadChannelActivity()
   void refreshProfiles(next.channels)
+  // Another account's channels: nothing of the previous trail leads anywhere, and the page
+  // opened just below becomes its root.
+  pageHistory.reset(); renderPageNav()
   if (!workspaceEntered) return
   if (active) activate(active)
   else showView('welcome')
@@ -610,6 +705,9 @@ function activate(channel: string) {
   if (!state.preferences.channels.includes(channel)) return
   closeFloatingLayers()
   const entering = currentView !== 'room' || active !== channel
+  // Read before the stop below: detached, that stop is a command to the other window, and the
+  // state only comes back once it has been carried out. Reading it afterwards races with the answer.
+  const alreadyPlaying = active === channel && currentPlayerState !== 'stopped'
   if (active && active !== channel) player.stop()
   active = channel
   state.preferences.active = channel
@@ -625,6 +723,10 @@ function activate(channel: string) {
   updateModes()
   updateFollowGate()
   updateRoomLive()
+  updateChannelIdentity()
+  void refreshChannelInfo(channel)
+  // The header shows the follow whatever the room's mode: the gate is no longer the only reader.
+  void refreshFollowStatus(channel)
   virtualLog.set(store.get(channel), true)
   renderRooms(); save()
   if (entering) restorePlayerWidth()
@@ -632,7 +734,9 @@ function activate(channel: string) {
     const start = playback().autoplay && !$('#room-body').classList.contains('chat-only')
     // The account may have left the video in its own window: it reopens there rather than in the dock.
     if (detachedWanted && !detachedChannel) applyDetachedChoice(start)
-    else if (start) void player.play(channel, $<HTMLSelectElement>('#quality').value, playback().buffer)
+    // Only a return to the same channel finds its stream still running: restarting it would cut
+    // the picture for a few seconds to land on the same one. A change of channel always starts.
+    else if (start && !alreadyPlaying) void player.play(channel, $<HTMLSelectElement>('#quality').value, playback().buffer)
   }
   composer.setRoom(channel)
   composer.focus()
@@ -892,11 +996,14 @@ async function leaveRoom(channel: string) {
   unread.delete(channel); mentions.delete(channel); joined.delete(channel); roomModes.delete(channel)
   thirdPartyEmotes.delete(channel); thirdPartyRoomKeys.delete(channel)
   twitchEmotes.delete(channel); twitchEmoteIds.delete(channel); twitchRoomKeys.delete(channel); roomIds.delete(channel)
+  // A room nothing can go back to is not a page any more; the rest of the trail stands.
+  pageHistory.prune(page => page.view !== 'room' || page.channel !== channel)
+  renderPageNav()
   if (!wasActive) { renderRooms(); save(); return }
   const next = state.preferences.channels[0] ?? ''
   active = next; state.preferences.active = next
   composer.setRoom(next)
-  if (currentView !== 'room') { renderRooms(); save(); return }
+  if (currentView !== 'room') { applyPlayerMode(); updateDockPresence(); renderRooms(); save(); return }
   if (next) activate(next)
   else { virtualLog.setVisible(false); showView('welcome'); renderRooms(); save() }
 }
@@ -995,7 +1102,9 @@ function discoveryStatus(title: string, copy: string, action: 'login' | 'retry' 
   button.dataset.action = action ?? ''
   $('#discover-results').hidden = true
   $('#discover-skeleton').hidden = true
-  $('#discover-categories').hidden = true
+  // The chips stay when one of them is what emptied the grid: hiding them here left the
+  // reader with a filter and nothing to switch it off with.
+  $('#discover-categories').hidden = !selectedCategories.size && !selectedTags.size
   $('#followed-offline').hidden = true
 }
 
@@ -1028,6 +1137,23 @@ function uptimeLabel(startedAt: string): string {
   return m.follow.hoursAndMinutes(Math.floor(minutes / 60), minutes % 60)
 }
 
+function tagKey(tag: string): string { return tag.toLocaleLowerCase(locale) }
+
+/**
+ * Whether the account follows a channel. A `followStatus` answer is about this one channel and
+ * was asked just now, so it settles the question; the followed list fills in for every channel
+ * nobody asked about, which is what a catalog of a hundred cards is made of.
+ */
+function isFollowed(channel: string): boolean {
+  return followStatuses.get(channel)?.following ?? followedLogins.has(channel)
+}
+
+function toggleTag(tag: string) {
+  const key = tagKey(tag)
+  if (selectedTags.has(key)) selectedTags.delete(key); else selectedTags.set(key, tag)
+  renderDiscoveryCategories(); renderDiscoveryResults()
+}
+
 function toggleCategory(category: string) {
   if (selectedCategories.has(category)) selectedCategories.delete(category); else selectedCategories.add(category)
   renderDiscoveryCategories(); renderDiscoveryResults()
@@ -1038,9 +1164,21 @@ function renderDiscoveryCategories() {
   for (const stream of scopeStreams()) if (stream.game) counts.set(stream.game, (counts.get(stream.game) ?? 0) + 1)
   const categories = [...counts].sort((a, b) => b[1] - a[1] || collator.compare(a[0], b[0])).slice(0, 18)
   const root = $('#discover-tag-list'); root.replaceChildren()
-  $('#discover-categories').hidden = !categories.length
-  const all = document.createElement('button'); all.type = 'button'; all.className = 'tag-filter'; all.textContent = m.app.allCategories; all.setAttribute('aria-pressed', String(selectedCategories.size === 0))
-  all.addEventListener('click', () => { selectedCategories.clear(); renderDiscoveryCategories(); renderDiscoveryResults() }); root.append(all)
+  $('#discover-categories').hidden = !categories.length && !selectedTags.size
+  const all = document.createElement('button'); all.type = 'button'; all.className = 'tag-filter'; all.textContent = m.app.allCategories
+  all.setAttribute('aria-pressed', String(selectedCategories.size === 0 && selectedTags.size === 0))
+  all.addEventListener('click', () => { selectedCategories.clear(); selectedTags.clear(); renderDiscoveryCategories(); renderDiscoveryResults() }); root.append(all)
+  // A tag has no chip of its own in this row — the row lists games — so the one being filtered on
+  // is added here: it is the only handle to drop a filter arrived at from a room header.
+  for (const [key, label] of selectedTags) {
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'tag-filter is-tag'
+    button.textContent = label
+    const badge = document.createElement('b'); badge.textContent = String(scopeStreams().filter(stream => stream.tags.some(tag => tagKey(tag) === key)).length); button.append(badge)
+    button.setAttribute('aria-pressed', 'true')
+    button.title = m.app.filterOnTag(label)
+    button.addEventListener('click', () => toggleTag(label))
+    root.append(button)
+  }
   for (const [category, count] of categories) {
     const button = document.createElement('button'); button.type = 'button'; button.className = 'tag-filter'
     button.textContent = category
@@ -1074,10 +1212,22 @@ function discoveryCard(stream: StreamSummary) {
   const avatar = document.createElement('span'); avatar.className = 'stream-avatar'; avatar.textContent = stream.displayName.slice(0, 1)
   if (stream.avatarUrl) { const image = document.createElement('img'); image.src = stream.avatarUrl; image.alt = ''; image.width = 40; image.height = 40; image.loading = 'lazy'; image.addEventListener('error', () => image.remove()); avatar.append(image) }
   const identity = document.createElement('div'); identity.className = 'stream-identity'
+  const nameRow = document.createElement('div'); nameRow.className = 'stream-name-row'
   const name = document.createElement('strong'); name.textContent = stream.displayName
+  nameRow.append(name)
+  // In the followed tab every card would carry it: the mark is only worth showing where the
+  // catalog mixes the two.
+  if (discoveryScope !== 'followed' && isFollowed(stream.channel)) {
+    article.dataset.followed = 'true'
+    const mark = document.createElement('span'); mark.className = 'stream-followed'
+    mark.innerHTML = icon('heartFull'); mark.title = m.app.youFollowThisChannel
+    mark.setAttribute('aria-label', m.app.youFollowThisChannel)
+    mark.setAttribute('role', 'img')
+    nameRow.append(mark)
+  }
   const title = document.createElement('p'); title.className = 'stream-title'; title.textContent = stream.title || m.app.liveConversation
   if (stream.title) title.title = stream.title
-  identity.append(name, title)
+  identity.append(nameRow, title)
   body.append(avatar, identity)
 
   const meta = document.createElement('div'); meta.className = 'stream-meta'
@@ -1087,7 +1237,12 @@ function discoveryCard(stream: StreamSummary) {
     game.addEventListener('click', () => toggleCategory(stream.game))
     meta.append(game)
   }
-  for (const tag of stream.tags.slice(0, 3)) { const label = document.createElement('span'); label.className = 'stream-tag'; label.textContent = tag; meta.append(label) }
+  for (const tag of stream.tags.slice(0, 3)) {
+    const label = document.createElement('button'); label.type = 'button'; label.className = 'stream-tag'; label.textContent = tag
+    label.title = m.app.filterOnTag(tag); label.setAttribute('aria-pressed', String(selectedTags.has(tagKey(tag))))
+    label.addEventListener('click', () => toggleTag(tag))
+    meta.append(label)
+  }
 
   const join = document.createElement('button'); join.type = 'button'; join.className = 'join-stream'
   join.innerHTML = icon('chat'); join.append(joinedRoom ? m.app.openChannel : m.app.joinChannel)
@@ -1122,7 +1277,7 @@ function followedCard(profile: RoomProfile) {
 // A category filter only speaks of live streams: it pushes the offline list back.
 function renderFollowedOffline(query: string): number {
   const section = $('#followed-offline')
-  if (discoveryScope !== 'followed' || selectedCategories.size) { section.hidden = true; return 0 }
+  if (discoveryScope !== 'followed' || selectedCategories.size || selectedTags.size) { section.hidden = true; return 0 }
   const matches = followedOffline.filter(profile => !query || `${profile.displayName} ${profile.channel}`.toLocaleLowerCase(locale).includes(query))
   $('#followed-offline-list').replaceChildren(...matches.map(followedCard))
   section.hidden = !matches.length
@@ -1146,7 +1301,8 @@ function renderDiscoveryResults() {
     const haystack = [stream.displayName, stream.channel, stream.title, stream.game, ...stream.tags].join(' ').toLocaleLowerCase(locale)
     const matchesQuery = !query || haystack.includes(query)
     const matchesCategory = !selectedCategories.size || selectedCategories.has(stream.game)
-    return matchesQuery && matchesCategory
+    const matchesTag = !selectedTags.size || stream.tags.some(tag => selectedTags.has(tagKey(tag)))
+    return matchesQuery && matchesCategory && matchesTag
   })
   const mode = $<HTMLSelectElement>('#discover-sort').value
   filtered.sort((a, b) => mode === 'viewers-asc' ? a.viewers - b.viewers
@@ -1165,7 +1321,8 @@ function renderDiscoveryResults() {
   } else {
     $('#discover-summary').textContent = filtered.length ? m.app.liveAndViewers(live, compactNumbers.format(total)) : m.app.noChannelMatchFilters
   }
-  if (!filtered.length && !offline) discoveryStatus(m.app.noChannelMatch, m.app.noChannelMatchHint, null)
+  const tag = [...selectedTags.values()][0]
+  if (!filtered.length && !offline) discoveryStatus(tag ? m.app.noChannelForTag(tag) : m.app.noChannelMatch, tag ? m.app.noChannelForTagHint : m.app.noChannelMatchHint, tag ? 'retry' : null)
 }
 
 function updateDiscoveryFreshness() {
@@ -1189,6 +1346,8 @@ async function loadFollowed(refresh = false) {
     // account did: these are the channels somebody else follows.
     if (discoveryScope !== 'followed' || asked !== state.account) return
     followedStreams = followed.live; followedOffline = followed.offline; followedTruncated = followed.truncated; followedUpdatedAt = Date.now()
+    for (const stream of followed.live) followedLogins.add(stream.channel)
+    for (const profile of followed.offline) followedLogins.add(profile.channel)
     for (const category of [...selectedCategories]) if (!followedStreams.some(stream => stream.game === category)) selectedCategories.delete(category)
     updateDiscoveryFreshness(); renderDiscoveryCategories(); renderDiscoveryResults()
   } catch (error) {
@@ -1203,12 +1362,12 @@ async function loadFollowed(refresh = false) {
   }
 }
 
-function resetFollowed() { followedStreams = []; followedOffline = []; followedTruncated = false; followedUpdatedAt = 0 }
+function resetFollowed() { followedStreams = []; followedOffline = []; followedTruncated = false; followedUpdatedAt = 0; followedLogins.clear() }
 
 function setDiscoveryScope(scope: 'top' | 'followed') {
   if (discoveryScope === scope) return
   discoveryScope = scope
-  selectedCategories.clear()
+  selectedCategories.clear(); selectedTags.clear()
   $('#scope-top').setAttribute('aria-pressed', String(scope === 'top'))
   $('#scope-followed').setAttribute('aria-pressed', String(scope === 'followed'))
   // The language only filters the public catalog: Twitch returns followed channels as they are.
@@ -1218,8 +1377,34 @@ function setDiscoveryScope(scope: 'top' | 'followed') {
   void loadDiscovery()
 }
 
+/**
+ * The followed list, read for the catalog rather than for the followed tab: it is what tells a
+ * card in the general listing that this is a channel the account already follows. Twitch caches
+ * it for a minute in the main process, so a walk through the explorer costs one call.
+ */
+async function loadFollowedLogins(refresh = false) {
+  // Read once for the session, and again on the explorer's own refresh: a follow given or taken
+  // back on twitch.tv is exactly what that button is for.
+  if (!state.account || followedLoginsLoading || (followedLogins.size && !refresh)) return
+  followedLoginsLoading = true
+  const asked = state.account
+  try {
+    const followed = await window.twichat.followed(refresh)
+    if (asked !== state.account) return
+    followedLogins.clear()
+    for (const stream of followed.live) followedLogins.add(stream.channel)
+    for (const profile of followed.offline) followedLogins.add(profile.channel)
+    if (currentView === 'discover') renderDiscoveryResults()
+  } catch {
+    // A session opened before this view existed carries no follows scope, and Twitch may simply
+    // be out of reach. Either way the catalog stands: it loses a badge, not a channel.
+  }
+  finally { followedLoginsLoading = false }
+}
+
 async function loadDiscovery(refresh = false) {
   if (discoveryScope === 'followed') return loadFollowed(refresh)
+  void loadFollowedLogins(refresh)
   if (!state.account) { discoveryStatus(m.app.connectAccountShort, m.app.discoverNeedsAccount, 'login'); return }
   if (discoveryLoading) return
   discoveryLoading = true; $<HTMLButtonElement>('#refresh-discover').disabled = true
@@ -1248,7 +1433,7 @@ async function loadDiscovery(refresh = false) {
 
 function openDiscover() {
   closeFloatingLayers()
-  player.stop(); virtualLog.setVisible(false); showView('discover'); renderRooms(); void loadDiscovery()
+  virtualLog.setVisible(false); showView('discover'); renderRooms(); void loadDiscovery()
 }
 
 function showChatterAvatar(login: string, url: string) {
@@ -1472,6 +1657,7 @@ async function refreshFollowStatus(channel: string, force = false) {
   finally {
     followChecks.delete(channel)
     updateFollowGate()
+    updateChannelIdentity()
     paintCardFollow(channel)
   }
 }
@@ -1515,12 +1701,82 @@ function updateRoomLive() {
   }
   element.hidden = false
 }
+
+/**
+ * What the channel is, next to what it is doing: how many people follow it, and the tags Twitch
+ * lists it under. Both hold once the stream is over, which is why they do not come from the live
+ * state — a room stays open long after its broadcast.
+ */
+function updateChannelIdentity() {
+  const info = currentView === 'room' && active ? channelInfos.get(active) : undefined
+  const followers = $('#channel-followers')
+  // A hollow heart counts the followers; a filled, lime one says the account is among them.
+  const following = !!active && isFollowed(active)
+  followers.replaceChildren()
+  followers.hidden = info?.followers === undefined
+  followers.classList.toggle('is-following', following)
+  if (info?.followers !== undefined) {
+    followers.innerHTML = icon(following ? 'heartFull' : 'heart')
+    followers.append(` ${m.app.followerCountShort(compactNumbers.format(info.followers))}`)
+    followers.title = following
+      ? m.app.followerCountFollowing(numbers.format(info.followers), info.followers)
+      : m.app.followerCount(numbers.format(info.followers), info.followers)
+  }
+  const tags = $('#channel-tags')
+  tags.replaceChildren()
+  // Four is what the header holds at its narrowest before the actions start losing room.
+  for (const tag of info?.tags.slice(0, 4) ?? []) {
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'channel-tag'
+    button.textContent = tag
+    button.title = m.app.filterOnTag(tag)
+    button.addEventListener('click', () => browseTag(tag))
+    tags.append(button)
+  }
+  tags.hidden = !tags.childElementCount
+}
+
+/**
+ * Asked when a room opens. The main process holds the answer for ten minutes, so walking back
+ * through the rooms costs a round trip and no Twitch call; the map here is what the header paints
+ * from in the meantime, so a room already visited shows its line without a blank.
+ */
+async function refreshChannelInfo(channel: string) {
+  if (!channel || !state.account || channelInfoChecks.has(channel)) return
+  channelInfoChecks.add(channel)
+  const asked = state.account
+  try {
+    const info = await window.twichat.channelInfo(channel, roomIds.get(channel) ?? '')
+    // An answer that lands after the account changed was read with somebody else's token.
+    if (asked !== state.account) return
+    channelInfos.set(channel, info)
+    updateChannelIdentity()
+  } catch {
+    // A signed-out account, a token without the scope, an unreachable Twitch: the header keeps
+    // the channel and its audience. This line is a bonus, never a failure worth a message.
+  }
+  finally { channelInfoChecks.delete(channel) }
+}
+
+/**
+ * A tag in the header opens the directory on it. Twitch has no endpoint that searches streams by
+ * tag, so the filter can only sift the catalog already loaded: the empty state says so rather than
+ * letting a legitimate tag look like a broken filter.
+ */
+function browseTag(tag: string) {
+  setDiscoveryScope('top')
+  selectedCategories.clear()
+  selectedTags.clear(); selectedTags.set(tagKey(tag), tag)
+  openDiscover()
+}
+
 function updateConnection(status: Connection, detail: string) {
   state.status = status
   const dot = $('#connection-dot'); dot.className = `status-dot ${status}`
   $('#connection-label').textContent = status === 'connected' ? m.app.chatConnected : status === 'error' ? m.app.needsAttention : status === 'offline' ? m.app.offline : m.app.connecting
   $('#technical-status').innerHTML = m.app.technicalStatus(status === 'connected' ? 'IRC / TLS' : m.app.ircWaiting)
-  $('#channel-subtitle').textContent = detail
+  // The header says what the channel is, not who is signed in: the account is on its own button,
+  // the connection on its own dot. This line is left for the case where the chat is not there.
+  $('#channel-subtitle').textContent = status === 'connected' ? '' : detail
 }
 
 function handleEvents(events: ChatEvent[]) {
@@ -1626,6 +1882,11 @@ function updateAccount(login: string | null) {
   $('#auth-fields').hidden = !!login
   followStatuses.clear(); followRetryAt.clear(); roomBadges.clear()
   updateFollowGate()
+  // The header speaks of the account as well — a filled heart claims this account follows the
+  // channel — so signing in or out repaints it at once rather than at the next room opened.
+  if (changed) channelInfos.clear()
+  updateChannelIdentity()
+  if (login && currentView === 'room' && active) { void refreshChannelInfo(active); void refreshFollowStatus(active) }
   renderOwnChannel()
   if (login) { void refreshOwnProfile(); chatterAvatarRetryAt.clear(); queueRecentChatterAvatars(); for (const [room, roomId] of roomIds) void loadTwitchEmotes(room, roomId) }
 }
@@ -1803,7 +2064,7 @@ function setDetached(channel: string | null) {
   else if (detachedWanted) { detachedWanted = false; $<HTMLInputElement>('#detached-video').checked = false; save() }
   updatePlayer('stopped')
   // Coming back picks the picture up where the window left it, in the room now open.
-  if (wasPlaying && currentView === 'room' && !$('#room-body').classList.contains('chat-only')) {
+  if (wasPlaying && active && !$('#room-body').classList.contains('chat-only')) {
     void player.play(active, $<HTMLSelectElement>('#quality').value, playback().buffer)
   }
 }
@@ -1825,7 +2086,7 @@ async function detachVideo(play: boolean) {
 }
 /** Brings what is open in line with what the account chose, wherever the choice was made. */
 function applyDetachedChoice(play = currentPlayerState !== 'stopped') {
-  if (detachedWanted && !detachedChannel && active && currentView === 'room') void detachVideo(play)
+  if (detachedWanted && !detachedChannel && active) void detachVideo(play)
   else if (!detachedWanted && detachedChannel) void window.twichat.attachPlayer().catch(error => toast(displayError(error)))
 }
 /** The buttons and the settings switch set the same preference; only the way in differs. */
@@ -1909,7 +2170,7 @@ function syncDiscoveryLanguage() {
 }
 $('#discover-language').addEventListener('change', event => {
   discoveryLanguage = (event.target as HTMLSelectElement).value
-  selectedCategories.clear(); discoveredStreams = []; discoveryUpdatedAt = 0; updateDiscoveryFreshness()
+  selectedCategories.clear(); selectedTags.clear(); discoveredStreams = []; discoveryUpdatedAt = 0; updateDiscoveryFreshness()
   void loadDiscovery()
 })
 $('#discover-login').addEventListener('click', () => { if ($<HTMLButtonElement>('#discover-login').dataset.action === 'retry') void loadDiscovery(true); else openAccount() })
@@ -2011,7 +2272,7 @@ $('#auth-help').addEventListener('click', () => window.twichat.external('auth-do
 $('#resume').addEventListener('click', () => virtualLog.bottom())
 function openSettings() {
   if (!workspaceEntered) return
-  closeFloatingLayers(); player.stop(); virtualLog.setVisible(false); showView('settings'); renderRooms()
+  closeFloatingLayers(); virtualLog.setVisible(false); showView('settings'); renderRooms()
 }
 $('#open-settings').addEventListener('click', openSettings)
 // A release the user may want: the notice stays until it is acted on, and says what a click does.
@@ -2108,7 +2369,7 @@ $('#stop-stream').addEventListener('click', () => player.stop())
 $('#quality').addEventListener('change', () => {
   $<HTMLSelectElement>('#preferred-quality').value = $<HTMLSelectElement>('#quality').value
   applyPlayerMode(); save()
-  if (currentView === 'room' && !$('#room-body').classList.contains('chat-only') && currentPlayerState !== 'stopped') void player.play(active, $<HTMLSelectElement>('#quality').value, playback().buffer)
+  if (active && !$('#room-body').classList.contains('chat-only') && currentPlayerState !== 'stopped') void player.play(active, $<HTMLSelectElement>('#quality').value, playback().buffer)
 })
 // The same setting is made from both places: the player's picker stays the source, and the one in
 // Settings hands over to it rather than duplicating the store and the restart.
@@ -2117,8 +2378,6 @@ $('#preferred-quality').addEventListener('change', () => {
   dock.value = $<HTMLSelectElement>('#preferred-quality').value
   dock.dispatchEvent(new Event('change'))
 })
-// The Settings page is only reachable with the player stopped: buffering therefore applies as soon
-// as a room is opened again, with no running stream to restart.
 /**
  * Repaints everything the script draws itself: hydration only touches the shipped HTML, not the
  * rooms, the player, the explorer or the messages already rendered.
@@ -2134,7 +2393,7 @@ function repaintDynamic() {
   // `hydrate` has just put the shipped sentence back into the title bar note: it is rewritten here.
   updateTitlebarNote()
   renderUpdateNotice()
-  applyPlayerMode(); applySound(volume, muted); updatePlayer(currentPlayerState); updateCount(); updateModes(); updateRoomLive()
+  applyPlayerMode(); applySound(volume, muted); updatePlayer(currentPlayerState); updateCount(); updateModes(); updateRoomLive(); updateChannelIdentity()
   virtualLog.refresh()
   if (currentView === 'discover') { renderDiscoveryCategories(); renderDiscoveryResults() }
 }
@@ -2157,17 +2416,37 @@ for (const selector of ['#buffer', '#autoplay', '#notify-mentions', '#language',
   // The dormancy setting is read at each paint: the list follows the choice without waiting for the save.
   if (selector === '#hide-idle' || selector === '#idle-delay') renderRooms()
   if (selector === '#language') applyLanguageChoice()
-  // The player is stopped while the Settings page is open: its text must follow the choice made here.
+  // The placeholder announces what the next start will do: the choice made here must reach it.
   if (currentPlayerState === 'stopped') $('#video-description').innerHTML = idlePlayerDescription()
 })
 // A file dropped on an application window is inert; it must never navigate the renderer away from the app.
 window.addEventListener('dragover', event => event.preventDefault())
 window.addEventListener('drop', event => event.preventDefault())
+/** Whether the key press belongs to something being typed into: a field answers for its own keys. */
+function editing(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement
+    && (target.isContentEditable || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement)
+}
 window.addEventListener('keydown', event => {
   const command = commandKey()
   if (matches(event, SHORTCUTS.join, command)) { event.preventDefault(); void addRoom() }
   if (matches(event, SHORTCUTS.sidebar, command)) { event.preventDefault(); setSidebarCollapsed(!appRoot.classList.contains('sidebar-collapsed')) }
   if (matches(event, SHORTCUTS.chatOnly, command) && active) { event.preventDefault(); setChatOnly(!$('#room-body').classList.contains('chat-only')) }
+  // Inside a field the same chord moves the caret — to the start of the line on a Mac, one word
+  // over elsewhere. The field keeps it; only the page around it navigates.
+  if (!editing(event.target)) {
+    if (matches(event, SHORTCUTS.back, command)) { event.preventDefault(); goBack() }
+    if (matches(event, SHORTCUTS.forward, command)) { event.preventDefault(); goForward() }
+    // Alt and an arrow, the keyboard's back and forward on Windows and Linux. `matches` turns
+    // Alt down away, since no shortcut of the application is written with it.
+    if (event.altKey && !event.metaKey && !event.ctrlKey && !composing(event)) {
+      if (event.key === 'ArrowLeft') { event.preventDefault(); goBack() }
+      if (event.key === 'ArrowRight') { event.preventDefault(); goForward() }
+    }
+  }
+  // A keyboard with its own browser keys. They mean nothing else, in a field or out of one.
+  if (event.key === 'BrowserBack') { event.preventDefault(); goBack() }
+  if (event.key === 'BrowserForward') { event.preventDefault(); goForward() }
   if (event.key === 'Escape' && !composing(event)) {
     // Escape does not leave fullscreen on its own in this window: the key does reach the document,
     // but Chromium does not act on it. We hand control back ourselves.
@@ -2207,6 +2486,8 @@ window.twichat.init().then(snapshot => {
   // Before the first translation: every label the catalogs write with `⌘` is stamped for this
   // platform on its way into the document.
   setCommandKey(snapshot.commandKey)
+  // Where the window lays its own buttons over the title bar, ours start after them.
+  document.body.dataset.windowControls = snapshot.insetWindowControls ? 'inset' : 'framed'
   hydrate()
   syncDiscoveryLanguage()
   // A renderer reload keeps the IRC session alive, so the retained ROOMSTATE replaces the missing events.

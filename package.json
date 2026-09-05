@@ -1,6 +1,6 @@
 {
   "name": "twichat",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "homepage": "https://twichat.theslumdogemillionaire.com",
   "repository": {
     "type": "git",
@@ -41,6 +41,8 @@
     "test:locale": "npm run build && tsx scripts/locale-smoke.ts",
     "test:follow": "npm run build && tsx scripts/follow-gate-smoke.ts",
     "test:gif": "npm run build && tsx scripts/gif-smoke.ts",
+    "test:header": "npm run build && tsx scripts/header-smoke.ts",
+    "test:nav": "npm run build && tsx scripts/nav-smoke.ts",
     "palette": "node scripts/palette.mjs",
     "icons": "node scripts/icons.mjs",
     "postinstall": "node scripts/dev-app-name.mjs"

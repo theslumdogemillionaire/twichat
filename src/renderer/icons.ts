@@ -2,6 +2,8 @@ const paths: Record<string, string> = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   hash: '<path d="m10 3-4 18M18 3l-4 18M4 8h17M2 16h17"/>',
   arrow: '<path d="M5 12h14m-6-6 6 6-6 6"/>',
+  // The way back, mirroring `arrow`: the two sit side by side in the title bar.
+  arrowBack: '<path d="M19 12H5m6-6-6 6 6 6"/>',
   down: '<path d="M12 5v14m-6-6 6 6 6-6"/>',
   // The chevron points up: menus at the bottom of the sidebar open above their button.
   chevron: '<path d="m7 14 5-5 5 5"/>',
@@ -33,6 +35,8 @@ const paths: Record<string, string> = {
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18"/>',
   copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',
   heart: '<path d="M12 20s-7-4.4-9-8.5A5 5 0 0 1 12 6a5 5 0 0 1 9 5.5C19 15.6 12 20 12 20Z"/>',
+  // The same heart, filled: a channel the account already follows.
+  heartFull: '<path fill="currentColor" d="M12 20s-7-4.4-9-8.5A5 5 0 0 1 12 6a5 5 0 0 1 9 5.5C19 15.6 12 20 12 20Z"/>',
   verified: '<path d="M12 3l7 3v5.5c0 4.3-2.9 7.7-7 9-4.1-1.3-7-4.7-7-9V6Z"/><path d="m9 12 2 2 4-4"/>',
   exit: '<path d="M13 4H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h6"/><path d="M10 12h11m-4.5-4.5L21 12l-4.5 4.5"/>',
   check: '<path d="m5 13 4 4 10-10"/>',

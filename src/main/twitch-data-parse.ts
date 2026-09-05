@@ -152,3 +152,16 @@ export function parseFollowedAt(payload: unknown): string {
   const followedAt = cleanText(row?.followed_at, 40)
   return Number.isFinite(Date.parse(followedAt)) ? followedAt : ''
 }
+
+/**
+ * `helix/channels` answers for a channel whether or not it is live: it is the only source of the
+ * tags of an offline room. Twitch added the field after the endpoint shipped, so a payload without
+ * it costs the chips alone.
+ */
+export function channelTags(payload: unknown): string[] {
+  const rows = (payload as { data?: unknown } | null)?.data
+  const row = Array.isArray(rows) ? rows[0] as { tags?: unknown } : undefined
+  if (!Array.isArray(row?.tags)) return []
+  const tags = row.tags.map(tag => cleanText(tag, 40)).filter(Boolean)
+  return [...new Set(tags)].slice(0, 8)
+}

@@ -6,6 +6,11 @@
 
 **A room with the TV on.**
 
+[![Checks](https://img.shields.io/github/actions/workflow/status/theslumdogemillionaire/twichat/checks.yml?branch=main&label=checks)](https://github.com/theslumdogemillionaire/twichat/actions/workflows/checks.yml)
+[![Latest release](https://img.shields.io/github/v/release/theslumdogemillionaire/twichat?label=release)](https://github.com/theslumdogemillionaire/twichat/releases/latest)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)
+
 ![Twichat in dark mode](server/public/assets/app-chat.en.png)
 
 </div>
@@ -14,12 +19,12 @@ A desktop Twitch client where chat takes the window. Avatars, badges and emotes 
 
 ## Features
 
-- **Full-width chat**, with a floating video player you can show, hide or resize.
+- **Full-width chat**, with a floating video player you can show, hide or resize. It keeps playing while you browse the explorer or the settings.
 - **Detachable video**: move the player into its own window, resize it on the stream's own ratio, pin it above your other windows. It keeps following the room (same channel, same controls, same stops), and the choice is saved per account, in the settings or from the dock.
-- **Twitch, 7TV, BetterTTV and FFZ emotes** rendered natively in the chat.
+- **Twitch, 7TV, BetterTTV and FFZ emotes** rendered natively in the chat, with the GIFs of Twitch's GIPHY keyboard. Links in a message open in your browser, after a confirmation you can turn off.
 - Nested **reply threads** and highlighted **mentions**.
 - **Multiple accounts**: automatic reconnection to the last account used, or anonymous viewing.
-- **Live stats** (viewers, uptime) and an explorer for the channels you follow.
+- **Live stats** (viewers, uptime) and an explorer: the top of the directory or the channels you follow, filtered by category or by tag.
 - **Light and dark themes.**
 - **macOS, Windows and Linux** apps.
 
@@ -43,7 +48,7 @@ Windows updates itself: the NSIS installer electron-updater drives needs no sign
 downloads in the background and the line offers the restart that applies it. macOS and Linux are told
 rather than updated, and the line opens the release page instead. Squirrel.Mac verifies the code
 signature of what it downloads and these builds carry none; deb and rpm belong to the system's package
-manager. Signing the macOS build is what would close that half.
+manager.
 
 The tag and the `version` field of `package.json` have to match: that field is what the running app
 compares against the release. `scripts/release-gate.mjs` enforces it — it runs before anything is
@@ -102,6 +107,8 @@ npm run site:test:ui   # screenshot band, theme filtering, lightbox, keyboard an
 npm run test:locale    # system language, hydration, hot switch, per-account persistence
 npm run test:settings  # playback settings and per-account scoping
 npm run test:detach    # detached video window, reattaching, remembered size
+npm run test:nav       # the back/forward trail: pages visited, both dead ends, a channel left
+npm run test:header    # the room header: followers, tags, and what still fits at the narrowest width
 ```
 
 ## Icons and logo
@@ -121,19 +128,10 @@ Electron + Vite + TypeScript. The chat and the emote rendering are in-house; onl
 
 ## Status
 
-Alpha, and the word is meant literally: version 0.1.0, no release published yet, an interface
-still moving. Concretely, what has and has not been verified:
+Alpha, and the word is meant literally: an interface still moving.
 
-- **macOS on Apple Silicon** is where the app is built, packaged and driven by the smoke scripts.
-  That is the platform with evidence behind it.
-- **Windows and Linux** packages are built locally and by CI on a tag, but no tag has been cut
-  yet and nobody has installed one. Treat them as untested rather than broken.
-- **The macOS package is built universal**, so it carries both Apple Silicon and Intel. Only the
-  Apple Silicon half has been run.
-- **No release has been published**, so the update path itself — a version replacing the one
-  before it, and the data surviving it — has never been exercised end to end.
-- **Builds are unsigned.** macOS shows the unidentified-developer warning, Windows shows
-  SmartScreen. See Troubleshooting.
+The builds carry no signature, so macOS shows the unidentified-developer warning and Windows
+SmartScreen the first time. See Troubleshooting.
 
 ## Licences and privacy
 

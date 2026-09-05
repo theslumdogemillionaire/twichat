@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { combineHelix, followerTotal, helixUsersToProfiles, helixUserToCard, offlineFollowed, parseFollowedChannels, parsePublicProfile, safeThumbnail } from '../src/main/twitch-data-parse'
+import { channelTags, combineHelix, followerTotal, helixUsersToProfiles, helixUserToCard, offlineFollowed, parseFollowedChannels, parsePublicProfile, safeThumbnail } from '../src/main/twitch-data-parse'
 
 test('extracts a public Twitch avatar without exposing a third-party URL', () => {
   const profile = parsePublicProfile('Ponce', `
@@ -113,4 +113,17 @@ test('keeps offline only the followed channels missing from the live streams', (
     { channel: 'anaon', displayName: 'Anaon', avatarUrl: '', live: false },
     { channel: 'zibbi', displayName: 'Zibbi', avatarUrl: 'https://static-cdn.jtvnw.net/zibbi.png', live: false }
   ])
+})
+
+test('reads the tags of a channel, whether or not it is on air', () => {
+  assert.deepEqual(channelTags({ data: [{ broadcaster_id: '1', tags: ['Speedrun', 'Français'] }] }), ['Speedrun', 'Français'])
+  // The field was added to the endpoint after it shipped: without it the header drops the chips.
+  assert.deepEqual(channelTags({ data: [{ broadcaster_id: '1' }] }), [])
+  assert.deepEqual(channelTags({ data: [] }), [])
+  assert.deepEqual(channelTags(null), [])
+  // Whatever is not a usable tag is dropped rather than painted: control characters, doubles, and
+  // a list longer than the header could ever show.
+  assert.deepEqual(channelTags({ data: [{ tags: ['Chill\u0007', '', 42, 'Chill', null] }] }), ['Chill'])
+  assert.equal(channelTags({ data: [{ tags: Array.from({ length: 30 }, (_, index) => `tag${index}`) }] }).length, 8)
+  assert.equal(channelTags({ data: [{ tags: ['x'.repeat(80)] }] })[0].length, 40)
 })
