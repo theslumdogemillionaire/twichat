@@ -15,6 +15,10 @@ test('polls an offline live stream but not a stream nobody here may watch', () =
   // Reserved, or not served in this country: retrying changes neither of the two.
   assert.deepEqual(streamRetryPlan(new AppError('streamRestricted'), 0), { retry: false, state: 'error', delay: 0 })
   assert.deepEqual(streamRetryPlan(new AppError('streamGeoblocked'), 0), { retry: false, state: 'error', delay: 0 })
+  // A query Twitch refuses answers the same on every channel and on every attempt: retrying it
+  // is the shape the last outage took — a player reconnecting all evening over a dead schema.
+  assert.deepEqual(streamRetryPlan(new AppError('streamQueryRejected'), 0), { retry: false, state: 'error', delay: 0 })
+  assert.deepEqual(streamRetryPlan(new AppError('streamQueryRejected'), 9), { retry: false, state: 'error', delay: 0 })
 })
 
 test('balanced mode reproduces the original buffer of the player exactly', () => {

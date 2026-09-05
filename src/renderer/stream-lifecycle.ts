@@ -18,7 +18,9 @@ export const STREAM_STALL_TIMEOUT = 18_000
  */
 export function streamRetryPlan(reason: unknown, attempt: number): StreamRetryPlan {
   const key = errorKey(reason)
-  if (key === 'hlsUnsupported' || key === 'streamRestricted' || key === 'streamGeoblocked') return { retry: false, state: 'error', delay: 0 }
+  // A refused query answers the same on every channel and on every attempt: retrying it only
+  // buries the one message that says what to do about it.
+  if (key === 'hlsUnsupported' || key === 'streamRestricted' || key === 'streamGeoblocked' || key === 'streamQueryRejected') return { retry: false, state: 'error', delay: 0 }
   if (key === 'channelOffline' || key === 'streamEnded') return { retry: true, state: 'offline', delay: 15_000 }
   return { retry: true, state: 'reconnecting', delay: Math.min(30_000, 3_000 * 2 ** Math.min(3, Math.max(0, attempt))) }
 }

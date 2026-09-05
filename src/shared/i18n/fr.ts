@@ -50,6 +50,7 @@ export const fr: Messages = {
     streamRestricted: 'Ce flux est réservé, aux abonnés de la chaîne par exemple.',
     streamGeoblocked: 'Ce flux n’est pas disponible depuis votre pays.',
     streamUnreadable: 'Twitch n’a pas fourni de flux lisible. Réessayez ou ouvrez la chaîne sur Twitch.',
+    streamQueryRejected: 'Twitch a refusé la demande de lecture, sur cette chaîne comme sur toutes les autres. Twichat doit être mis à jour pour suivre leur lecteur.',
     streamResolverInvalid: 'Le résolveur n’a pas renvoyé un flux Twitch valide.',
     streamUnavailable: 'Flux indisponible.',
     hlsUnsupported: 'Ce système ne prend pas en charge le lecteur HLS.',

@@ -369,7 +369,9 @@ function adoptScope({ scope, preferences: next, locale }: ScopedPreferences) {
 
   state.scope = scope
   state.preferences = next
-  if (locale !== undefined) { setLocale(locale); hydrate(); syncDiscoveryLanguage() }
+  // The account switch rehydrates the document, which puts the shipped "guest" wording back over
+  // the account button and the sign-in dialog: the account is written again, in the new language.
+  if (locale !== undefined) { setLocale(locale); hydrate(); paintAccountLabels(state.account); syncDiscoveryLanguage() }
   active = next.active
   applyTheme(next.theme)
   paintPreferenceControls(next)
@@ -1526,6 +1528,17 @@ function disarmForget() {
   forgetArmed = null
   $('#account-menu-forget-label').textContent = m.ui.accountMenu.forget
 }
+/**
+ * The four sentences the account writes over the shipped HTML. They are kept apart because
+ * `hydrate` paints those same elements from their `data-i18n` key — the guest wording — so
+ * everything that rehydrates the document has to write the account back afterwards.
+ */
+function paintAccountLabels(login: string | null) {
+  $('#account-name').textContent = login ? login : m.app.guest
+  $('#account-description').textContent = login ? m.app.twitchAccountConnected : m.app.readOnly
+  $('#auth-title').textContent = login ? m.app.connectedAsDot(login) : m.app.joinTheChat
+  $('#auth-copy').textContent = login ? m.app.accountEncrypted : m.app.authorizeInBrowser
+}
 function updateAccount(login: string | null) {
   const changed = state.account !== login
   state.account = login
@@ -1552,14 +1565,11 @@ function updateAccount(login: string | null) {
       accountAvatar.replaceChildren(image)
     }).catch(error => console.warn('Unable to load the Twitch account avatar:', displayError(error)))
   }
-  $('#account-name').textContent = login ? login : m.app.guest
-  $('#account-description').textContent = login ? m.app.twitchAccountConnected : m.app.readOnly
+  paintAccountLabels(login)
   composer.setRoom(active)
   composer.setAccount(login)
   $('#composer-login').hidden = !!login
   $('#composer-hint').hidden = !login
-  $('#auth-title').textContent = login ? m.app.connectedAsDot(login) : m.app.joinTheChat
-  $('#auth-copy').textContent = login ? m.app.accountEncrypted : m.app.authorizeInBrowser
   $('#auth-fields').hidden = !!login
   followStatuses.clear(); followRetryAt.clear(); roomBadges.clear()
   updateFollowGate()

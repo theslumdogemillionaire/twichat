@@ -59,6 +59,7 @@ export const en = {
     streamRestricted: 'This stream is reserved, for subscribers of the channel for instance.',
     streamGeoblocked: 'This stream is not available from your country.',
     streamUnreadable: 'Twitch did not return a playable stream. Try again or open the channel on Twitch.',
+    streamQueryRejected: 'Twitch refused the playback request, on this channel and on every other. Twichat has to be updated to match their player.',
     streamResolverInvalid: 'The resolver did not return a valid Twitch stream.',
     streamUnavailable: 'Stream unavailable.',
     hlsUnsupported: 'This system does not support the HLS player.',

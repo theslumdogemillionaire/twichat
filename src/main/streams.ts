@@ -10,11 +10,22 @@ type Fetch = (url: string, init?: RequestInit) => Promise<Response>
  */
 const WEB_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko'
 /**
- * The persisted query the web player uses to ask for a playback token, and the fragile part of
- * this file: Twitch can change it whenever they ship their client, and nothing announces it.
- * A playback that suddenly finds no token on every channel at once points here first.
+ * The query that asks for a playback token, written out rather than named by a hash.
+ *
+ * The web player sends this operation as a persisted query — a sha256 of the text, registered
+ * server-side — and that hash is rotated whenever Twitch ships their client, without notice.
+ * One such rotation answers `PersistedQueryNotFound` to every channel at once, and it answers
+ * it with an HTTP 200, so nothing on the status line says anything is wrong. Sending the text
+ * asks for the same operation with nothing to rotate.
+ *
+ * This is still the fragile part of the file: what can now break is the query itself — a field
+ * renamed, or a different shape expected under `params`. A playback that finds no token on every
+ * channel at once points here first, and `streamQueryRejected` is what says so.
  */
-const PLAYBACK_ACCESS_TOKEN = '0828119ded1c13477966434e15800ff57ddacf13ba1911c129dc2200705b0712'
+const PLAYBACK_ACCESS_TOKEN_QUERY = `query PlaybackAccessToken($login: String!, $isLive: Boolean!, $vodID: ID!, $isVod: Boolean!, $playerType: String!) {
+  streamPlaybackAccessToken(channelName: $login, params: {platform: "web", playerBackend: "mediaplayer", playerType: $playerType}) @include(if: $isLive) { value signature }
+  videoPlaybackAccessToken(id: $vodID, params: {platform: "web", playerBackend: "mediaplayer", playerType: $playerType}) @include(if: $isVod) { value signature }
+}`
 const GQL_ENDPOINT = 'https://gql.twitch.tv/gql'
 const TIMEOUT = 15_000
 
@@ -188,9 +199,16 @@ export class StreamResolver {
     // a second attempt without it then gets the same public playlist as before, so signing in can
     // only ever add to what plays, never take it away.
     const account = this.accountToken()
-    let token = await this.requestPlaybackToken(channel, account, signal)
-    if (!token && account) token = await this.requestPlaybackToken(channel, null, signal)
-    if (!token) fail('streamUnreadable')
+    let attempt = await this.requestPlaybackToken(channel, account, signal)
+    if (!attempt.token && account) attempt = await this.requestPlaybackToken(channel, null, signal)
+    // A GraphQL error on an attempt carrying no account is not about who is asking: it is the
+    // query above being refused, on this channel and on every other. Naming it keeps a rotated
+    // schema from spending the evening looking like a stream Twitch merely failed to serve.
+    if (!attempt.token && attempt.rejected) fail('streamQueryRejected')
+    const token = attempt.token
+    // A query answered without complaint, and with no token in it, is Twitch saying it has no
+    // stream under that name — the same thing usher's 404 below says, and named the same way.
+    if (!token) fail('channelOffline')
     // The token says what the playlist would only answer with a bare 403: a stream kept for
     // subscribers, or one this country is not served.
     let claims: Record<string, unknown> = {}
@@ -215,14 +233,24 @@ export class StreamResolver {
         // Nothing here relaxes what Twitch allows. The claims below are read from the token it
         // signs, so a subscriber-only stream and a geoblocked one are refused exactly as before.
         variables: { isLive: true, login: channel, isVod: false, vodID: '', playerType: 'embed' },
-        extensions: { persistedQuery: { version: 1, sha256Hash: PLAYBACK_ACCESS_TOKEN } }
+        query: PLAYBACK_ACCESS_TOKEN_QUERY
       }),
       signal
     })
-    if (!response.ok) return null
-    const body = await response.json().catch(() => ({})) as { data?: { streamPlaybackAccessToken?: { value?: unknown; signature?: unknown } } }
+    if (!response.ok) return { token: null }
+    const body = await response.json().catch(() => ({})) as {
+      data?: { streamPlaybackAccessToken?: { value?: unknown; signature?: unknown } }
+      errors?: { message?: unknown }[]
+    }
     const token = body.data?.streamPlaybackAccessToken
-    return typeof token?.value === 'string' && typeof token.signature === 'string' ? { value: token.value, signature: token.signature } : null
+    if (typeof token?.value === 'string' && typeof token.signature === 'string') {
+      return { token: { value: token.value, signature: token.signature } }
+    }
+    // GraphQL reports a refused query inside a 200, so the status line above sees nothing. Said
+    // once here, the reason is in the log rather than only in the shape of what did not arrive.
+    const rejected = body.errors?.length ? String(body.errors[0]?.message ?? 'unknown error') : null
+    if (rejected && !account) console.warn('Twitch refused the playback token query:', rejected)
+    return { token: null, rejected: Boolean(rejected) }
   }
 
   private async masterPlaylist(channel: string, access: { value: string; signature: string }, signal: AbortSignal) {

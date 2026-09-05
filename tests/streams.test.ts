@@ -117,3 +117,54 @@ test('a playback replaced by another is cancelled, not answered late', async () 
   context.resolver.stop()
   await assert.rejects(abandoned, error => errorKey(error) === 'streamCancelled')
 })
+
+test('the playback token is asked for by query text, never by a persisted hash', async () => {
+  const bodies: string[] = []
+  const resolver = new StreamResolver(async (url, init) => {
+    if (url.startsWith('https://gql.twitch.tv/')) {
+      bodies.push(String(init?.body))
+      return Response.json({ data: { streamPlaybackAccessToken: { value: '{"channel":"alice"}', signature: 'signature' } } })
+    }
+    return new Response(await fixture('zerator'))
+  })
+  await resolver.resolve('zerator', 'best')
+  const body = JSON.parse(bodies[0]) as { query?: string; extensions?: unknown }
+  // A hash is registered server-side and rotated without notice; the text is not.
+  assert.equal(body.extensions, undefined)
+  assert.match(String(body.query), /streamPlaybackAccessToken\(channelName: \$login/)
+})
+
+test('a query Twitch refuses is named as such, not as an unreadable stream', async () => {
+  // What the rotation of a persisted hash looks like on the wire: an error, inside a 200.
+  const calls: string[] = []
+  const resolver = new StreamResolver(async url => {
+    calls.push(url)
+    return Response.json({ errors: [{ message: 'PersistedQueryNotFound' }] })
+  })
+  await assert.rejects(resolver.resolve('alice', 'best'), error => errorKey(error) === 'streamQueryRejected')
+  // The playlist is never asked for, and the refusal is not retried without the account.
+  assert.equal(calls.length, 1)
+})
+
+test('an account Twitch refuses falls back to the anonymous request', async () => {
+  const authorized: (string | undefined)[] = []
+  const resolver = new StreamResolver(async (url, init) => {
+    if (url.startsWith('https://gql.twitch.tv/')) {
+      const header = (init?.headers as Record<string, string> | undefined)?.Authorization
+      authorized.push(header)
+      if (header) return Response.json({ errors: [{ message: 'service error' }] })
+      return Response.json({ data: { streamPlaybackAccessToken: { value: '{"channel":"alice"}', signature: 'signature' } } })
+    }
+    return new Response(await fixture('zerator'))
+  }, () => 'account-token')
+  // Signing in may only ever add to what plays: a refused account still gets the public stream.
+  assert.match(await resolver.resolve('zerator', 'best'), /^twitch-media:/)
+  assert.deepEqual(authorized, ['OAuth account-token', undefined])
+})
+
+test('a name Twitch has no stream for is offline, not unreadable', async () => {
+  // Twitch answers a channel that does not exist with a null token and no error at all, where a
+  // channel that merely stopped streaming still gets one and is turned away by usher.
+  const resolver = new StreamResolver(async () => Response.json({ data: { streamPlaybackAccessToken: null } }))
+  await assert.rejects(resolver.resolve('nobody', 'best'), error => errorKey(error) === 'channelOffline')
+})
