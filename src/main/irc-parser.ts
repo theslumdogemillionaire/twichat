@@ -1,4 +1,5 @@
 import type { ReplyReference } from '../shared/types'
+import { formatGifs, parseGifs } from '../shared/gifs'
 import { m, numbers } from '../shared/i18n'
 import { fail } from '../shared/errors'
 
@@ -107,14 +108,22 @@ function shiftEmotes(tag: string, shift: number) {
   return groups.join('/')
 }
 
+/** The same shift on a `gifs` tag, entry by entry; the address is carried over untouched. */
+function shiftGifs(tag: string, shift: number) {
+  if (!tag || shift <= 0) return tag
+  return formatGifs(parseGifs(tag)
+    .filter(entry => entry.start >= shift)
+    .map(entry => ({ ...entry, start: entry.start - shift, end: entry.end - shift })))
+}
+
 /**
- * Twitch prefixes a reply body with `@ParentName ` and counts the emote offsets against that
- * prefixed body. The quote makes the mention redundant: it is stripped and the offsets shift.
+ * Twitch prefixes a reply body with `@ParentName ` and counts the emote and GIF offsets against
+ * that prefixed body. The quote makes the mention redundant: it is stripped and the offsets shift.
  */
-export function stripReplyMention(text: string, emotes: string, ...names: string[]) {
+export function stripReplyMention(text: string, emotes: string, gifs: string, ...names: string[]) {
   const shift = mentionPrefix(text, ...names)
-  if (!shift) return { text, emotes }
-  return { text: Array.from(text).slice(shift).join(''), emotes: shiftEmotes(emotes, shift) }
+  if (!shift) return { text, emotes, gifs }
+  return { text: Array.from(text).slice(shift).join(''), emotes: shiftEmotes(emotes, shift), gifs: shiftGifs(gifs, shift) }
 }
 
 /**

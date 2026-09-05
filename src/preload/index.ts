@@ -74,6 +74,7 @@ const api: TwichatAPI = {
     return () => ipcRenderer.removeListener('app:player-volume', listener)
   },
   external: (target, channel) => invoke('app:external', target, channel),
+  openLink: url => invoke('app:open-link', url),
   copy: text => invoke('app:copy', text),
   notifyMention: mention => invoke('app:notify-mention', mention),
   applyUpdate: () => invoke('app:apply-update'),

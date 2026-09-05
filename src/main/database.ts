@@ -79,7 +79,15 @@ const REVISIONS = [
   // Pinned, the video window stays above the others — a choice made once, not at every launch.
   `ALTER TABLE scopes ADD COLUMN player_window_pinned INTEGER NOT NULL DEFAULT 0`,
   // Where the video plays is a choice one makes once: the next launch reopens the window.
-  `ALTER TABLE scopes ADD COLUMN video_detached INTEGER NOT NULL DEFAULT 0`
+  `ALTER TABLE scopes ADD COLUMN video_detached INTEGER NOT NULL DEFAULT 0`,
+  // The addresses in a message become links. On by default: that is how they already read.
+  `ALTER TABLE scopes ADD COLUMN chat_links INTEGER NOT NULL DEFAULT 1`,
+  // A link written by a stranger is shown before it is opened. The dialog turns itself off,
+  // so the column carries what was chosen there as much as what was chosen in the settings.
+  `ALTER TABLE scopes ADD COLUMN chat_link_confirm INTEGER NOT NULL DEFAULT 1`,
+  // The GIFs of Twitch's GIPHY keyboard are shown as images. On by default: that is how the
+  // message reads on Twitch, and the title it carries stays there for whoever turns them off.
+  `ALTER TABLE scopes ADD COLUMN chat_gifs INTEGER NOT NULL DEFAULT 1`
 ]
 
 /**

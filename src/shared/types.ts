@@ -32,6 +32,8 @@ export interface ChatMessage {
   /** The `msg-id` of a Twitch NOTICE. Stable where its text is translated and reworded. */
   notice?: string
   emotes?: string
+  /** The `gifs` tag as Twitch sent it: `<start>-<end>|<id>|<url>`, one entry per GIPHY image. */
+  gifs?: string
   reply?: ReplyReference
 }
 export type ChatEvent =
@@ -72,6 +74,15 @@ export interface NotificationPreferences {
   /** System notification when you are mentioned, window in the background. The list counter does not depend on this choice. */
   mentions: boolean
 }
+/** How the chat itself reads. */
+export interface ChatPreferences {
+  /** Turns the addresses in a message into links opening in the browser. When false, they stay plain text. */
+  links: boolean
+  /** Shows the address and asks before leaving for the browser. Turned off from the dialog itself, or here. */
+  confirm: boolean
+  /** Shows the GIFs sent from Twitch's GIPHY keyboard. When false, the title Twitch wrote in the body stays. */
+  gifs: boolean
+}
 /** The sizes set by hand: they follow the account from one room to the next and from one session to the next. */
 export interface LayoutPreferences {
   /** Width of the video dock, in pixels. `0` leaves the default width, computed from the window. */
@@ -90,7 +101,7 @@ export interface Preferences {
   channels: string[]; active: string; quality: string; theme: Theme; layout: LayoutPreferences
   /** The interface language. When empty, it follows the system's. */
   language: string
-  playback: PlaybackPreferences; notifications: NotificationPreferences; window?: WindowBounds
+  playback: PlaybackPreferences; notifications: NotificationPreferences; chat: ChatPreferences; window?: WindowBounds
   /** The geometry and the pinning of the detached video window, once it has been opened at least once. */
   playerWindow?: PlayerWindowState
 }
@@ -278,6 +289,8 @@ export interface TwichatAPI {
   /** Redates the rooms that have just come alive: a live stream starting, a message arriving. */
   markChannelActivity(channels: string[]): Promise<void>
   external(target: 'twitch' | 'auth-docs', channel?: string): Promise<void>
+  /** Opens a link read in a message. The main process checks it again: only HTTP and HTTPS leave the application. */
+  openLink(url: string): Promise<void>
   copy(text: string): Promise<void>
   /** A mention received. The main process stays the only judge of whether it becomes a system notification. */
   notifyMention(mention: MentionNotice): Promise<void>

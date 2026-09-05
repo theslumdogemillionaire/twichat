@@ -1,8 +1,12 @@
 import type { ChatMessage } from '../shared/types'
 
 export const FOLLOW_THRESHOLD = 60
-export function pinnedAfterScroll(previous: boolean, distanceFromBottom: number, userInitiated: boolean) {
-  return distanceFromBottom < FOLLOW_THRESHOLD || (previous && !userInitiated)
+const AT_BOTTOM = 2
+/** A deliberate scroll up releases the log straight away; only coming back down re-follows. */
+export function pinnedAfterScroll(previous: boolean, distanceFromBottom: number, userInitiated: boolean, scrolledUp = false) {
+  if (!userInitiated) return previous || distanceFromBottom < FOLLOW_THRESHOLD
+  if (scrolledUp) return distanceFromBottom < AT_BOTTOM
+  return distanceFromBottom < FOLLOW_THRESHOLD
 }
 
 /** Variable-height windowing. Only viewport + 300px overscan exists in the DOM. */
@@ -10,6 +14,8 @@ export class VirtualLog {
   private items: ChatMessage[] = []
   private heights = new Map<string, number>()
   private rows = new Map<string, HTMLElement>()
+  private offsets = new Map<string, number>()
+  private lastScrollTop = 0
   private frame = 0
   private pinned = true
   private observer: ResizeObserver
@@ -45,8 +51,10 @@ export class VirtualLog {
     })
     viewport.addEventListener('scroll', () => {
       const distance = Math.max(0, viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight)
+      const scrolledUp = viewport.scrollTop < this.lastScrollTop
+      this.lastScrollTop = viewport.scrollTop
       const userInitiated = this.pointerScrolling || performance.now() < this.userScrollUntil
-      this.pinned = pinnedAfterScroll(this.pinned, distance, userInitiated)
+      this.pinned = pinnedAfterScroll(this.pinned, distance, userInitiated, scrolledUp)
       this.onPinned(this.pinned)
       this.schedule()
     }, { passive: true })
@@ -81,7 +89,7 @@ export class VirtualLog {
     if (anchor) {
       let top = 0
       for (const message of this.items) {
-        if (message.id === anchor.id) { this.viewport.scrollTop = top + anchor.offset; break }
+        if (message.id === anchor.id) { this.moveTo(top + anchor.offset); break }
         top += this.heights.get(message.id) ?? 64
       }
       this.schedule()
@@ -96,7 +104,7 @@ export class VirtualLog {
         this.pinned = false
         this.onPinned(false)
         const height = this.heights.get(id) ?? 64
-        this.viewport.scrollTop = Math.max(0, top - Math.max(0, (this.viewport.clientHeight - height) / 2))
+        this.moveTo(Math.max(0, top - Math.max(0, (this.viewport.clientHeight - height) / 2)))
         this.render()
         return true
       }
@@ -109,14 +117,35 @@ export class VirtualLog {
     this.rows.clear()
     this.render()
   }
+  /** Each move of our own becomes the new reference, so it never reads back as a user scroll. */
+  private moveTo(top: number) { this.viewport.scrollTop = top; this.lastScrollTop = this.viewport.scrollTop }
+  /** The row sitting under the top edge, taken from the layout currently on screen. */
+  private anchor() {
+    let found: { id: string; top: number } | undefined
+    for (const message of this.items) {
+      const top = this.offsets.get(message.id)
+      if (top === undefined) continue
+      if (top > this.viewport.scrollTop) break
+      found = { id: message.id, top }
+    }
+    return found
+  }
   private schedule() { if (this.visible && !this.frame) this.frame = requestAnimationFrame(() => { this.frame = 0; this.render() }) }
   private render() {
     if (!this.visible) return
+    const anchor = this.pinned ? undefined : this.anchor()
     const positions: number[] = []
+    const offsets = new Map<string, number>()
     let total = 0
-    for (const message of this.items) { positions.push(total); total += this.heights.get(message.id) ?? 64 }
+    for (const message of this.items) { positions.push(total); offsets.set(message.id, total); total += this.heights.get(message.id) ?? 64 }
     this.space.style.height = `${total}px`
-    if (this.pinned) this.viewport.scrollTop = this.viewport.scrollHeight
+    this.offsets = offsets
+    if (this.pinned) this.moveTo(this.viewport.scrollHeight)
+    else if (anchor) {
+      // Measuring a row corrects its height; move with it so the reader's place holds still.
+      const moved = offsets.get(anchor.id)
+      if (moved !== undefined && moved !== anchor.top) this.moveTo(Math.max(0, this.viewport.scrollTop + moved - anchor.top))
+    }
     const top = this.viewport.scrollTop - 300
     const bottom = this.viewport.scrollTop + this.viewport.clientHeight + 300
     const visible = new Set<string>()

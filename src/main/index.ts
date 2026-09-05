@@ -650,6 +650,20 @@ app.whenReady().then(async () => {
     if (!Object.hasOwn(urls, target)) fail('linkForbidden')
     return shell.openExternal(urls[target])
   })
+  /**
+   * A link read in a message. Unlike the list above, the address is written by a stranger, so it
+   * is checked here as well as in the window: only HTTP and HTTPS reach the browser, and never
+   * a `javascript:`, a `file:` or an application scheme that would run something on the machine.
+   */
+  handle('app:open-link', (input: unknown) => {
+    if (typeof input !== 'string' || input.length > 2048) fail('linkForbidden')
+    let url: URL
+    try { url = new URL(input) } catch { return fail('linkForbidden') }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') fail('linkForbidden')
+    // A login written into the address is the oldest way of passing one host off as another.
+    if (url.username || url.password) fail('linkForbidden')
+    return shell.openExternal(url.href)
+  })
 
   // A desktop app offers a context menu only where something can be edited or copied; inert chrome keeps its own menus.
   function popupContextMenu(target: BrowserWindow, params: Electron.ContextMenuParams) {

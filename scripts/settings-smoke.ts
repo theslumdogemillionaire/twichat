@@ -51,6 +51,9 @@ try {
   await window.locator('#buffer').selectOption('comfort')
   await window.locator('#autoplay').uncheck()
   await window.locator('#notify-mentions').uncheck()
+  await window.locator('#chat-links').uncheck()
+  await window.locator('#chat-link-confirm').uncheck()
+  await window.locator('#chat-gifs').uncheck()
   // The preferences write is deferred by 180 ms on the renderer side.
   await window.waitForTimeout(600)
 } finally { await first.close() }
@@ -59,6 +62,9 @@ const saved = stored(ANONYMOUS)
 if (saved.row?.buffer !== 'comfort' || saved.row?.autoplay !== 0) throw new Error(`Playback not saved: ${JSON.stringify(saved.row)}`)
 if (saved.row?.quality !== '720p60,720p,best') throw new Error(`Video quality not saved: ${JSON.stringify(saved.row?.quality)}`)
 if (saved.row?.notify_mentions !== 0) throw new Error(`Notifications not saved: ${JSON.stringify(saved.row)}`)
+if (saved.row?.chat_links !== 0) throw new Error(`Clickable links not saved: ${JSON.stringify(saved.row)}`)
+if (saved.row?.chat_link_confirm !== 0) throw new Error(`Link confirmation not saved: ${JSON.stringify(saved.row)}`)
+if (saved.row?.chat_gifs !== 0) throw new Error(`Chat GIFs not saved: ${JSON.stringify(saved.row)}`)
 // The flat file is carried over: with no account stored on the device, it lands on the accountless session.
 if (saved.row?.theme !== 'dark') throw new Error(`The theme from the carried-over file is lost: ${JSON.stringify(saved.row?.theme)}`)
 if (saved.channels.join() !== 'mistermv,twitch') throw new Error(`Carried-over then joined rooms wrong: ${JSON.stringify(saved.channels)}`)
@@ -98,9 +104,12 @@ try {
     quality: document.querySelector<HTMLSelectElement>('#preferred-quality')?.value,
     dockQuality: document.querySelector<HTMLSelectElement>('#quality')?.value,
     autoplay: document.querySelector<HTMLInputElement>('#autoplay')?.checked,
-    mentions: document.querySelector<HTMLInputElement>('#notify-mentions')?.checked
+    mentions: document.querySelector<HTMLInputElement>('#notify-mentions')?.checked,
+    links: document.querySelector<HTMLInputElement>('#chat-links')?.checked,
+    linkConfirm: document.querySelector<HTMLInputElement>('#chat-link-confirm')?.checked,
+    gifs: document.querySelector<HTMLInputElement>('#chat-gifs')?.checked
   }))
-  if (controls.buffer !== 'comfort' || controls.autoplay !== false || controls.mentions !== false) {
+  if (controls.buffer !== 'comfort' || controls.autoplay !== false || controls.mentions !== false || controls.links !== false || controls.linkConfirm !== false || controls.gifs !== false) {
     throw new Error(`The controls do not pick up the settings: ${JSON.stringify(controls)}`)
   }
   // The quality picked in Settings is the same one the player holds: a single setting, two places.
@@ -145,4 +154,4 @@ if (onTheWayOut.row?.autoplay !== 1) {
   throw new Error(`The setting changed just before closing was lost: ${JSON.stringify(onTheWayOut.row?.autoplay)}`)
 }
 
-console.log('Video quality, buffering, autoplay, notifications, flat-file carry-over, per-account scoping and the last change before closing verified.')
+console.log('Video quality, buffering, autoplay, notifications, clickable links and their confirmation, flat-file carry-over, per-account scoping and the last change before closing verified.')

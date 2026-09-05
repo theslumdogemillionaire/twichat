@@ -1,6 +1,6 @@
 import '@fontsource-variable/atkinson-hyperlegible-next'
 import './style.css'
-import type { BufferMode, ChatEvent, ChatMessage, Connection, FollowStatus, LayoutPreferences, NotificationPreferences, PlaybackPreferences, Preferences, RoomProfile, ScopedPreferences, Snapshot, StreamSummary, ThirdPartyEmote, TwitchEmote, UpdateNotice, UserCard } from '../shared/types'
+import type { BufferMode, ChatEvent, ChatMessage, ChatPreferences, Connection, FollowStatus, LayoutPreferences, NotificationPreferences, PlaybackPreferences, Preferences, RoomProfile, ScopedPreferences, Snapshot, StreamSummary, ThirdPartyEmote, TwitchEmote, UpdateNotice, UserCard } from '../shared/types'
 import { bufferMode, idleChannelHours } from '../shared/validation'
 import { hydrateIcons, icon } from './icons'
 import { ChatStore } from './chat-store'
@@ -11,6 +11,7 @@ import { liveUptime } from './live-stats'
 import { idleChannels } from './idle-channels'
 import { createComposer } from './composer'
 import { isMention, mentionSegments, resetMentionCache } from './mentions'
+import { linkSegments } from './links'
 import { exemptFromFollowersOnly, followNotice, followersOnlyMinutes } from './follow-gate'
 import { setupTheme, currentTheme, applyTheme } from './theme'
 import { hydrate } from './hydrate'
@@ -153,6 +154,17 @@ let detachedChannel = ''
 let detachedWanted = false
 // A session going away closes the window without the account changing its mind.
 let closingSession = false
+// Whether the addresses in a message read as links. Held here rather than read from the checkbox:
+// every row painted asks the question, and the virtualised log paints them by the hundred.
+let chatLinks = true
+// Whether leaving for the browser goes through the confirmation dialog. Two controls write it:
+// the switch in the settings, and the "stop asking" of the dialog itself.
+let chatLinkConfirm = true
+// Whether the GIFs of Twitch's GIPHY keyboard are shown as images. Held here for the same
+// reason as the links: every row painted asks the question.
+let chatGifs = true
+// The address the dialog is asking about. Emptied on every way out, so nothing older can be opened.
+let pendingLink = ''
 // The player volume: the native video controls being hidden, it lives here and follows the account.
 let volume = 1
 let muted = false
@@ -163,6 +175,7 @@ const appRoot = $('#app')
 const sessionGate = $('#session-gate')
 const joinDialog = $<HTMLDialogElement>('#join-dialog')
 const accountDialog = $<HTMLDialogElement>('#account-dialog')
+const linkDialog = $<HTMLDialogElement>('#link-dialog')
 const chatLog = $('#chat-log')
 const space = $('#virtual-space')
 const video = $<HTMLVideoElement>('#video')
@@ -328,6 +341,9 @@ function playback(): PlaybackPreferences {
 function notifications(): NotificationPreferences {
   return { mentions: $<HTMLInputElement>('#notify-mentions').checked }
 }
+function chat(): ChatPreferences {
+  return { links: chatLinks, confirm: chatLinkConfirm, gifs: chatGifs }
+}
 /** The controls that carry a preference: they repaint on opening as on every account switch. */
 function paintPreferenceControls(source: Preferences) {
   $<HTMLSelectElement>('#language').value = source.language
@@ -338,6 +354,12 @@ function paintPreferenceControls(source: Preferences) {
   detachedWanted = source.playback.detached
   $<HTMLInputElement>('#detached-video').checked = detachedWanted
   $<HTMLInputElement>('#notify-mentions').checked = source.notifications.mentions
+  chatLinks = source.chat.links
+  $<HTMLInputElement>('#chat-links').checked = chatLinks
+  chatLinkConfirm = source.chat.confirm
+  $<HTMLInputElement>('#chat-link-confirm').checked = chatLinkConfirm
+  chatGifs = source.chat.gifs
+  $<HTMLInputElement>('#chat-gifs').checked = chatGifs
   $<HTMLInputElement>('#hide-idle').checked = source.layout.hideIdleChannels
   $<HTMLSelectElement>('#idle-delay').value = String(source.layout.idleChannelHours)
   applySound(source.playback.volume, source.playback.muted)
@@ -354,6 +376,8 @@ function adoptScope({ scope, preferences: next, locale }: ScopedPreferences) {
   player.stop()
   if (detachedChannel) { closingSession = true; void window.twichat.attachPlayer().catch(() => { closingSession = false }) }
   closeFloatingLayers()
+  // The link waiting for an answer belongs to the chat of the account being left behind.
+  if (linkDialog.open) linkDialog.close()
   for (const channel of previous) if (!next.channels.includes(channel)) void window.twichat.part(channel).catch(() => {})
   store.reset(); unread.clear(); mentions.clear()
   roomModes.clear(); roomProfiles.clear(); roomIds.clear(); roomBadges.clear()
@@ -395,7 +419,7 @@ function preferences(): Preferences {
       playerWidth, sidebarCollapsed: appRoot.classList.contains('sidebar-collapsed'),
       hideIdleChannels: idle.enabled, idleChannelHours: idle.hours
     },
-    playback: playback(), notifications: notifications()
+    playback: playback(), notifications: notifications(), chat: chat()
   }
 }
 function save() {
@@ -1357,15 +1381,44 @@ function createMessage(message: ChatMessage) {
   for (const badgeName of message.badges.slice(0, 2)) { const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = badgeName; meta.append(badge) }
   const time = document.createElement('time'); time.className = 'message-time'; time.dateTime = new Date(message.time).toISOString(); time.textContent = clock.format(message.time); meta.append(time)
   const text = document.createElement('p'); text.className = 'message-text'
-  for (const fragment of messageFragments(message.text, message.emotes, thirdPartyEmotes.get(message.channel), message.own ? twitchEmoteIds.get(message.channel) : undefined)) {
+  // A reply to one of your own messages is a mention with no nickname in the text: nothing to underline.
+  const appendText = (value: string) => {
+    if (!mention) { text.append(document.createTextNode(value)); return }
+    for (const segment of mentionSegments(value, state.account, accountDisplayName)) {
+      if (!segment.mention) { text.append(document.createTextNode(segment.text)); continue }
+      const marked = document.createElement('b'); marked.className = 'message-mention'; marked.textContent = segment.text
+      text.append(marked)
+    }
+  }
+  // The `gifs` tag is only handed over when the setting allows it: withheld, the title Twitch
+  // wrote in the body — `[… GIF by …]` — stays where the image would have been.
+  for (const fragment of messageFragments(message.text, message.emotes, thirdPartyEmotes.get(message.channel), message.own ? twitchEmoteIds.get(message.channel) : undefined, chatGifs ? message.gifs : '')) {
     if (fragment.type === 'text') {
-      if (!mention) { text.append(document.createTextNode(fragment.text)); continue }
-      // A reply to one of your own messages is a mention with no nickname in the text: nothing to underline.
-      for (const segment of mentionSegments(fragment.text, state.account, accountDisplayName)) {
-        if (!segment.mention) { text.append(document.createTextNode(segment.text)); continue }
-        const marked = document.createElement('b'); marked.className = 'message-mention'; marked.textContent = segment.text
-        text.append(marked)
+      if (!chatLinks) { appendText(fragment.text); continue }
+      // The links are cut out first: a nickname underlined inside an address would break it in two.
+      for (const segment of linkSegments(fragment.text)) {
+        if (!segment.url) { appendText(segment.text); continue }
+        const link = document.createElement('a')
+        link.className = 'message-link'; link.href = segment.url; link.textContent = segment.text
+        // The address in full, on hover: what is written is not always where the click leads.
+        link.title = segment.url; link.rel = 'noreferrer noopener'
+        // Not a tab stop, like the nicknames: the virtualised log would otherwise put hundreds
+        // of them between the reader and the composer.
+        link.tabIndex = -1
+        text.append(link)
       }
+      continue
+    }
+    if (fragment.type === 'gif') {
+      const gif = document.createElement('img')
+      gif.className = 'message-gif'; gif.alt = fragment.text; gif.title = `${fragment.text} · GIPHY`
+      gif.loading = 'lazy'; gif.decoding = 'async'
+      // Same fallback as an emote that fails: the title Twitch wrote takes the image's place,
+      // rather than a broken frame in the middle of a sentence.
+      gif.addEventListener('error', () => gif.replaceWith(document.createTextNode(fragment.text)), { once: true })
+      // The address goes in whole, as Twitch gave it: its documentation forbids rewriting one.
+      gif.src = fragment.url
+      text.append(gif)
       continue
     }
     const image = document.createElement('img')
@@ -1799,6 +1852,29 @@ window.twichat.onPlayerQuality(next => {
 })
 window.twichat.onPlayerVolume((next, silent) => applySound(next, silent, true))
 
+/**
+ * A link clicked in a message. What a message shows and where it leads are two different things,
+ * so the host is named on its own before anything leaves the application. The account may close
+ * that door for good: the dialog's "stop asking" and the switch in the settings write the same
+ * preference, so what is given up here can be taken back there.
+ */
+function openMessageLink(href: string) {
+  if (!chatLinkConfirm) { leaveForLink(href); return }
+  let url: URL
+  // Already checked when the link was painted; a second reading costs nothing and names the host.
+  try { url = new URL(href) } catch { return }
+  pendingLink = href
+  $('#link-scheme').textContent = `${url.protocol}//`
+  $('#link-host').textContent = url.host
+  $('#link-rest').textContent = `${url.pathname}${url.search}${url.hash}`
+  $<HTMLInputElement>('#link-remember').checked = false
+  linkDialog.showModal()
+  // The safe answer is the one the Enter key reaches.
+  $<HTMLButtonElement>('#link-cancel').focus()
+}
+function leaveForLink(href: string) {
+  window.twichat.openLink(href).catch(error => toast(displayError(error)))
+}
 function openAccount() { accountDialog.showModal(); $('#auth-error').textContent = ''; if (!state.account) $<HTMLButtonElement>('#browser-auth').focus() }
 function finishAuthentication(login: string) {
   state.savedAccounts = [login, ...state.savedAccounts.filter(account => account !== login)]
@@ -1841,6 +1917,19 @@ $('#welcome-add').addEventListener('click', () => addRoom())
 document.querySelectorAll<HTMLButtonElement>('[data-suggest]').forEach(button => button.addEventListener('click', () => addRoom(button.dataset.suggest)))
 $('#join-form').addEventListener('submit', event => { event.preventDefault(); $('#join-error').textContent = ''; void addRoom($<HTMLInputElement>('#channel-input').value) })
 document.querySelectorAll<HTMLButtonElement>('[data-close]').forEach(button => button.addEventListener('click', () => $<HTMLDialogElement>(`#${button.dataset.close}`).close()))
+// Cancelled, dismissed with Escape or closed by an account switch: the address is forgotten either
+// way, so a later Enter on the button cannot open a link the reader has already turned down.
+linkDialog.addEventListener('close', () => { pendingLink = '' })
+$('#link-open').addEventListener('click', () => {
+  const href = pendingLink
+  if ($<HTMLInputElement>('#link-remember').checked) {
+    chatLinkConfirm = false
+    $<HTMLInputElement>('#chat-link-confirm').checked = false
+    save()
+  }
+  linkDialog.close()
+  if (href) leaveForLink(href)
+})
 ownChannelButton.addEventListener('click', () => {
   const login = state.account
   if (!login) return
@@ -1947,6 +2036,13 @@ chatLog.addEventListener('contextmenu', event => {
   openMessageContextMenu(message, event.clientX, event.clientY)
 })
 chatLog.addEventListener('click', event => {
+  // The window never navigates: the address goes to the system browser, checked once more there.
+  const link = (event.target as Element).closest<HTMLAnchorElement>('a.message-link')
+  if (link) {
+    event.preventDefault()
+    openMessageLink(link.href)
+    return
+  }
   const quote = (event.target as Element).closest<HTMLElement>('[data-reply]')
   if (quote?.dataset.reply) { revealMessage(quote.dataset.reply); return }
   const trigger = (event.target as Element).closest<HTMLElement>('[data-card]')
@@ -2050,8 +2146,14 @@ function applyLanguageChoice() {
   repaintDynamic()
 }
 
-for (const selector of ['#buffer', '#autoplay', '#notify-mentions', '#language', '#hide-idle', '#idle-delay']) $(selector).addEventListener('change', () => {
+for (const selector of ['#buffer', '#autoplay', '#notify-mentions', '#language', '#hide-idle', '#idle-delay', '#chat-links', '#chat-link-confirm', '#chat-gifs']) $(selector).addEventListener('change', () => {
+  // Read before saving: the payload takes the choice from here, not from the checkbox.
+  if (selector === '#chat-links') chatLinks = $<HTMLInputElement>('#chat-links').checked
+  if (selector === '#chat-link-confirm') chatLinkConfirm = $<HTMLInputElement>('#chat-link-confirm').checked
+  if (selector === '#chat-gifs') chatGifs = $<HTMLInputElement>('#chat-gifs').checked
   save()
+  // The messages already on screen follow the choice: the log repaints them from the same state.
+  if (selector === '#chat-links' || selector === '#chat-gifs') virtualLog.refresh()
   // The dormancy setting is read at each paint: the list follows the choice without waiting for the save.
   if (selector === '#hide-idle' || selector === '#idle-delay') renderRooms()
   if (selector === '#language') applyLanguageChoice()
@@ -2070,7 +2172,7 @@ window.addEventListener('keydown', event => {
     // Escape does not leave fullscreen on its own in this window: the key does reach the document,
     // but Chromium does not act on it. We hand control back ourselves.
     if (document.fullscreenElement) void document.exitFullscreen()
-    closeFloatingLayers(); if (joinDialog.open) joinDialog.close(); if (accountDialog.open) accountDialog.close()
+    closeFloatingLayers(); if (joinDialog.open) joinDialog.close(); if (accountDialog.open) accountDialog.close(); if (linkDialog.open) linkDialog.close()
   }
 })
 

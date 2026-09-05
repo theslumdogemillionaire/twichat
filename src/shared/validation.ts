@@ -1,4 +1,4 @@
-import type { BufferMode, LayoutPreferences, NotificationPreferences, PlaybackPreferences, PlayerWindowState, ReplyReference, Theme, WindowBounds } from './types'
+import type { BufferMode, ChatPreferences, LayoutPreferences, NotificationPreferences, PlaybackPreferences, PlayerWindowState, ReplyReference, Theme, WindowBounds } from './types'
 import { fail } from './errors'
 import { isLocale } from './i18n'
 
@@ -71,6 +71,16 @@ export function playbackPreferences(value: unknown): PlaybackPreferences {
 export function notificationPreferences(value: unknown): NotificationPreferences {
   const input = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>
   return { mentions: input.mentions !== false }
+}
+
+/**
+ * Same rule: the links were clickable before the setting, so only an explicit false switches
+ * them off. The GIFs follow it rather than starting hidden — Twitch shows them, and a message
+ * whose image is missing reads as a message someone truncated.
+ */
+export function chatPreferences(value: unknown): ChatPreferences {
+  const input = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>
+  return { links: input.links !== false, confirm: input.confirm !== false, gifs: input.gifs !== false }
 }
 
 /** Wide bounds: they rule out the absurd values of a damaged file, the display tightens them afterwards. */

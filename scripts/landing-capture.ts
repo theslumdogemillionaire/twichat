@@ -56,7 +56,7 @@ const glyph = (name: string) =>
 /** The signed-in account, shared by both captured screens. */
 const ACCOUNT = { login: 'mila_pixel', avatar: 11 }
 
-type Part = string | { emote: string } | { mention: string }
+type Part = string | { emote: string } | { mention: string } | { link: string } | { gif: { url: string; label: string } }
 interface DemoMessage {
   user: string
   avatar: number
@@ -91,7 +91,8 @@ const CONVERSATIONS: Record<string, DemoMessage[]> = {
     { user: '', avatar: 0, color: '', badges: [], time: '22:48', system: true, parts: ['La chaîne passe en mode lent · 3 secondes entre deux messages.'] },
     { user: 'mila_pixel', avatar: 11, color: '#b9f568', badges: ['SUB'], time: '22:49', own: true, quote: { user: 'NekoNoSignal', text: 'le synthé qui décroche à la fin, c’est voulu ?' }, parts: ['c’est un delay en feedback, je remonte le mix ', { emote: 'Kappa' }] },
     { user: 'ChevalierDuLag', avatar: 7, color: '#d2d1ca', badges: [], time: '22:50', mention: true, parts: [{ mention: '@mila_pixel' }, ' tu repartages le preset après le live ? ', { emote: 'FeelsGoodMan' }] },
-    { user: 'cat_on_keyboard', avatar: 0, color: '#f49d70', badges: [], time: '22:51', parts: ['mrrrrp mrrrrp mrrrrp ', { emote: 'PETPET' }] }
+    { user: 'mila_pixel', avatar: 11, color: '#b9f568', badges: ['SUB'], time: '22:51', own: true, parts: ['le preset est là si ça intéresse quelqu’un : ', { link: 'https://studio-nova.fr/patch-42' }] },
+    { user: 'cat_on_keyboard', avatar: 0, color: '#f49d70', badges: [], time: '22:52', parts: ['mrrrrp ', { gif: { url: 'https://media.giphy.com/media/vFKqnCdLPNOKc/giphy.gif', label: '[chaton qui roule GIF]' } }] }
   ],
   en: [
     { user: 'pixel_crab', avatar: 1, color: '#d971ff', badges: ['MOD'], time: '22:41', parts: ['ok the visuals just changed there 👀 ', { emote: 'peepoHappy' }] },
@@ -105,7 +106,8 @@ const CONVERSATIONS: Record<string, DemoMessage[]> = {
     { user: '', avatar: 0, color: '', badges: [], time: '22:48', system: true, parts: ['The channel switched to slow mode · 3 seconds between messages.'] },
     { user: 'mila_pixel', avatar: 11, color: '#b9f568', badges: ['SUB'], time: '22:49', own: true, quote: { user: 'NekoNoSignal', text: 'the synth drifting at the end, is that on purpose?' }, parts: ['it is a feedback delay, I am bringing the mix back up ', { emote: 'Kappa' }] },
     { user: 'ChevalierDuLag', avatar: 7, color: '#d2d1ca', badges: [], time: '22:50', mention: true, parts: [{ mention: '@mila_pixel' }, ' will you share the preset after the stream? ', { emote: 'FeelsGoodMan' }] },
-    { user: 'cat_on_keyboard', avatar: 0, color: '#f49d70', badges: [], time: '22:51', parts: ['mrrrrp mrrrrp mrrrrp ', { emote: 'PETPET' }] }
+    { user: 'mila_pixel', avatar: 11, color: '#b9f568', badges: ['SUB'], time: '22:51', own: true, parts: ['the preset is here if anyone wants it: ', { link: 'https://studio-nova.fr/patch-42' }] },
+    { user: 'cat_on_keyboard', avatar: 0, color: '#f49d70', badges: [], time: '22:52', parts: ['mrrrrp ', { gif: { url: 'https://media.giphy.com/media/vFKqnCdLPNOKc/giphy.gif', label: '[rolling kitten GIF]' } }] }
   ]
 }
 
@@ -147,7 +149,12 @@ const CHROME = {
     modes: ['Lent 3 s', 'Followers'],
     cardActions: [['chat', 'Mentionner'], ['hash', 'Rejoindre'], ['external', 'Twitch']] as [string, string][],
     draft: '@cat_on_keyboard mrrrp aussi, je garde la boucle pour le prochain live :musical_note:',
-    composerPlaceholder: 'Écrire dans #studio_nova'
+    composerPlaceholder: 'Écrire dans #studio_nova',
+    idle: ['radio_ancienne', 'kraken_du_dimanche'],
+    gateTitle: '#studio_nova n’accepte que les messages des followers.',
+    gateDetail: 'Cette chaîne n’accepte que les comptes qui la suivent depuis au moins 10 minutes.',
+    followedSummary: 'Vos chaînes suivies, celles en direct d’abord.',
+    offline: ['pain_perdu_tv', 'atelier_synthe', 'le_chat_du_coin', 'nuit_blanche', 'cafe_serre']
   },
   en: {
     accountDescription: 'Twitch account connected',
@@ -160,7 +167,12 @@ const CHROME = {
     modes: ['Slow 3s', 'Followers'],
     cardActions: [['chat', 'Mention'], ['hash', 'Join'], ['external', 'Twitch']] as [string, string][],
     draft: '@cat_on_keyboard mrrrp too, keeping the loop for the next stream :musical_note:',
-    composerPlaceholder: 'Write in #studio_nova'
+    composerPlaceholder: 'Write in #studio_nova',
+    idle: ['radio_ancienne', 'kraken_du_dimanche'],
+    gateTitle: '#studio_nova only accepts messages from followers.',
+    gateDetail: 'This channel only accepts accounts that have followed it for at least 10 minutes.',
+    followedSummary: 'The channels you follow, the live ones first.',
+    offline: ['pain_perdu_tv', 'atelier_synthe', 'le_chat_du_coin', 'nuit_blanche', 'cafe_serre']
   }
 }
 
@@ -262,6 +274,11 @@ const TEXT = CHROME[locale]
 const STREAMS = DISCOVERY[locale]!
 const PICKER_TEXT = PICKER[locale]
 const VIEW_TEXT = VIEWS[locale]
+
+/** The offline list heading, word for word the one in the application's catalog. */
+const offlineHeading = (count: number) => locale === 'fr'
+  ? `HORS LIGNE · ${count} CHAÎNE${count > 1 ? 'S' : ''}`
+  : `OFFLINE · ${count} CHANNEL${count === 1 ? '' : 'S'}`
 
 const app = await electron.launch({ args: ['.'], env: { ...process.env, TWICHAT_LOCALE: locale, TWICHAT_TEST_DATA: resolve(tmpdir(), `twichat-landing-${locale}-${process.pid}`) } })
 try {
@@ -398,7 +415,7 @@ try {
   await page.waitForTimeout(1200)
   await page.evaluate(() => window.twichat.stopStream())
 
-  await page.evaluate(({ stream, emotes, messages, rooms, card, verified, account, chrome }) => {
+  await page.evaluate(({ stream, emotes, messages, rooms, idle, card, verified, account, chrome }) => {
     const one = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!
     // The renderer icons are already hydrated in the page: copy them rather than duplicate their paths.
     const iconOf = (name: string) => {
@@ -432,7 +449,21 @@ try {
       if (room.unread) { const count = document.createElement('span'); count.className = `unread${room.mentions ? ' mentions' : ''}`; count.textContent = room.unread; button.append(count) }
       roomList.append(button)
     })
-    one('#room-count').textContent = String(rooms.length)
+    // Les chaînes sans activité depuis un moment descendent dans leur propre section, dépliée ici.
+    one('#idle-block').hidden = false
+    one('#idle-count').textContent = String(idle.length)
+    one('#idle-toggle').setAttribute('aria-expanded', 'true')
+    const idleNav = one('#idle-rooms'); idleNav.hidden = false; idleNav.replaceChildren()
+    idle.forEach(({ channel }, index) => {
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'room-button'
+      button.dataset.channel = channel
+      const image = document.createElement('span'); image.className = 'room-avatar demo-room'; image.setAttribute('style', idle[index]!.avatar)
+      const label = document.createElement('span'); label.className = 'room-name'; label.textContent = channel
+      const live = document.createElement('span'); live.className = 'room-live'; live.dataset.live = 'false'
+      button.append(image, label, live)
+      idleNav.append(button)
+    })
+    one('#room-count').textContent = String(rooms.length + idle.length)
     one('#sidebar-empty').hidden = true
 
     // The room modes, as ROOMSTATE delivers them: they sit below the dock's fold,
@@ -460,6 +491,18 @@ try {
         if ('mention' in part) {
           const marked = document.createElement('b'); marked.className = 'message-mention'; marked.textContent = part.mention
           text.append(marked); continue
+        }
+        if ('link' in part) {
+          const link = document.createElement('a'); link.className = 'message-link'; link.href = part.link
+          link.textContent = part.link; link.title = part.link; link.rel = 'noreferrer noopener'; link.tabIndex = -1
+          text.append(link); continue
+        }
+        if ('gif' in part) {
+          // The address goes in whole, as Twitch hands it over from the GIPHY keyboard.
+          const gif = document.createElement('img'); gif.className = 'message-gif'
+          gif.alt = part.gif.label; gif.title = `${part.gif.label} · GIPHY`; gif.decoding = 'async'
+          gif.src = part.gif.url
+          text.append(gif); continue
         }
         const emote = emotes[part.emote]
         const image = document.createElement('img')
@@ -549,7 +592,8 @@ try {
     stream, emotes: EMOTES, verified: VERIFIED, card: CARD, chrome: TEXT,
     account: { login: ACCOUNT.login, avatar: avatarStyle(ACCOUNT.avatar) },
     messages: MESSAGES.map(message => ({ ...message, avatar: avatarStyle(message.avatar) })),
-    rooms: ROOMS.map(room => ({ ...room, avatar: avatarStyle(room.avatar) }))
+    rooms: ROOMS.map(room => ({ ...room, avatar: avatarStyle(room.avatar) })),
+    idle: TEXT.idle.map((channel, index) => ({ channel, avatar: avatarStyle(index === 0 ? 7 : 10) }))
   })
 
   // The draft goes through the real composer: mention and emoji coloring is the application's own.
@@ -570,13 +614,69 @@ try {
 
   // An emote missing from the CDN would go unnoticed and freeze a broken capture onto the landing.
   await page.waitForFunction(() => {
-    const images = [...document.querySelectorAll<HTMLImageElement>('.message-emote')]
+    const images = [...document.querySelectorAll<HTMLImageElement>('.message-emote, .message-gif')]
     return images.length > 0 && images.every(image => image.complete)
   }, undefined, { timeout: 20000 })
-  const broken = await page.evaluate(() => [...document.querySelectorAll<HTMLImageElement>('.message-emote')].filter(image => !image.naturalWidth).map(image => image.src))
+  const broken = await page.evaluate(() => [...document.querySelectorAll<HTMLImageElement>('.message-emote, .message-gif')].filter(image => !image.naturalWidth).map(image => image.src))
   if (broken.length) throw new Error(`Emotes failed to load: ${broken.join(', ')}`)
 
+  // A GIF has no size before it loads: the rows were measured without it. Now that every image
+  // is there, the log is laid out a second time — otherwise the last message stays cut off.
+  await page.evaluate(login => {
+    const space = document.querySelector<HTMLElement>('#virtual-space')!
+    let top = 0
+    for (const row of space.children) {
+      const element = row as HTMLElement
+      element.style.transform = `translateY(${top}px)`
+      top += element.offsetHeight
+    }
+    space.style.height = `${top}px`
+    const log = document.querySelector<HTMLElement>('#chat-log')!
+    log.scrollTop = log.scrollHeight
+
+    // The card follows its author's message, which the relayout has just moved. Kept inside the
+    // log: anchored to a row that scrolled out, it would float over the header.
+    const card = document.querySelector<HTMLElement>('#user-card')!
+    const author = [...space.querySelectorAll<HTMLElement>('.message-user')].find(user => user.textContent === login)
+    const row = author?.closest<HTMLElement>('.message')
+    if (!row) return
+    const bounds = row.getBoundingClientRect()
+    const view = log.getBoundingClientRect()
+    card.style.left = `${Math.round(bounds.left + 380)}px`
+    card.style.top = `${Math.round(Math.min(Math.max(bounds.top - 6, view.top + 10), view.bottom - card.offsetHeight - 10))}px`
+  }, CARD.login)
+
   await shoot('app-chat')
+
+  // Screen: the followers-only gate. Twitch refuses the message before it is sent, so the
+  // composer says the rule and offers the follow rather than letting a message fail.
+  await page.evaluate(chrome => {
+    const one = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!
+    one('#composer-reply').hidden = true
+    const input = one<HTMLTextAreaElement>('#composer')
+    input.value = ''
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.disabled = true
+    input.placeholder = ''
+    one<HTMLButtonElement>('#emote-button').disabled = true
+    one('#composer-gate').hidden = false
+    one('#composer-gate-title').textContent = chrome.gateTitle
+    one('#composer-gate-detail').textContent = chrome.gateDetail
+  }, TEXT)
+  await shoot('app-gate')
+
+  // The gate steps aside: the screens that follow show the composer as a signed-in account has it.
+  await page.evaluate(chrome => {
+    const one = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!
+    one('#composer-gate').hidden = true
+    one('#composer-reply').hidden = false
+    const input = one<HTMLTextAreaElement>('#composer')
+    input.disabled = false
+    input.placeholder = chrome.composerPlaceholder
+    input.value = chrome.draft
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    one<HTMLButtonElement>('#emote-button').disabled = false
+  }, TEXT)
 
   // Third screen: the emote picker. Twitch, 7TV, BetterTTV and FrankerFaceZ land in one grid,
   // which is the whole point of the panel: the channel's emotes, wherever they come from.
@@ -758,6 +858,38 @@ try {
   // The grid keeps whatever scroll the view had: from the top, the categories row stays whole.
   await page.evaluate(() => { document.querySelector('#discover-content')!.scrollTop = 0 })
   await shoot('app-discover')
+
+  // Screen: the channels the account follows. The live ones keep the grid, the others land in
+  // their own list underneath — a followed channel is worth showing even when it is off air.
+  await page.evaluate(({ offline, chrome, heading }) => {
+    const one = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!
+    one('#scope-top').setAttribute('aria-pressed', 'false')
+    one('#scope-followed').setAttribute('aria-pressed', 'true')
+    // The language filter only speaks of popular channels: the application dims it here.
+    one('#discover-language-field').classList.add('is-muted')
+    one('#discover-summary').textContent = chrome.followedSummary
+    one('#discover-categories').hidden = true
+    // The grid keeps the first live channels; the rest of the follow list is offline.
+    const results = one('#discover-results')
+    while (results.children.length > 3) results.lastElementChild!.remove()
+
+    const section = one('#followed-offline'); section.hidden = false
+    one('#followed-offline-label').textContent = heading
+    const list = one('#followed-offline-list'); list.replaceChildren()
+    for (const channel of offline) {
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'followed-card'
+      const avatar = document.createElement('span'); avatar.className = 'followed-avatar demo-room'; avatar.setAttribute('style', channel.avatar)
+      const name = document.createElement('span'); name.className = 'followed-name'; name.textContent = channel.channel
+      button.append(avatar, name)
+      list.append(button)
+    }
+  }, {
+    chrome: TEXT,
+    heading: offlineHeading(TEXT.offline.length),
+    offline: TEXT.offline.map((channel, index) => ({ channel, avatar: avatarStyle((index + 4) % 12) }))
+  })
+  await page.evaluate(() => { document.querySelector('#discover-content')!.scrollTop = 0 })
+  await shoot('app-followed')
 
   // Sixth screen: the settings. Nothing to stage — the panel says what it holds on its own.
   await page.evaluate(note => {

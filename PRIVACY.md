@@ -57,6 +57,7 @@ including the pointer that would otherwise reopen it.
 | `api.frankerfacez.com`, `cdn.frankerfacez.com` | FrankerFaceZ emotes. |
 | `api.betterttv.net`, `cdn.betterttv.net` | BetterTTV emotes. |
 | `7tv.io`, `cdn.7tv.app` | 7TV emotes. |
+| `*.giphy.com` | The GIFs sent from Twitch's GIPHY keyboard, requested only when a message carries one and the setting is on. |
 | `api.github.com` | The update check: the latest release, and nothing else. |
 | The sign-in server | Only while signing in or renewing a token. |
 

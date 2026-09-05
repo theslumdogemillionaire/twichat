@@ -108,11 +108,13 @@ export class TwitchIrc extends EventEmitter {
       const action = raw.startsWith('\x01ACTION ') && raw.endsWith('\x01')
       const reply = replyReference(tags)
       const body = action ? raw.slice(8, -1) : raw
-      const { text, emotes } = reply ? stripReplyMention(body, tags.emotes || '', reply.user, reply.login) : { text: body, emotes: tags.emotes || '' }
+      const { text, emotes, gifs } = reply
+        ? stripReplyMention(body, tags.emotes || '', tags.gifs || '', reply.user, reply.login)
+        : { text: body, emotes: tags.emotes || '', gifs: tags.gifs || '' }
       this.publish({ type: 'message', message: {
         id: tags.id || randomUUID(), channel, login: prefix.split('!')[0], user: tags['display-name'] || prefix.split('!')[0],
         text, action, color: tags.color || '', badges: badgeNames(tags.badges),
-        time: Number(tags['tmi-sent-ts']) || Date.now(), emotes, ...(reply ? { reply } : {})
+        time: Number(tags['tmi-sent-ts']) || Date.now(), emotes, ...(gifs ? { gifs } : {}), ...(reply ? { reply } : {})
       } })
     }
     if (command === 'USERNOTICE') {

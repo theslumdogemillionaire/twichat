@@ -64,3 +64,28 @@ test('a Twitch emote from the sender wins over a third-party emote with the same
 test('ignores an invalid own-emote id instead of forging a URL', () => {
   assert.deepEqual(messageFragments('bad', '', undefined, new Map([['bad', '../evil']])), [{ type: 'text', text: 'bad' }])
 })
+
+// The example of the Twitch documentation: the body is the title of the GIF, the tag its address.
+const GIF_URL = 'https://media4.giphy.com/media/joSNxeswxuc74Juo8X/giphy.gif?cid=095d7a5d&ep=v1_gifs_trending&rid=giphy.gif&ct=g'
+
+test('a GIF replaces the title Twitch wrote in the body', () => {
+  const body = '[Y A Y Yes GIF by Djemilah Birnie]'
+  // The offsets are inclusive and counted in code points, as for the emotes: 34 characters, 0-33.
+  assert.equal(Array.from(body).length, 34)
+  assert.deepEqual(messageFragments(body, '', undefined, undefined, `0-33|joSNxeswxuc74Juo8X|${GIF_URL}`), [
+    { type: 'gif', id: 'joSNxeswxuc74Juo8X', text: body, url: GIF_URL }
+  ])
+})
+
+test('a GIF shares the message with the text and the emotes around it', () => {
+  const fragments = messageFragments('Kappa [Yes GIF] hop', '25:0-4', undefined, undefined, `6-14|abc|${GIF_URL}`)
+  assert.deepEqual(fragments.map(fragment => fragment.type === 'text' ? fragment.text : `${fragment.type}:${fragment.text}`), [
+    'emote:Kappa', ' ', 'gif:[Yes GIF]', ' hop'
+  ])
+})
+
+test('a GIF whose address is not GIPHY, or whose range is outside the body, stays text', () => {
+  const body = '[Yes GIF]'
+  assert.deepEqual(messageFragments(body, '', undefined, undefined, '0-8|abc|https://cdn.example.com/a.gif'), [{ type: 'text', text: body }])
+  assert.deepEqual(messageFragments(body, '', undefined, undefined, `0-40|abc|${GIF_URL}`), [{ type: 'text', text: body }])
+})

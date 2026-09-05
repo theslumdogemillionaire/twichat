@@ -166,3 +166,31 @@ test('remembers the account badges room by room and keeps the id of a NOTICE', (
   irc.logout(false)
   assert.equal(irc.userBadges.size, 0)
 })
+
+// The example of the Twitch documentation, replayed as a line: the body carries the title of
+// the GIF, and the `gifs` tag the address GIPHY serves it from.
+const GIF_URL = 'https://media4.giphy.com/media/joSNxeswxuc74Juo8X/giphy.gif?cid=095d7a5d&ep=v1_gifs_trending&rid=giphy.gif&ct=g'
+const GIF = `@badge-info=subscriber/30;badges=broadcaster/1,subscriber/0;color=#033700;display-name=TwitchDev;emotes=;first-msg=0;gifs=0-33|joSNxeswxuc74Juo8X|${GIF_URL};id=401abf17-7e99-45d6-9bdf-43934e839327;mod=0;room-id=12826;subscriber=1;tmi-sent-ts=1783632907018;turbo=0;user-id=141981764;user-type= :twitchdev!twitchdev@twitchdev.tmi.twitch.tv PRIVMSG #twitch :[Y A Y Yes GIF by Djemilah Birnie]`
+const GIF_REPLY = `@badge-info=;badges=;color=;display-name=TwitchDev;emotes=;gifs=7-40|joSNxeswxuc74Juo8X|${GIF_URL};id=401abf17-7e99-45d6-9bdf-43934e839328;mod=0;reply-parent-display-name=Alice;reply-parent-msg-body=coucou;reply-parent-msg-id=6c0b1fff-86bb-4bab-a7f2-7d0d8532936f;reply-parent-user-login=alice;room-id=12826;tmi-sent-ts=1783632907019;user-id=141981764;user-type= :twitchdev!twitchdev@twitchdev.tmi.twitch.tv PRIVMSG #twitch :@Alice [Y A Y Yes GIF by Djemilah Birnie]`
+
+test('the GIF of a message reaches the renderer as its own fragment', () => {
+  const [message] = feed(GIF)
+  assert.equal(message.text, '[Y A Y Yes GIF by Djemilah Birnie]')
+  assert.equal(message.gifs, `0-33|joSNxeswxuc74Juo8X|${GIF_URL}`)
+  assert.deepEqual(messageFragments(message.text, message.emotes, undefined, undefined, message.gifs), [
+    { type: 'gif', id: 'joSNxeswxuc74Juo8X', text: message.text, url: GIF_URL }
+  ])
+})
+
+test('the offsets of a GIF shift by the stripped mention, address untouched', () => {
+  const [message] = feed(GIF_REPLY)
+  assert.equal(message.text, '[Y A Y Yes GIF by Djemilah Birnie]')
+  // `@Alice ` is 7 code points: the range announced at 7-40 lands back on the whole body.
+  assert.equal(message.gifs, `0-33|joSNxeswxuc74Juo8X|${GIF_URL}`)
+  assert.equal(message.reply?.text, 'coucou')
+})
+
+test('a message without a GIF carries no tag for one', () => {
+  const [message] = feed(ROOT)
+  assert.equal(message.gifs, undefined)
+})

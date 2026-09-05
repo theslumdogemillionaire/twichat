@@ -1,13 +1,17 @@
 import type { ThirdPartyEmote } from '../shared/types'
+import { parseGifs } from '../shared/gifs'
 
 export type MessageFragment =
   | { type: 'text'; text: string }
   | { type: 'emote'; id?: string; text: string; url: string; source: 'twitch' | ThirdPartyEmote['source'] }
+  | { type: 'gif'; id: string; text: string; url: string }
 
 interface EmoteOccurrence {
   id: string
   start: number
   end: number
+  /** Set on a GIF: the GIPHY address to show, in place of the emote CDN the id would build. */
+  gifUrl?: string
 }
 
 const MAX_EMOTES_PER_MESSAGE = 100
@@ -35,8 +39,8 @@ function wordFragments(text: string, emotes?: ReadonlyMap<string, ThirdPartyEmot
  * `ownEmotes` maps a Twitch emote name to its id. Twitch never echoes the sender's own PRIVMSG,
  * so a message the app displays locally carries no emote tag and must be matched by name.
  */
-export function messageFragments(text: string, emoteTag = '', thirdParty?: ReadonlyMap<string, ThirdPartyEmote>, ownEmotes?: ReadonlyMap<string, string>): MessageFragment[] {
-  if (!text || !emoteTag) return wordFragments(text, thirdParty, ownEmotes)
+export function messageFragments(text: string, emoteTag = '', thirdParty?: ReadonlyMap<string, ThirdPartyEmote>, ownEmotes?: ReadonlyMap<string, string>, gifTag = ''): MessageFragment[] {
+  if (!text || (!emoteTag && !gifTag)) return wordFragments(text, thirdParty, ownEmotes)
 
   // Twitch positions are Unicode code-point offsets, while String#slice uses UTF-16.
   const characters = Array.from(text)
@@ -60,14 +64,23 @@ export function messageFragments(text: string, emoteTag = '', thirdParty?: Reado
     if (occurrences.length >= MAX_EMOTES_PER_MESSAGE) break
   }
 
+  // The GIFs join the same list: the sort and the overlap guard below then serve both, and a
+  // range Twitch covered with an image never gets read as a word again.
+  for (const gif of parseGifs(gifTag)) {
+    if (gif.end >= characters.length) continue
+    occurrences.push({ id: gif.id, start: gif.start, end: gif.end, gifUrl: gif.url })
+  }
+
   occurrences.sort((left, right) => left.start - right.start || left.end - right.end)
   const fragments: MessageFragment[] = []
   let cursor = 0
   for (const occurrence of occurrences) {
     if (occurrence.start < cursor) continue
     if (occurrence.start > cursor) fragments.push(...wordFragments(characters.slice(cursor, occurrence.start).join(''), thirdParty, ownEmotes))
-    const emoteText = characters.slice(occurrence.start, occurrence.end + 1).join('')
-    fragments.push({ type: 'emote', id: occurrence.id, text: emoteText, url: twitchEmoteUrl(occurrence.id), source: 'twitch' })
+    const covered = characters.slice(occurrence.start, occurrence.end + 1).join('')
+    fragments.push(occurrence.gifUrl
+      ? { type: 'gif', id: occurrence.id, text: covered, url: occurrence.gifUrl }
+      : { type: 'emote', id: occurrence.id, text: covered, url: twitchEmoteUrl(occurrence.id), source: 'twitch' })
     cursor = occurrence.end + 1
   }
   if (cursor < characters.length) fragments.push(...wordFragments(characters.slice(cursor).join(''), thirdParty, ownEmotes))
