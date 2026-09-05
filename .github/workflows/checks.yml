@@ -1,0 +1,54 @@
+name: Checks
+
+# What every contribution is measured against. `build.yml` packages installers on a `v*` tag
+# and nothing else, so until this workflow existed a pull request — and a push to `main` —
+# triggered no check at all in this repository.
+#
+# Only the deterministic suites run here: the unit tests, the server tests and the build. The
+# smoke tests under `scripts/` drive a real Electron window against real Twitch channels, so
+# they fail on a runner for reasons that have nothing to do with the change under review.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A branch pushed twice in a minute checks its last state, not both.
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    # Linux is the gate. Windows is here to catch what this project keeps assuming — a Unix
+    # shell expanding a glob, an inline `VAR=value` in a script — on the platform where those
+    # assumptions break. It reports without blocking until it has been green once; promote it
+    # to a required check then, and drop this line.
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Server tests
+        run: npm run site:check
+
+      # Typechecks first, then builds all three bundles: main, preload and renderer.
+      - name: Build
+        run: npm run build

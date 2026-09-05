@@ -1,0 +1,11 @@
+node_modules/
+out/
+dist/
+.venv/
+.env
+.env.*
+!.env.example
+.DS_Store
+artifacts/
+*.log
+.claude/

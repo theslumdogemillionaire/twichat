@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' twitch-media: ws://127.0.0.1:*; media-src 'self' blob: data: twitch-media:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" type="image/png" href="/twichat-logo.png" />
+    <title data-i18n="detached.pageTitle">Vidéo — Twichat</title>
+  </head>
+  <body class="detached-body">
+    <main id="detached-stage" class="detached-stage">
+      <video id="detached-video" playsinline preload="none" hidden></video>
+      <div id="detached-placeholder" class="detached-placeholder">
+        <span class="play-outline" data-icon="play"></span>
+        <strong id="detached-title" data-i18n="detached.loadingTitle">La vidéo arrive</strong>
+        <p id="detached-detail" data-i18n="detached.loadingBody">On demande le flux à Twitch.</p>
+      </div>
+      <p id="detached-error" class="detached-error" role="status" hidden></p>
+    </main>
+    <footer class="detached-bar">
+      <span id="detached-channel" class="detached-channel"></span>
+      <span id="detached-status" class="quiet-tag stopped"></span>
+      <div class="player-controls"><div class="control-group"><button id="detached-play" class="primary small square" type="button" title="Lire" aria-label="Lire" data-i18n-attr="title=detached.title.play;aria-label=detached.label.play"><span data-icon="play"></span></button><button id="detached-stop" class="icon-button" type="button" title="Arrêter le stream" aria-label="Arrêter le stream" hidden data-i18n-attr="title=detached.title.stop;aria-label=detached.label.stop"><span data-icon="stop"></span></button><button id="detached-mute" class="icon-button" type="button" aria-pressed="false" title="Couper le son" aria-label="Couper le son" data-i18n-attr="title=detached.title.mute;aria-label=detached.label.mute"><span data-icon="audio"></span></button><label class="sr-only" for="detached-volume" data-i18n="detached.volume">Volume</label><input id="detached-volume" class="volume-slider" type="range" min="0" max="100" step="1" value="100" /></div><div class="control-group"><label class="sr-only" for="detached-quality" data-i18n="detached.quality">Qualité vidéo privilégiée</label><select id="detached-quality"><option value="360p,worst" data-i18n="quality.saver">Éco · 360p</option><option value="480p,best" data-i18n="quality.balanced">Équilibré · 480p</option><option value="720p60,720p,best" data-i18n="quality.comfort">Confort · 720p</option><option value="best" data-i18n="quality.source">Source</option><option value="audio_only" data-i18n="quality.audioOnly">Audio seul</option></select><button id="detached-fullscreen" class="icon-button" type="button" title="Plein écran" aria-label="Passer la vidéo en plein écran" disabled data-i18n-attr="title=detached.title.fullscreen;aria-label=detached.label.fullscreen"><span data-icon="fullscreen"></span></button><button id="detached-pin" class="icon-button" type="button" aria-pressed="false" title="Garder la fenêtre au premier plan" aria-label="Garder la fenêtre au premier plan" data-i18n-attr="title=detached.title.pin;aria-label=detached.label.pin"><span data-icon="pin"></span></button><button id="detached-attach" class="icon-button" type="button" title="Rattacher la vidéo au salon" aria-label="Rattacher la vidéo au salon" data-i18n-attr="title=detached.title.reattach;aria-label=detached.label.reattach"><span data-icon="attach"></span></button></div></div>
+    </footer>
+    <script type="module" src="/detached.ts"></script>
+  </body>
+</html>

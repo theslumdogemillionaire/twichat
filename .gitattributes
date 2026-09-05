@@ -1,0 +1,11 @@
+# Windows checks out with CRLF by default, which is enough to make a checked-in file differ from
+# the same bytes installed under node_modules, and to leave a stray carriage return at the end of
+# every line a parser reads. The repository is LF, on every platform.
+* text=auto eol=lf
+
+# Binary, and never to be touched: the screenshots, the fonts and the icons.
+*.png binary
+*.webp binary
+*.woff2 binary
+*.ico binary
+*.icns binary

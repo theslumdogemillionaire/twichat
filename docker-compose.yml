@@ -1,0 +1,32 @@
+services:
+  site:
+    build: .
+    image: twichat-site
+    restart: unless-stopped
+
+    # The same variables as local (see .env.example); with none, the site runs
+    # without the Twitch sign-in, which then answers 503.
+    env_file:
+      - path: .env
+        required: false
+
+    # Inside the container the address is fixed: every interface, port 3000.
+    # What you set is the host port, or the reverse proxy in front of it.
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+
+    ports:
+      - '${PORT:-3000}:3000'
+
+    # The container is meant for development: the server restarts on its own
+    # when a file of the site changes. The supervisor polls modification times,
+    # because `node --watch` waits on filesystem events, and those do not cross
+    # the mount from macOS: the watcher would never fire.
+    command: node scripts/dev-server.mjs
+
+    volumes:
+      # Sources mounted: editing a file is enough, with no image to rebuild.
+      # The installers directory served by `/download` is part of it.
+      - ./server:/app/server
+      - ./scripts/dev-server.mjs:/app/scripts/dev-server.mjs:ro

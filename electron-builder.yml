@@ -1,0 +1,73 @@
+appId: com.theslumdogemillionaire.twichat
+# Where the app looks for its updates. It also makes electron-builder write the metadata the
+# check reads (latest.yml and friends), which it does whether or not the build publishes.
+publish:
+  provider: github
+  owner: theslumdogemillionaire
+  repo: twichat
+productName: Twichat
+# The browser hands the session back through `twichat://auth?ticket=…`. Declaring the scheme
+# here is what writes `CFBundleURLTypes` into the macOS `Info.plist`, the `x-scheme-handler`
+# MimeType into the Linux desktop entry, and the registry keys into the Windows installer.
+# `setAsDefaultProtocolClient` alone asks the system for a scheme the package never declared:
+# the JavaScript that handles the link exists, and nothing ever calls it.
+protocols:
+  - name: Twichat sign-in
+    schemes: ['twichat']
+directories:
+  buildResources: build
+# What ships, named one by one. A deny list lets anything new — a Dockerfile, a compose
+# file, a note left at the root — into the installer by simply existing; this list cannot.
+# `node_modules` stays: electron-vite leaves `electron-updater` external, and electron-builder
+# prunes the tree down to the production dependencies on its own.
+files:
+  - 'out/**'
+  - 'node_modules/**'
+  - 'package.json'
+  - 'LICENSE'
+  # What the code's own licence does not cover: the font's OFL, the emotes baked into the site's
+  # captures, and what the application stores and calls. Both ship inside the installer, so an
+  # answer never depends on having the repository open.
+  - 'NOTICE.md'
+  - 'PRIVACY.md'
+# No native module (SQLite is the built-in node:sqlite): nothing to rebuild.
+npmRebuild: false
+# The names the artifacts are built under, rather than renamed to afterwards. They are also the
+# names `server/app.mjs` serves — `/download?platform=mac` promises `Twichat-mac.dmg` — and a
+# test compares the two lists, because a rename on one side and not the other is silent.
+#
+# The build has to produce them, not a step after it: `latest*.yml`, which the in-app update check
+# reads, names the installer by its file name and carries its checksum. Renaming an installer once
+# it is built leaves that metadata pointing at a file the release no longer holds.
+mac:
+  artifactName: Twichat-mac.${ext}
+  target:
+    # One disk image for both processors. `--mac` on a runner means whatever architecture that
+    # runner has — arm64 today — which shipped no Intel build at all without ever saying so.
+    - target: dmg
+      arch: [universal]
+  category: public.app-category.social-networking
+  identity: null            # unsigned for now
+  # electron-builder writes a generic usage description for every device it knows about.
+  # Twichat asks for none of them — `setPermissionRequestHandler` grants fullscreen and
+  # nothing else — and macOS shows these sentences to the user, so they are removed.
+  extendInfo:
+    NSCameraUsageDescription: null
+    NSMicrophoneUsageDescription: null
+    NSAudioCaptureUsageDescription: null
+    NSBluetoothAlwaysUsageDescription: null
+    NSBluetoothPeripheralUsageDescription: null
+win:
+  artifactName: Twichat-windows.${ext}
+  target:
+    - target: nsis
+      arch: [x64]
+linux:
+  artifactName: Twichat-linux.${ext}
+  target:
+    - target: deb
+      arch: [x64]
+    - target: rpm
+      arch: [x64]
+  category: Network
+  maintainer: The Slumdoge Millionaire <root@theslumdogemillionaire.com>

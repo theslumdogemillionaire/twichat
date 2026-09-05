@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://static-cdn.jtvnw.net https://cdn.7tv.app https://cdn.betterttv.net https://cdn.frankerfacez.com data:; connect-src 'self' twitch-media: ws://127.0.0.1:*; media-src 'self' blob: data: twitch-media:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" type="image/png" href="/twichat-logo.png" />
+    <title data-i18n="app.twichat">Twichat</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#composer" data-i18n="app.skipToMessage">Aller au message</a>
+    <section id="session-gate" class="session-gate" aria-labelledby="session-title" aria-busy="true">
+      <div class="titlebar"><span data-i18n="sessionGate.twichat">Twichat</span><span class="titlebar-note" data-i18n="sessionGate.kicker">CONNEXION SANS MOT DE PASSE</span></div>
+      <div class="session-stage">
+        <div class="session-intro">
+          <img class="app-logo" src="/twichat-logo.png" width="78" height="78" alt="" />
+          <p class="eyebrow accent" data-i18n="sessionGate.brand">TWICHAT · ALPHA</p>
+          <h1 data-i18n-text="sessionGate.enter">Entrez comme<br><span data-i18n="sessionGate.leadTail">vous le souhaitez.</span></h1>
+          <p data-i18n="sessionGate.lead">Reprenez un compte déjà utilisé, connectez-en un autre, ou lisez le chat en anonyme. Le choix est modifiable à tout moment.</p>
+          <div class="session-signal" aria-hidden="true"><i></i><span data-i18n="sessionGate.techIrc">IRC DIRECT</span><i></i><span data-i18n="sessionGate.techVideo">VIDÉO HLS</span></div>
+        </div>
+        <div class="session-panel">
+          <span class="session-step" data-i18n="sessionGate.step">SESSION · 01</span>
+          <h2 id="session-title" data-i18n="sessionGate.title">Comment voulez-vous entrer&nbsp;?</h2>
+          <p class="session-lead" data-i18n="sessionGate.note">Ce choix détermine uniquement votre accès au chat. Vos chaînes restent sur cet appareil.</p>
+          <div id="saved-accounts" class="saved-accounts" hidden><span class="session-label" data-i18n="savedAccounts.title">COMPTES DÉJÀ UTILISÉS</span><div id="saved-account-list"></div></div>
+          <button id="connect-session" class="session-choice connect-choice" type="button"><span class="session-choice-icon" data-icon="user"></span><span><strong data-i18n="connectSession.signIn">Se connecter</strong><small data-i18n="connectSession.hint">Écrire, retrouver vos accès et explorer les chaînes</small></span><span data-icon="arrow"></span></button>
+          <div class="session-or"><span></span><b data-i18n="sessionGate.or">OU</b><span></span></div>
+          <button id="anonymous-session" class="session-choice anonymous-choice" type="button"><span class="session-choice-icon">#</span><span><strong data-i18n="anonymousSession.continueAnonymously">Continuer en anonyme</strong><small data-i18n="anonymousSession.hint">Lire le chat et regarder les streams sans compte</small></span><span data-icon="arrow"></span></button>
+          <p id="session-error" class="session-error" role="alert"></p>
+          <p class="session-privacy" data-i18n-text="sessionGate.encryptionNote"><span data-icon="bolt"></span> Les comptes mémorisés sont chiffrés par le système.</p>
+        </div>
+      </div>
+    </section>
+    <div id="app" hidden>
+      <div class="titlebar"><span data-i18n="app.twichat">Twichat</span><span class="titlebar-note" data-i18n="app.noPageLoaded">AUCUNE PAGE TWITCH CHARGÉE</span></div>
+      <aside id="sidebar" class="sidebar" aria-label="Chaînes de discussion" data-i18n-attr="aria-label=app.label.channels">
+        <div class="brand"><img class="brand-logo app-logo" src="/twichat-logo.png" width="40" height="40" alt="" /><strong data-i18n-text="sidebar.twichat">twichat<span class="brand-period">.</span></strong><span class="alpha" data-i18n="sidebar.alpha">alpha</span></div>
+        <button id="open-discover" class="new-room" type="button"><span data-icon="explore"></span><span class="label" data-i18n="openDiscover.label">Explorer les chaînes</span><span data-icon="arrow"></span></button>
+        <button id="add-room" class="explore-button"><span data-icon="plus"></span><span data-i18n="addRoom.label">Rejoindre une chaîne</span><kbd data-keys="⌘ K">⌘ K</kbd></button>
+        <div id="own-channel-block" hidden><div class="section-label"><span data-i18n="ownChannelBlock.title">VOTRE CHAÎNE</span></div><div class="own-channel-row"><button id="own-channel" class="room-button" type="button"><span class="room-avatar"></span><span class="room-name"></span><span class="room-live" data-live="unknown"><span class="sr-only"></span></span><span class="unread" hidden></span></button></div></div>
+        <div class="section-label"><span data-i18n="sidebar.heading">VOS CHAÎNES</span><span id="room-count">0</span><button id="toggle-sidebar" class="sidebar-toggle" type="button" aria-controls="sidebar" aria-expanded="true"><span data-icon="arrow"></span></button></div>
+        <nav id="rooms" aria-label="Vos chaînes" data-i18n-attr="aria-label=sidebar.label.rooms"></nav>
+        <div id="idle-block" hidden><button id="idle-toggle" class="section-label idle-toggle" type="button" aria-expanded="false" aria-controls="idle-rooms" title="Chaînes sans activité depuis un moment" data-i18n-attr="title=sidebar.title.idle"><span class="idle-caret" data-icon="chevron"></span><span data-i18n="sidebar.idleHeading">EN VEILLE</span><span id="idle-count">0</span></button><nav id="idle-rooms" aria-label="Chaînes en veille" hidden data-i18n-attr="aria-label=sidebar.label.idle"></nav></div>
+        <div id="sidebar-empty"><span data-icon="hash"></span><p data-i18n="sidebarEmpty.title">Vos communautés,<br>au même endroit.</p><span data-i18n="sidebarEmpty.body">Ajoutez une chaîne pour commencer.</span></div>
+        <div class="sidebar-bottom"><button id="account-button" class="account" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="account-menu"><span id="account-avatar" class="avatar" data-icon="user"></span><span><strong id="account-name" data-i18n="accountButton.guest">Invité</strong><small id="account-description" data-i18n="accountButton.readOnly">Lecture seule</small></span><span data-icon="chevron"></span></button><button id="open-settings" class="settings-button" type="button" title="Réglages" aria-label="Réglages" data-i18n-attr="title=sidebar.title.settings;aria-label=sidebar.label.settings"><span data-icon="gear"></span></button></div>
+      </aside>
+      <main id="main">
+        <section id="welcome" class="welcome">
+          <div class="welcome-top"><span class="eyebrow" data-i18n="welcome.kicker">AUCUNE CHAÎNE OUVERTE</span><span class="quiet-tag" data-i18n="welcome.tagline">CLIENT TWITCH INDÉPENDANT</span></div>
+          <div class="welcome-body"><div class="welcome-symbol" aria-hidden="true"><span>#</span><i></i></div><p class="eyebrow accent" data-i18n="welcome.subtitle">20 CHAÎNES EN PARALLÈLE · ⌘ K POUR CHANGER</p><h1 data-i18n-text="welcome.titleLead">Le chat d’abord.<br><span data-i18n="welcome.titleTail">Le stream juste à côté.</span></h1><p class="welcome-copy" data-i18n="welcome.body">Chaque chaîne Twitch prend sa place dans la barre latérale.<br>Le lecteur vidéo reste à côté, redimensionnable ou en audio seul.</p><button id="welcome-add" class="primary" data-i18n-text="welcome.addChannel"><span data-icon="plus"></span> Rejoindre ma première chaîne</button><div class="suggestions"><span data-i18n="welcome.startLabel">Un point de départ</span><button data-suggest="zerator" data-i18n-text="welcome.exampleChannelOne"># zerator <span data-icon="arrow"></span></button><button data-suggest="ponce" data-i18n-text="welcome.exampleChannelTwo"># ponce <span data-icon="arrow"></span></button><button data-suggest="twitch" data-i18n-text="welcome.twitch"># twitch <span data-icon="arrow"></span></button></div></div>
+          <div class="welcome-features"><div><span data-icon="chat"></span><div><strong data-i18n="welcome.channelsTitle">Vingt chaînes ouvertes</strong><p data-i18n="welcome.channelsBody">⌘ K pour passer de l’un à l’autre.</p></div></div><div><span data-icon="video"></span><div><strong data-i18n="welcome.playerTitle">Vidéo à la demande</strong><p data-i18n="welcome.playerBody">Lecteur compact, plein écran ou audio seul.</p></div></div><div><span data-icon="bolt"></span><div><strong data-i18n="welcome.connectionTitle">Une seule connexion</strong><p data-i18n="welcome.connectionBody">IRC en TLS, partagée par toutes vos chaînes.</p></div></div></div>
+        </section>
+        <section id="discover" class="discover" hidden>
+          <header class="discover-header">
+            <div><span class="eyebrow accent" data-i18n="discover.kicker">EN DIRECT SUR TWITCH</span><h1 data-i18n="discover.heading">Explorer les chaînes</h1><p id="discover-summary" role="status" data-i18n="discover.summary">Les chaînes les plus actives du moment.</p></div>
+            <div class="discover-header-actions"><span id="discover-freshness" class="quiet-tag" hidden></span><button id="refresh-discover" class="subtle" type="button" data-i18n-text="discover.refresh"><span data-icon="refresh"></span> Actualiser</button></div>
+          </header>
+          <div class="discover-scope" role="group" aria-label="Chaînes affichées" data-i18n-attr="aria-label=discover.label.results">
+            <button id="scope-top" class="scope-tab" type="button" aria-pressed="true" data-i18n="discover.scopeTop">Chaînes populaires</button>
+            <button id="scope-followed" class="scope-tab" type="button" aria-pressed="false" data-i18n="discover.scopeFollowed">Mes chaînes suivies</button>
+          </div>
+          <div class="discover-controls">
+            <label class="discover-search" for="discover-query"><span data-icon="search"></span><input id="discover-query" type="search" placeholder="Chaîne, catégorie ou sujet…" autocomplete="off" data-i18n-attr="placeholder=discover.placeholder.query"/></label>
+            <label id="discover-language-field" class="discover-field" for="discover-language" title="La langue ne s’applique qu’aux chaînes populaires." data-i18n-attr="title=discover.title.language"><span data-icon="globe"></span><select id="discover-language" aria-label="Langue des chaînes" data-i18n-attr="aria-label=discoverLanguageField.label.language"><option value="fr">Français</option><option value="en">Anglais</option><option value="es">Espagnol</option><option value="de">Allemand</option><option value="it">Italien</option><option value="pt">Portugais</option><option value="ja">Japonais</option><option value="">Toutes les langues</option></select></label>
+            <label class="discover-field discover-sort" for="discover-sort"><span class="discover-field-label" data-i18n="discover.sortLabel">TRIER PAR</span><select id="discover-sort" aria-label="Trier les chaînes" data-i18n-attr="aria-label=discover.label.sort"><option value="viewers-desc" data-i18n="discoverSort.viewersDesc">Audience décroissante</option><option value="viewers-asc" data-i18n="discoverSort.viewersAsc">Audience croissante</option><option value="recent" data-i18n="discoverSort.recent">Direct le plus récent</option><option value="name" data-i18n="discoverSort.name">Nom de la chaîne</option></select></label>
+          </div>
+          <div id="discover-categories" class="discover-tags" hidden><span class="discover-tags-label" data-i18n="discoverCategories.categories">CATÉGORIES</span><div id="discover-tag-list" role="group" aria-label="Filtrer les chaînes par catégorie" data-i18n-attr="aria-label=discoverCategories.label.filter"></div></div>
+          <div id="discover-content" class="discover-content">
+            <div id="discover-status" class="discover-status" role="status"><span data-icon="explore"></span><h2 data-i18n="discoverStatus.empty">Les chaînes en direct apparaîtront ici.</h2><p data-i18n="discoverStatus.signInBody">Connectez votre compte Twitch pour charger le catalog.</p><button id="discover-login" class="primary" type="button" data-i18n="discoverStatus.signInAction">Connecter mon compte</button></div>
+            <div id="discover-skeleton" class="discover-results" aria-hidden="true" hidden></div>
+            <div id="discover-results" class="discover-results" hidden></div>
+            <section id="followed-offline" class="followed-offline" hidden aria-labelledby="followed-offline-label">
+              <h2 id="followed-offline-label" class="followed-offline-label" data-i18n="followedOffline.heading">HORS LIGNE</h2>
+              <div id="followed-offline-list" class="followed-offline-list"></div>
+            </section>
+          </div>
+        </section>
+        <section id="settings" class="settings" hidden>
+          <header class="discover-header">
+            <div><span class="eyebrow accent" data-i18n="settings.deviceKicker">CET APPAREIL</span><h1 data-i18n="settings.title">Réglages</h1><p data-i18n="settings.privacyNote">Ce qui se règle ici ne quitte pas votre machine.</p></div>
+          </header>
+          <div class="settings-body">
+            <section class="settings-group">
+              <h2 data-i18n="settings.languageTitle">Langue</h2>
+              <p class="settings-note" data-i18n="settings.languageNote">Par défaut, l’application suit la langue de votre système.</p>
+              <div class="settings-row">
+                <label class="settings-label" for="language"><span data-i18n="settings.languageLabel">Langue de l’interface</span><small data-i18n="settings.languageHint">Le chat, les menus et les notifications suivent ce choix.</small></label>
+                <select id="language">
+                  <option value="" data-i18n="settings.languageSystem">Langue du système</option>
+                  <option value="fr" lang="fr">Français</option>
+                  <option value="en" lang="en">English</option>
+                </select>
+              </div>
+            </section>
+            <section class="settings-group">
+              <h2 data-i18n="settings.appearance">Apparence</h2>
+              <p class="settings-note" data-i18n="settings.themeHint">Par défaut, l’interface suit le thème clair ou sombre de votre système.</p>
+              <div class="settings-choice" role="radiogroup" aria-label="Thème de l’interface" data-i18n-attr="aria-label=settings.label.theme">
+                <label class="theme-card">
+                  <input type="radio" name="theme" value="light" />
+                  <span class="theme-shot" data-shot="light" aria-hidden="true"><span class="shot-pane" data-tone="light"><span class="shot-rail"><b></b><b></b><b></b></span><span class="shot-body"><b class="shot-title"></b><b></b><b></b><b class="shot-accent"></b></span></span><span class="theme-check" data-icon="check"></span></span>
+                  <span class="theme-card-name" data-i18n="settings.themeLight">Clair</span>
+                </label>
+                <label class="theme-card">
+                  <input type="radio" name="theme" value="dark" />
+                  <span class="theme-shot" data-shot="dark" aria-hidden="true"><span class="shot-pane" data-tone="dark"><span class="shot-rail"><b></b><b></b><b></b></span><span class="shot-body"><b class="shot-title"></b><b></b><b></b><b class="shot-accent"></b></span></span><span class="theme-check" data-icon="check"></span></span>
+                  <span class="theme-card-name" data-i18n="settings.themeDark">Sombre</span>
+                </label>
+                <label class="theme-card">
+                  <input type="radio" name="theme" value="system" />
+                  <span class="theme-shot" data-shot="system" aria-hidden="true"><span class="shot-pane" data-tone="dark"><span class="shot-rail"><b></b><b></b><b></b></span><span class="shot-body"><b class="shot-title"></b><b></b><b></b><b class="shot-accent"></b></span></span><span class="shot-pane" data-tone="light"><span class="shot-rail"><b></b><b></b><b></b></span><span class="shot-body"><b class="shot-title"></b><b></b><b></b><b class="shot-accent"></b></span></span><span class="theme-check" data-icon="check"></span></span>
+                  <span class="theme-card-name" data-i18n="settings.themeSystem">Système</span>
+                </label>
+              </div>
+            </section>
+            <section class="settings-group">
+              <h2 data-i18n="settings.channelsTitle">Liste des chaînes</h2>
+              <div class="settings-row">
+                <label class="settings-label" for="hide-idle" data-i18n-text="settings.idleToggle">Mettre en veille les chaînes muettes<small data-i18n="settings.idleToggleHint">Elles se replient dans « En veille » et ressortent seules dès qu’un message arrive ou que le direct commence.</small></label>
+                <span class="switch"><input id="hide-idle" type="checkbox" checked><span class="switch-track" aria-hidden="true"></span></span>
+              </div>
+              <div class="settings-row">
+                <label class="settings-label" for="idle-delay" data-i18n-text="settings.idleDelay">Délai avant la veille<small data-i18n="settings.idleDelayHint">Compté depuis le dernier message reçu ou le dernier direct.</small></label>
+                <select id="idle-delay">
+                  <option value="6" data-i18n="idleDelay.hours6">6 heures</option>
+                  <option value="12" data-i18n="idleDelay.hours12">12 heures</option>
+                  <option value="24" data-i18n="idleDelay.days1">1 jour</option>
+                  <option value="72" data-i18n="idleDelay.days3">3 jours</option>
+                  <option value="168" selected data-i18n="idleDelay.days7">7 jours</option>
+                  <option value="720" data-i18n="idleDelay.days30">30 jours</option>
+                </select>
+              </div>
+              <p class="settings-note" data-i18n="settings.idleNote">Une chaîne en veille reste rejointe : rien n’est quitté, et ses messages continuent d’arriver.</p>
+            </section>
+            <section class="settings-group">
+              <h2 data-i18n="settings.playbackTitle">Lecture vidéo</h2>
+              <div class="settings-row">
+                <label class="settings-label" for="preferred-quality" data-i18n-text="settings.quality">Qualité vidéo privilégiée<small data-i18n="settings.qualityHint">Demandée au démarrage du flux : à défaut, la chaîne sert sa source — l’Éco, sa définition la plus basse.</small></label>
+                <select id="preferred-quality">
+                  <option value="360p,worst" data-i18n="quality.saver">Éco · 360p</option>
+                  <option value="480p,best" data-i18n="quality.balanced">Équilibré · 480p</option>
+                  <option value="720p60,720p,best" data-i18n="quality.comfort">Confort · 720p</option>
+                  <option value="best" data-i18n="quality.source">Source</option>
+                  <option value="audio_only" data-i18n="quality.audioOnly">Audio seul</option>
+                </select>
+              </div>
+              <p class="settings-note" data-i18n="settings.bufferNote">Le lecteur garde quelques secondes d’avance en mémoire. Plus la réserve est grande, mieux le flux encaisse un réseau irrégulier ; plus vous regardez en retard sur le direct.</p>
+              <div class="settings-row">
+                <label class="settings-label" for="buffer" data-i18n-text="settings.buffer">Mise en cache<small data-i18n="settings.bufferHint">S’applique au prochain démarrage de la vidéo.</small></label>
+                <select id="buffer">
+                  <option value="live" data-i18n="buffer.minimal">Minimale · 2 s de retard, 6 s d’avance</option>
+                  <option value="balanced" selected data-i18n="buffer.balanced">Équilibrée · 3 s de retard, 12 s d’avance</option>
+                  <option value="comfort" data-i18n="buffer.comfort">Confort · 6 s de retard, 30 s d’avance</option>
+                </select>
+              </div>
+              <div class="settings-row">
+                <label class="settings-label" for="autoplay" data-i18n-text="settings.autoplayToggle">Démarrer la vidéo en entrant<small data-i18n="settings.autoplayHint">Sinon le chat s’ouvre seul et la vidéo attend le bouton Lire.</small></label>
+                <span class="switch"><input id="autoplay" type="checkbox" checked><span class="switch-track" aria-hidden="true"></span></span>
+              </div>
+              <div class="settings-row">
+                <label class="settings-label" for="detached-video" data-i18n-text="settings.detachToggle">Vidéo dans sa propre fenêtre<small data-i18n="settings.detachHint">Le salon ne garde qu’un ancrage. La fenêtre se redimensionne librement, garde le format de l’image et peut rester au premier plan.</small></label>
+                <span class="switch"><input id="detached-video" type="checkbox"><span class="switch-track" aria-hidden="true"></span></span>
+              </div>
+            </section>
+            <section class="settings-group">
+              <h2 data-i18n="settings.notifications">Notifications</h2>
+              <div class="settings-row">
+                <label class="settings-label" for="notify-mentions" data-i18n-text="settings.mentions">Mentions<small data-i18n="settings.mentionsHint">Notification système quand on vous cite, fenêtre en arrière-plan.</small></label>
+                <span class="switch"><input id="notify-mentions" type="checkbox" checked><span class="switch-track" aria-hidden="true"></span></span>
+              </div>
+              <p class="settings-note" data-i18n="settings.mentionsNote">Le compteur de mentions dans la liste des chaînes ne dépend pas de ce réglage : il compte même notification coupée.</p>
+            </section>
+            <section class="settings-group">
+              <h2 data-i18n="settings.connectionTitle">Connexion</h2>
+              <div class="settings-row">
+                <span class="settings-state"><span id="connection-dot" class="status-dot"></span><span id="connection-label" data-i18n="settings.connecting">Connexion…</span></span>
+                <button id="reconnect" class="subtle" type="button" data-i18n-text="settings.reconnect"><span data-icon="refresh"></span> Reconnecter le chat</button>
+              </div>
+              <p class="settings-note" data-i18n="settings.connectionNote">Le chat passe par IRC en TLS. Une seule connexion sert toutes vos chaînes.</p>
+            </section>
+          </div>
+        </section>
+        <section id="room-view" class="room-view" hidden>
+          <header class="room-header"><div class="room-heading"><span class="header-hash">#</span><div><h1 id="channel-title"></h1><p class="room-status"><span id="channel-subtitle" data-i18n="roomView.channelTitle">Chaîne Twitch</span><span id="channel-live" class="channel-live" hidden></span></p></div></div><div class="header-actions"><button id="toggle-player" class="subtle" aria-pressed="false"><span data-icon="video" data-player-toggle-icon></span><span class="button-text" data-i18n="togglePlayer.hide">Masquer la vidéo</span></button><button id="open-twitch" class="icon-button" title="Ouvrir la chaîne sur Twitch" aria-label="Ouvrir la chaîne sur Twitch" data-i18n-attr="title=roomView.title.openOnTwitch;aria-label=roomView.label.openOnTwitch"><span data-icon="external"></span></button><button id="leave-room" class="icon-button" title="Quitter la chaîne" aria-label="Quitter la chaîne" data-i18n-attr="title=roomView.title.leave;aria-label=roomView.label.leave"><span data-icon="leave"></span></button></div></header>
+          <div id="room-body" class="room-body">
+            <section class="conversation" aria-label="Conversation" data-i18n-attr="aria-label=roomBody.label.conversation"><div class="conversation-bar"><span data-i18n-text="roomBody.chatHeading"><span class="small-hash">#</span> DISCUSSION</span><span id="message-count" data-i18n="roomBody.messageCount">0 message</span></div><div id="chat-log" class="chat-log" role="log" aria-label="Messages de la chaîne" aria-live="off" tabindex="0" data-i18n-attr="aria-label=roomBody.label.messages"><div id="virtual-space" class="virtual-space"></div></div><div id="chat-empty" class="chat-empty"><span data-icon="chat"></span><h2 data-i18n="chatEmpty.title">Vous êtes dans la chaîne.</h2><p data-i18n="chatEmpty.body">Les nouveaux messages apparaîtront ici.<br>Le chat reste ouvert, même sans vidéo.</p><span id="join-state" class="quiet-tag" data-i18n="chatEmpty.connecting">Connexion à la chaîne…</span></div><button id="resume" class="resume" hidden data-i18n-text="roomBody.backToLive">Reprendre le direct <span data-icon="down"></span></button><form id="message-form" class="composer-wrap"><label id="composer-label" for="composer" class="sr-only" data-i18n="messageForm.inputLabel">Votre message</label><div id="composer-suggest" class="composer-suggest" role="listbox" aria-label="Suggestions de saisie" hidden data-i18n-attr="aria-label=messageForm.label.suggestions"></div><div id="emote-picker" class="emote-picker" role="dialog" aria-label="Emotes et emojis" hidden data-i18n-attr="aria-label=messageForm.label.emotes"><div class="picker-head"><span class="picker-search"><span data-icon="search"></span><input id="emote-search" type="text" placeholder="Rechercher une emote" autocomplete="off" spellcheck="false" maxlength="32" data-i18n-attr="placeholder=emotePicker.placeholder.search"></span><button id="emote-close" class="picker-close" type="button" aria-label="Fermer le sélecteur" data-i18n-attr="aria-label=emotePicker.label.close"><span data-icon="close"></span></button></div><div id="picker-tabs" class="picker-tabs" role="tablist" aria-label="Catégories" data-i18n-attr="aria-label=emotePicker.label.categories"></div><div id="emote-results" class="picker-results" role="listbox" aria-label="Emotes et emojis disponibles" data-i18n-attr="aria-label=emotePicker.label.grid"></div><div class="picker-foot"><span id="emote-preview" data-i18n="emotePicker.hint">Cliquez pour insérer, la fenêtre reste ouverte.</span></div></div><div id="composer-reply" class="composer-reply" hidden><span data-icon="reply"></span><span class="composer-reply-body" data-i18n-text="composerReply.replyingTo">En réponse à <b id="composer-reply-user"></b><span id="composer-reply-text"></span></span><button id="composer-reply-cancel" class="composer-reply-cancel" type="button" aria-label="Annuler la réponse" data-i18n-attr="aria-label=composerReply.label.cancel"><span data-icon="close"></span></button></div><div id="composer-gate" class="composer-gate" hidden><span class="composer-gate-mark" data-icon="heart"></span><span class="composer-gate-body"><b id="composer-gate-title"></b><span id="composer-gate-detail"></span></span><button id="composer-gate-follow" class="composer-gate-follow" type="button" data-i18n-text="composerGate.follow">Suivre sur Twitch <span data-icon="external"></span></button><button id="composer-gate-recheck" class="composer-gate-recheck" type="button" title="Revérifier auprès de Twitch" aria-label="Revérifier auprès de Twitch" data-i18n-attr="title=composerGate.title.recheck;aria-label=composerGate.label.recheck"><span data-icon="refresh"></span></button></div><div class="composer-box"><button id="emote-button" class="composer-tool" type="button" aria-label="Emotes et emojis" aria-haspopup="dialog" aria-expanded="false" disabled data-i18n-attr="aria-label=messageForm.label.emotes"><span data-icon="smile"></span></button><div class="composer-field"><div id="composer-mirror" class="composer-mirror" aria-hidden="true"></div><textarea id="composer" rows="1" placeholder="Connectez votre compte pour participer" disabled aria-autocomplete="list" aria-controls="composer-suggest" aria-expanded="false" data-i18n-attr="placeholder=messageForm.placeholder.signedOut"></textarea></div><span id="composer-counter" class="composer-counter" hidden>0</span><button id="send-message" class="send-button" type="submit" disabled aria-label="Envoyer le message" data-i18n-attr="aria-label=messageForm.label.send"><span data-icon="arrow"></span></button></div><div class="composer-footer"><button id="composer-login" type="button" data-i18n-text="messageForm.signIn">Se connecter pour écrire <span data-icon="arrow"></span></button><span id="composer-hint" data-i18n="composerHint.full"><b>Entrée</b> envoie <i></i> <b>Tab</b> complète<span class="hint-extra"> <i></i> <b>@</b> mention <i></i> <b>:</b> emoji</span></span></div></form></section>
+            <aside id="stream-dock" class="stream-dock" aria-label="Lecteur de la chaîne" data-i18n-attr="aria-label=roomBody.label.player"><div id="player-resizer" class="player-resizer" role="separator" aria-label="Redimensionner la vidéo" aria-orientation="vertical" aria-valuemin="280" aria-valuemax="900" aria-valuenow="400" tabindex="0" data-i18n-attr="aria-label=streamDock.label.resize"><span></span></div><div class="dock-heading"><span data-i18n="streamDock.heading">LE STREAM, À CÔTÉ</span><span data-icon="corner"></span></div><div class="player-card"><div id="video-stage" class="video-stage"><video id="video" playsinline preload="none" hidden></video><div id="video-placeholder" class="video-placeholder"><span class="play-outline" data-icon="play"></span><strong id="video-title" data-i18n="videoPlaceholder.title">Gardez un œil sur la chaîne</strong><p id="video-description" data-i18n="videoPlaceholder.body">La vidéo démarre automatiquement<br>avec la chaîne.</p></div></div><div id="detached-panel" class="detached-panel" hidden title="La vidéo joue dans sa propre fenêtre" data-i18n-attr="title=streamDock.detachedNote"><span data-icon="corner"></span><strong id="detached-panel-channel"></strong><span id="detached-panel-status" class="quiet-tag stopped"></span><button id="attach-stream" class="icon-button" type="button" title="Rattacher la vidéo au salon" aria-label="Rattacher la vidéo au salon" data-i18n-attr="title=streamDock.title.reattach;aria-label=streamDock.label.reattach"><span data-icon="attach"></span></button></div><div class="player-info"><span id="player-channel"></span><span id="player-status" class="quiet-tag" data-i18n="streamDock.stopped">À L’ARRÊT</span></div><div class="player-controls"><div class="control-group"><button id="play-stream" class="primary small square" type="button" title="Lire" aria-label="Lire" data-i18n-attr="title=streamDock.title.play;aria-label=streamDock.label.play"><span data-icon="play"></span></button><button id="stop-stream" class="icon-button" type="button" title="Arrêter le stream" aria-label="Arrêter le stream" hidden data-i18n-attr="title=streamDock.title.stop;aria-label=streamDock.label.stop"><span data-icon="stop"></span></button><button id="mute-stream" class="icon-button" type="button" aria-pressed="false" title="Couper le son" aria-label="Couper le son" data-i18n-attr="title=streamDock.title.mute;aria-label=streamDock.label.mute"><span data-icon="audio"></span></button><label class="sr-only" for="volume" data-i18n="streamDock.volume">Volume</label><input id="volume" class="volume-slider" type="range" min="0" max="100" step="1" value="100" /></div><div class="control-group"><label class="sr-only" for="quality" data-i18n="streamDock.quality">Qualité vidéo privilégiée</label><select id="quality"><option value="360p,worst" data-i18n="quality.saver">Éco · 360p</option><option value="480p,best" data-i18n="quality.balanced">Équilibré · 480p</option><option value="720p60,720p,best" data-i18n="quality.comfort">Confort · 720p</option><option value="best" data-i18n="quality.source">Source</option><option value="audio_only" data-i18n="quality.audioOnly">Audio seul</option></select><button id="fullscreen-stream" class="icon-button" type="button" title="Plein écran" aria-label="Passer la vidéo en plein écran" disabled data-i18n-attr="title=streamDock.title.fullscreen;aria-label=streamDock.label.fullscreen"><span data-icon="fullscreen"></span></button><button id="detach-stream" class="icon-button" type="button" title="Sortir la vidéo dans sa propre fenêtre" aria-label="Sortir la vidéo dans sa propre fenêtre" data-i18n-attr="title=streamDock.title.detach;aria-label=streamDock.label.detach"><span data-icon="detach"></span></button></div></div><p id="video-error" class="video-error" role="status" hidden></p></div><p class="player-note" data-i18n-text="streamDock.singleStreamNote"><span data-icon="bolt"></span> Un seul flux vidéo actif à la fois.</p><section class="room-info"><h2 data-i18n="streamDock.channelKicker">CETTE CHAÎNE</h2><p data-i18n="streamDock.channelBody">Les modes de la chaîne,<br>et les raccourcis utiles.</p><div id="room-modes"></div><div class="info-divider"></div><div class="shortcut"><span data-i18n="streamDock.switchChannel">Changer de chaîne</span><kbd data-keys="⌘ K">⌘ K</kbd></div><div class="shortcut"><span data-i18n="streamDock.writeMessage">Écrire un message</span><kbd data-i18n="streamDock.enterKey">Entrée</kbd></div><div class="shortcut"><span data-i18n="streamDock.chatOnly">Chat uniquement</span><kbd data-keys="⌘ ⇧ V">⌘ ⇧ V</kbd></div></section></aside>
+          </div>
+        </section>
+      </main>
+      <footer class="statusbar"><span data-i18n-text="app.statusbar"><span class="mini-mark">t:</span> Emotes Twitch, 7TV, BTTV et FFZ · client indépendant · alpha</span><button id="update-notice" class="update-notice" type="button" hidden></button><span id="technical-status">IRC / TLS <i></i> VIDÉO À LA DEMANDE</span></footer>
+    </div>
+    <dialog id="join-dialog"><form id="join-form"><div class="dialog-heading"><span class="eyebrow" data-i18n="joinForm.kicker">VOS COMMUNAUTÉS</span><button type="button" data-close="join-dialog" class="icon-button" aria-label="Fermer" data-i18n-attr="aria-label=joinForm.label.close"><span data-icon="close"></span></button></div><h2 data-i18n="joinForm.title">Rejoindre une chaîne</h2><p data-i18n="joinForm.body">Entrez le nom d’une chaîne Twitch. Son chat sera accessible dans votre liste de chaînes.</p><label for="channel-input" data-i18n="joinForm.channelLabel">Nom de la chaîne</label><div class="input-with-prefix"><span>#</span><input id="channel-input" name="channel" placeholder="ex. zerator" maxlength="26" autocomplete="off" required data-i18n-attr="placeholder=joinForm.placeholder.example"/></div><p id="join-error" class="form-error" role="alert"></p><div class="dialog-footer"><span data-i18n="joinForm.limit">20 chaînes maximum</span><button class="primary" type="submit" data-i18n-text="joinForm.submit">Rejoindre <span data-icon="arrow"></span></button></div></form></dialog>
+    <dialog id="account-dialog"><form id="auth-form"><div class="dialog-heading"><span class="eyebrow" data-i18n="authForm.kicker">VOTRE COMPTE TWITCH</span><button type="button" data-close="account-dialog" class="icon-button" aria-label="Fermer" data-i18n-attr="aria-label=authForm.label.close"><span data-icon="close"></span></button></div><h2 id="auth-title" data-i18n="authForm.title">Connecter un compte Twitch.</h2><p id="auth-copy" data-i18n="authForm.body">Autorisez Twichat dans votre navigateur pour écrire, explorer les chaînes et retrouver ce compte à la prochaine ouverture.</p><div id="auth-fields"><div class="auth-actions"><button id="browser-auth" class="primary auth-browser" type="button" data-i18n-text="authFields.signIn"><span data-icon="external"></span> Se connecter avec Twitch</button><button id="copy-auth-link" class="subtle auth-copy-link" type="button" data-i18n="authFields.copyLink">Copier le lien</button></div><p class="auth-reassurance" data-i18n-text="authFields.passwordNote"><span data-icon="bolt"></span> Le mot de passe reste chez Twitch. Les sessions sont chiffrées par votre système.</p><details class="manual-auth"><summary data-i18n="authFields.useToken">Utiliser plutôt un jeton d’accès</summary><div><label for="token-input" data-i18n="authFields.tokenLabel">Jeton d’accès utilisateur</label><input id="token-input" type="password" autocomplete="off" spellcheck="false" placeholder="oauth:…" data-i18n-attr="placeholder=authFields.placeholder.oauth"/><button id="auth-help" type="button" class="text-link" data-i18n-text="authFields.tokenHelp">Comment obtenir un jeton Twitch <span data-icon="external"></span></button><button id="auth-submit" class="subtle manual-submit" type="submit" data-i18n="authFields.submitToken">Valider le jeton</button></div></details></div><p id="auth-error" class="form-error" role="alert"></p><div class="dialog-footer"><button type="button" data-close="account-dialog" class="subtle" data-i18n="authForm.close">Fermer</button></div></form></dialog>
+    <div id="account-menu" class="context-menu" role="menu" aria-label="Compte et réglages" hidden data-i18n-attr="aria-label=app.label.account"><span id="account-menu-title"></span><button id="account-menu-connect" type="button" role="menuitem" data-i18n-text="accountMenu.signIn"><span data-icon="external"></span>Se connecter avec Twitch</button><button id="account-menu-settings" type="button" role="menuitem" data-i18n-text="accountMenu.settings"><span data-icon="gear"></span>Réglages</button><button id="account-menu-logout" type="button" role="menuitem" class="danger" hidden data-i18n-text="accountMenu.signOut"><span data-icon="exit"></span>Se déconnecter</button><button id="account-menu-forget" type="button" role="menuitem" class="danger" hidden><span data-icon="close"></span><span id="account-menu-forget-label">Oublier ce compte</span></button></div>
+    <div id="room-context-menu" class="context-menu" role="menu" aria-label="Actions de la chaîne" hidden data-i18n-attr="aria-label=app.label.channelActions"><span id="room-context-title"></span><button id="room-context-leave" type="button" role="menuitem" class="danger" data-i18n-text="roomContextMenu.leave"><span data-icon="leave"></span>Quitter la chaîne</button></div>
+    <div id="message-context-menu" class="context-menu wide" role="menu" aria-label="Actions du message" hidden data-i18n-attr="aria-label=app.label.messageActions"><span id="message-context-title"></span><button id="message-context-profile" type="button" role="menuitem" data-i18n-text="messageContextMenu.profile"><span data-icon="user"></span>Voir le profil</button><button id="message-context-reply" type="button" role="menuitem" data-i18n-text="messageContextMenu.reply"><span data-icon="reply"></span>Répondre</button><button id="message-context-mention" type="button" role="menuitem" data-i18n-text="messageContextMenu.mention"><span data-icon="chat"></span>Mentionner</button><button id="message-context-copy" type="button" role="menuitem" data-i18n-text="messageContextMenu.copyMessage"><span data-icon="copy"></span>Copier le message</button><button id="message-context-copy-name" type="button" role="menuitem" data-i18n-text="messageContextMenu.copyName"><span data-icon="copy"></span>Copier le pseudo</button><button id="message-context-join" type="button" role="menuitem"><span data-icon="hash"></span><span id="message-context-join-label" data-i18n="messageContextJoin.joinChannel">Rejoindre sa chaîne</span></button><button id="message-context-twitch" type="button" role="menuitem" data-i18n-text="messageContextMenu.openOnTwitch"><span data-icon="external"></span>Ouvrir sur Twitch</button></div>
+    <div id="user-card" class="user-card" role="dialog" aria-label="Profil Twitch" hidden data-i18n-attr="aria-label=app.label.twitchProfile"></div>
+    <div id="toast" class="toast" role="status" hidden></div>
+    <script type="module" src="/src.ts"></script>
+  </body>
+</html>

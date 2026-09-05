@@ -1,0 +1,6 @@
+# The image holds the site and nothing else: exclude everything, then bring `server/` back.
+*
+!server
+
+# Set dressing for the landing captures (`npm run site:capture`), never served.
+server/demo-assets

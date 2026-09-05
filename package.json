@@ -1,0 +1,62 @@
+{
+  "name": "twichat",
+  "version": "0.1.0",
+  "homepage": "https://twichat.theslumdogemillionaire.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/theslumdogemillionaire/twichat.git"
+  },
+  "bugs": {
+    "url": "https://github.com/theslumdogemillionaire/twichat/issues"
+  },
+  "author": "The Slumdoge Millionaire <root@theslumdogemillionaire.com>",
+  "license": "MIT",
+  "private": true,
+  "description": "A desktop Twitch client, built around chat.",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "type": "module",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "site": "node --env-file-if-exists=.env server/index.mjs",
+    "site:check": "node --test tests/server.test.mjs",
+    "site:test:ui": "node scripts/landing-smoke.mjs",
+    "site:capture": "npm run build && node --experimental-strip-types scripts/landing-capture.ts && node --experimental-strip-types scripts/landing-capture.ts en",
+    "build": "npm run typecheck && electron-vite build",
+    "dist": "npm run build && electron-builder",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test \"tests/*.test.ts\"",
+    "test:desktop": "npm run build && tsx scripts/smoke.ts",
+    "test:chat": "npm run build && tsx scripts/chat-smoke.ts",
+    "test:reply": "npm run build && tsx scripts/reply-smoke.ts",
+    "test:lifecycle": "npm run build && tsx scripts/stream-lifecycle-smoke.ts",
+    "test:video": "npm run build && tsx scripts/video-smoke.ts",
+    "test:layout": "npm run build && tsx scripts/layout-smoke.ts",
+    "test:detach": "npm run build && tsx scripts/detach-smoke.ts",
+    "test:theme": "npm run build && tsx scripts/theme-smoke.ts",
+    "test:settings": "npm run build && tsx scripts/settings-smoke.ts",
+    "test:locale": "npm run build && tsx scripts/locale-smoke.ts",
+    "test:follow": "npm run build && tsx scripts/follow-gate-smoke.ts",
+    "palette": "node scripts/palette.mjs",
+    "icons": "node scripts/icons.mjs",
+    "postinstall": "node scripts/dev-app-name.mjs"
+  },
+  "dependencies": {
+    "@fontsource-variable/atkinson-hyperlegible-next": "^5.3.0",
+    "electron-updater": "^6.8.9",
+    "hls.js": "^1.6.13"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "electron": "^44.2.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "playwright": "^1.58.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.0.0"
+  }
+}

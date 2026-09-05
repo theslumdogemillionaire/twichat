@@ -1,0 +1,43 @@
+name: Bug report
+description: Something behaves differently from what it says it does.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Twichat is an alpha, so rough edges are expected — report them anyway.
+        For anything touching accounts, tokens or the sign-in, read SECURITY.md first.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to reproduce it
+      description: The shortest path you found. "Every time" and "once in a while" are both useful — say which.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: Operating system and version, and whether it is an Apple Silicon or Intel Mac.
+      placeholder: macOS 15.3, Apple Silicon
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Twichat version
+      description: The one in the status bar, or the commit if you built it yourself.
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Screenshots, the line the status bar showed, the channel it happened on. Never paste a token.

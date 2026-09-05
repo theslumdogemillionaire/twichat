@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Twichat is a desktop Twitch client where chat takes the window: avatars, badges, emotes, reply threads and a direct IRC connection.">
+    <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1">
+    <meta name="theme-color" content="#151718">
+    <meta name="color-scheme" content="dark">
+    <meta property="og:title" content="Twichat · The Twitch client built around chat">
+    <meta property="og:description" content="Desktop Twitch client: twenty channels open at once, avatars and emotes in full, and the stream at whatever size you give it.">
+    <meta property="og:image" content="https://twichat.theslumdogemillionaire.com/assets/app-chat.png?v=6">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:width" content="1320">
+    <meta property="og:image:height" content="880">
+    <meta property="og:image:alt" content="Twichat showing a busy channel, the people in it and the stream beside them">
+    <meta property="og:url" content="https://twichat.theslumdogemillionaire.com/">
+    <meta property="og:type" content="website">
+    <meta property="og:locale" content="en_US">
+    <meta property="og:site_name" content="Twichat">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Twichat · The Twitch client built around chat">
+    <meta name="twitter:description" content="Twenty Twitch channels in a single window, avatars and emotes in full, and the stream beside them.">
+    <meta name="twitter:image" content="https://twichat.theslumdogemillionaire.com/assets/app-chat.png?v=6">
+    <meta name="twitter:image:alt" content="Twichat showing a busy channel, the people in it and the stream beside them">
+    <link rel="canonical" href="https://twichat.theslumdogemillionaire.com/">
+    <link rel="alternate" hreflang="fr" href="https://twichat.theslumdogemillionaire.com/">
+    <link rel="preload" href="/assets/atkinson.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="/assets/app-chat.webp?v=6" as="image" type="image/webp" fetchpriority="high" media="(prefers-color-scheme: dark)">
+    <link rel="preload" href="/assets/app-chat-light.webp?v=6" as="image" type="image/webp" fetchpriority="high" media="(prefers-color-scheme: light)">
+    <link rel="icon" href="/assets/twichat-logo.png" type="image/png">
+    <link rel="stylesheet" href="/site.css?v=17">
+    <script src="/theme.js?v=7"></script>
+    <script src="/site.js?v=4" defer></script>
+    <script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": "https://twichat.theslumdogemillionaire.com/#website",
+      "url": "https://twichat.theslumdogemillionaire.com/",
+      "name": "Twichat",
+      "description": "A desktop Twitch client where chat takes the window: avatars, badges, emotes and reply threads.",
+      "inLanguage": "en-US"
+    },
+    {
+      "@type": "WebPage",
+      "@id": "https://twichat.theslumdogemillionaire.com/#webpage",
+      "url": "https://twichat.theslumdogemillionaire.com/",
+      "name": "Twichat · The Twitch client built around chat",
+      "description": "Twichat opens Twitch chats channel by channel, with avatars, emotes, reply threads and a direct IRC connection.",
+      "isPartOf": {
+        "@id": "https://twichat.theslumdogemillionaire.com/#website"
+      },
+      "mainEntity": {
+        "@id": "https://twichat.theslumdogemillionaire.com/#application"
+      },
+      "inLanguage": "en-US"
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://twichat.theslumdogemillionaire.com/#application",
+      "name": "Twichat",
+      "url": "https://twichat.theslumdogemillionaire.com/",
+      "downloadUrl": "https://twichat.theslumdogemillionaire.com/download?platform=mac",
+      "description": "Desktop Twitch client where chat takes the window, with multiple channels, avatars, badges, emotes and a resizable HLS player.",
+      "applicationCategory": "CommunicationApplication",
+      "applicationSubCategory": "Desktop Twitch client",
+      "operatingSystem": "macOS, Windows, Linux",
+      "softwareVersion": "0.1.0 alpha",
+      "image": "https://twichat.theslumdogemillionaire.com/assets/twichat-logo.png",
+      "screenshot": "https://twichat.theslumdogemillionaire.com/assets/app-chat.png?v=6",
+      "featureList": [
+        "Multiple Twitch channels",
+        "Direct chat connection over secure IRC",
+        "Resizable HLS video player",
+        "Audio-only mode",
+        "Player detachable into its own window",
+        "Notification when someone mentions you",
+        "Twitch, 7TV, BetterTTV and FrankerFaceZ avatars, badges and emotes"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "EUR"
+      }
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://twichat.theslumdogemillionaire.com/#faq-schema",
+      "url": "https://twichat.theslumdogemillionaire.com/#faq",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "What is Twichat?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Twichat is a desktop Twitch client where chat takes the window. Avatars, badges and emotes show in full, replies form threads, and the stream stays beside it at whatever size you give it."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can you use Twichat without a Twitch account?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. Anonymous mode lets you read channel chat and watch streams. A Twitch account is only needed to send messages and reach authenticated features."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How does Twichat connect to Twitch chat?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Twichat uses a secure IRC connection shared across channels. It does not open Twitch's full web page, which keeps resource use down and chat rendering responsive."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can you watch a stream inside Twichat?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. An HLS player starts with the channel. It resizes, goes fullscreen, switches to audio only or moves to its own window. One stream is active at a time."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Which avatars and emotes show in chat?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Twichat shows Twitch avatars and badges as well as Twitch, 7TV, BetterTTV and FrankerFaceZ emotes, so each channel keeps its own face."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Which systems is Twichat available on?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Twichat is available for macOS, Windows and Linux. The download offers the build for your system automatically."
+          }
+        }
+      ]
+    }
+  ]
+}</script>
+    <title>Twitch client built around chat | Twichat</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#produit" data-i18n="nav.skipToContent">See the app</a>
+    <svg class="os-sprite" aria-hidden="true" focusable="false"><defs><symbol id="os-mac" viewBox="0 0 24 24"><path d="M17.6 12.7c0-2.4 2-3.6 2.1-3.7-1.1-1.7-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.7.9-.8 0-1.9-.9-3.1-.8-1.6 0-3.1 1-3.9 2.4-1.7 2.9-.4 7.2 1.2 9.6.8 1.2 1.7 2.5 3 2.4 1.2 0 1.7-.8 3.1-.8 1.4 0 1.8.8 3.1.8 1.3 0 2.1-1.2 2.9-2.3.9-1.3 1.3-2.6 1.3-2.7-.1 0-2.5-1-2.5-3.9Z"/><path d="M15.2 5.5c.7-.8 1.1-2 1-3.2-1 0-2.3.7-3 1.5-.7.7-1.2 1.9-1.1 3.1 1.1.1 2.3-.6 3.1-1.4Z"/></symbol><symbol id="os-windows" viewBox="0 0 24 24"><path d="M3 5.9 10.4 4.8v6.7H3Zm8.9-1.3L21 3.3v8.2h-9.1ZM3 12.7h7.4v6.7L3 18.3Zm8.9 0H21v8.2l-9.1-1.3Z"/></symbol><symbol id="os-linux" viewBox="0 0 16 16"><path d="M13.281 11.156a.84.84 0 0 1 .375.297c.084.125.143.276.18.453.02.104.044.2.07.29a1.772 1.772 0 0 0 .219.476c.047.073.11.153.188.242.067.073.127.167.18.281a.793.793 0 0 1 .077.328.49.49 0 0 1-.093.305.944.944 0 0 1-.235.219c-.12.083-.245.156-.375.219-.13.062-.26.127-.39.195a3.624 3.624 0 0 0-.555.328c-.156.115-.313.26-.469.438a2.815 2.815 0 0 1-.625.523 1.471 1.471 0 0 1-.383.172c-.13.036-.26.06-.39.07-.302 0-.552-.052-.75-.156-.198-.104-.37-.294-.516-.57-.042-.079-.083-.128-.125-.149a.774.774 0 0 0-.203-.055L8.67 15c-.26-.02-.525-.031-.796-.031a4.28 4.28 0 0 0-.672.054c-.229.037-.456.081-.68.133-.046.01-.093.05-.14.117a1.7 1.7 0 0 1-.196.227 1.106 1.106 0 0 1-.335.219 1.475 1.475 0 0 1-.555.101c-.172 0-.357-.018-.555-.054a1.82 1.82 0 0 1-.531-.18 3.578 3.578 0 0 0-.953-.328c-.313-.057-.643-.11-.992-.156a3.392 3.392 0 0 1-.344-.063.774.774 0 0 1-.29-.133.705.705 0 0 1-.194-.219.78.78 0 0 1-.079-.351c0-.162.021-.318.063-.469.042-.15.065-.31.07-.476 0-.115-.008-.227-.023-.336a3.53 3.53 0 0 1-.032-.352c0-.265.063-.46.188-.586.125-.125.307-.224.547-.297a.99.99 0 0 0 .297-.148 2.27 2.27 0 0 0 .234-.203 1.86 1.86 0 0 0 .203-.242c.063-.089.133-.178.211-.266a.114.114 0 0 0 .024-.07c0-.063-.003-.123-.008-.18l-.016-.188c0-.354.055-.71.164-1.07.11-.36.253-.71.43-1.055a9.08 9.08 0 0 1 .594-.992c.218-.317.435-.612.648-.883a4.35 4.35 0 0 0 .68-1.203c.15-.416.229-.87.234-1.36 0-.207-.01-.413-.031-.616a6.122 6.122 0 0 1-.031-.625c0-.417.047-.792.14-1.125.094-.334.24-.62.438-.86s.456-.419.773-.539C7.474.075 7.854.01 8.296 0c.527 0 .946.104 1.259.313.312.208.552.481.718.82.167.338.274.716.32 1.133.048.416.074.838.079 1.265v.133c0 .214.002.404.008.57a2.527 2.527 0 0 0 .226.977c.073.161.182.336.328.523.25.329.506.66.766.993.26.333.497.677.71 1.03.214.355.389.725.524 1.11.136.386.206.802.211 1.25a3.3 3.3 0 0 1-.164 1.04zm-6.554-8.14c.072 0 .132.018.18.054a.357.357 0 0 1 .109.149.85.85 0 0 1 .054.187c.01.063.016.128.016.196a.282.282 0 0 1-.024.125.27.27 0 0 1-.07.086l-.094.078a.796.796 0 0 0-.093.093.428.428 0 0 1-.149.141 2.129 2.129 0 0 0-.18.117 1.31 1.31 0 0 0-.156.133.264.264 0 0 0-.07.195c0 .047.023.086.07.117a.704.704 0 0 1 .266.305c.052.12.11.237.172.352.062.114.143.21.242.289.099.078.253.117.46.117h.048c.208-.01.406-.065.594-.164.187-.099.375-.203.562-.313a.633.633 0 0 1 .102-.046.37.37 0 0 0 .101-.055l.57-.445a.926.926 0 0 0 .024-.102 2.75 2.75 0 0 0 .016-.11.236.236 0 0 0-.04-.14.4.4 0 0 0-.093-.094.34.34 0 0 0-.133-.054.909.909 0 0 1-.14-.04 1.083 1.083 0 0 1-.352-.14 1.457 1.457 0 0 0-.344-.156c-.02-.006-.036-.021-.047-.047a.983.983 0 0 1-.031-.094.23.23 0 0 1-.008-.102.126.126 0 0 0-.008-.078c0-.062.005-.127.016-.195a.551.551 0 0 1 .07-.195.417.417 0 0 1 .125-.14.411.411 0 0 1 .203-.056c.162 0 .279.06.352.18.073.12.112.25.117.39a.397.397 0 0 1-.039.18.379.379 0 0 0-.04.172c0 .042.014.07.04.086a.26.26 0 0 0 .102.031c.12 0 .197-.028.234-.085a.533.533 0 0 0 .062-.258c0-.12-.01-.253-.03-.399a1.32 1.32 0 0 0-.126-.406.969.969 0 0 0-.242-.313.574.574 0 0 0-.383-.124c-.27 0-.466.067-.586.203-.12.135-.182.338-.187.609 0 .078.005.156.015.234.01.079.016.157.016.235 0 .026-.003.039-.008.039a.218.218 0 0 1-.047-.016 4.263 4.263 0 0 1-.093-.039.774.774 0 0 0-.118-.039.514.514 0 0 0-.203-.008 1.007 1.007 0 0 1-.125.008c-.073 0-.11-.013-.11-.039 0-.078-.004-.177-.015-.297-.01-.12-.036-.24-.078-.36a.995.995 0 0 0-.156-.296c-.063-.078-.156-.12-.281-.125a.323.323 0 0 0-.227.086.905.905 0 0 0-.164.203.64.64 0 0 0-.086.266 5.4 5.4 0 0 1-.031.25 1.459 1.459 0 0 0 .07.406c.026.083.055.156.086.219.031.062.068.093.11.093.025 0 .06-.018.101-.054.042-.037.063-.07.063-.102 0-.016-.008-.026-.024-.031a.147.147 0 0 0-.047-.008c-.036 0-.068-.018-.094-.055a.468.468 0 0 1-.062-.125 5.144 5.144 0 0 1-.047-.148.564.564 0 0 1 .055-.398c.047-.084.133-.128.258-.133zM5.023 15.18c.125 0 .248-.01.368-.032a.97.97 0 0 0 .336-.125.614.614 0 0 0 .234-.242.943.943 0 0 0 .094-.375.816.816 0 0 0-.047-.273.963.963 0 0 0-.133-.25 2.763 2.763 0 0 0-.203-.281 2.763 2.763 0 0 1-.203-.282 62.93 62.93 0 0 1-.29-.43c-.093-.14-.187-.288-.28-.445a8.124 8.124 0 0 1-.235-.406 2.646 2.646 0 0 0-.266-.398 1.203 1.203 0 0 0-.218-.211.469.469 0 0 0-.29-.094.436.436 0 0 0-.296.11 2.26 2.26 0 0 0-.258.265 3.241 3.241 0 0 1-.297.305c-.11.099-.25.177-.422.234a.744.744 0 0 0-.312.172c-.073.073-.11.185-.11.336 0 .104.008.208.024.312.015.104.026.209.031.313 0 .14-.02.273-.063.398a1.157 1.157 0 0 0-.062.367c0 .141.05.24.148.297.1.058.211.097.336.117.157.027.305.047.446.063.14.016.278.04.414.07.135.032.27.065.406.102.135.036.279.094.43.172.03.015.078.034.14.054l.211.07c.078.027.151.048.219.063a.741.741 0 0 0 .148.024zm2.86-.938c.146 0 .302-.015.469-.047a3.54 3.54 0 0 0 .976-.336 2.59 2.59 0 0 0 .406-.257.222.222 0 0 0 .032-.047.305.305 0 0 0 .023-.063v-.008c.031-.114.057-.24.078-.375a8.63 8.63 0 0 0 .055-.414 8.98 8.98 0 0 1 .055-.414c.02-.135.039-.268.054-.398.021-.14.047-.276.078-.406.032-.13.073-.253.125-.368a1.03 1.03 0 0 1 .211-.304 1.54 1.54 0 0 1 .344-.25v-.016l-.008-.023a.29.29 0 0 1 .047-.149 1.4 1.4 0 0 1 .117-.164.582.582 0 0 1 .149-.133.946.946 0 0 1 .164-.078 9.837 9.837 0 0 0-.102-.375 4.938 4.938 0 0 1-.094-.375 7.126 7.126 0 0 0-.093-.476 2.954 2.954 0 0 0-.11-.36 1.317 1.317 0 0 0-.18-.32c-.077-.104-.174-.23-.288-.375a1.189 1.189 0 0 1-.118-.156.555.555 0 0 1-.046-.196 2.206 2.206 0 0 0-.047-.203 9.48 9.48 0 0 0-.242-.75 2.91 2.91 0 0 0-.172-.383 3.87 3.87 0 0 0-.172-.289c-.052-.078-.107-.117-.164-.117-.125 0-.274.05-.446.149-.171.099-.354.208-.546.328-.193.12-.38.232-.563.336-.182.104-.346.153-.492.148a.7.7 0 0 1-.43-.148 2.236 2.236 0 0 1-.36-.344c-.109-.13-.2-.242-.273-.336-.073-.094-.127-.146-.164-.156-.041 0-.065.031-.07.093a2.56 2.56 0 0 0-.008.211v.133c0 .032-.005.052-.016.063-.057.12-.12.237-.187.351-.068.115-.135.232-.203.352a1.611 1.611 0 0 0-.219.758c0 .078.005.156.016.234.01.078.036.154.078.227l-.016.03a1.31 1.31 0 0 1-.133.157 1.072 1.072 0 0 0-.132.164 2.796 2.796 0 0 0-.407.93c-.078.333-.12.672-.125 1.015 0 .089.006.178.016.266.01.089.016.177.016.266a.526.526 0 0 1-.008.086.525.525 0 0 0-.008.086.75.75 0 0 1 .313.109c.12.068.25.154.39.258.14.104.274.224.399.36.125.135.244.267.359.398.115.13.198.26.25.39.052.13.086.237.101.32a.444.444 0 0 1-.125.329.955.955 0 0 1-.312.203c.089.156.198.289.328.398.13.11.271.198.422.266.151.068.315.117.492.148.177.032.35.047.516.047zm3.133 1.11c.109 0 .216-.016.32-.047a1.65 1.65 0 0 0 .445-.203c.136-.089.26-.198.375-.329a3.07 3.07 0 0 1 .977-.75l.258-.117a2.18 2.18 0 0 0 .257-.133.962.962 0 0 0 .165-.132.256.256 0 0 0 .078-.188.295.295 0 0 0-.024-.117.58.58 0 0 0-.07-.117 5.136 5.136 0 0 1-.203-.305 1.978 1.978 0 0 1-.149-.297l-.125-.312a2.558 2.558 0 0 1-.11-.352.28.28 0 0 0-.054-.101.53.53 0 0 0-.46-.235.533.533 0 0 0-.266.07l-.266.149a7.335 7.335 0 0 1-.281.148.656.656 0 0 1-.297.07.411.411 0 0 1-.258-.077.636.636 0 0 1-.172-.211 2.218 2.218 0 0 1-.117-.258l-.094-.258a1.26 1.26 0 0 1-.14.188.666.666 0 0 0-.125.203c-.068.156-.11.33-.125.523-.026.302-.06.596-.102.883a4.7 4.7 0 0 1-.21.86 1.914 1.914 0 0 0-.063.273 2.88 2.88 0 0 0-.032.289c0 .255.079.466.235.633.156.166.367.25.633.25z"/></symbol></defs></svg>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Twichat home" data-i18n-attr="aria-label=brand.homeLabel"><img src="/assets/twichat-logo.png" width="38" height="38" alt=""><strong data-i18n-text="brand.name">twichat<span>.</span></strong><small data-i18n="brand.alpha">ALPHA</small></a>
+      <nav aria-label="Main navigation" data-i18n-attr="aria-label=nav.mainLabel"><a href="#produit" data-i18n="nav.product">The app</a><a href="#captures" data-i18n="gallery.nav">Screenshots</a><a href="#pourquoi" data-i18n="nav.why">Why Twichat</a><a href="#faq" data-i18n="nav.faq">FAQ</a><a href="https://github.com/theslumdogemillionaire/twichat">GitHub</a><a class="nav-download" data-download href="/download?platform=mac" data-i18n="nav.download">Download</a></nav><button id="theme-toggle" class="theme-switch" type="button" role="switch" aria-checked="false" aria-label="Dark theme" title="System theme" data-i18n-attr="title=theme.systemTitle;aria-label=theme.darkLabel"><span class="switch-track" aria-hidden="true"><span class="switch-knob"><svg data-glyph="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.3"/><path d="M12 2.6v2.3m0 14.2v2.3M2.6 12h2.3m14.2 0h2.3M5.3 5.3l1.6 1.6m9.8 9.8 1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6"/></svg><svg data-glyph="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.6A8.6 8.6 0 0 1 9.4 4a8.6 8.6 0 1 0 10.6 10.6Z"/></svg></span></span></button>
+    </header>
+    <main>
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow" data-i18n-text="hero.kicker"><i></i> DESKTOP TWITCH CLIENT · MACOS, WINDOWS, LINUX</p>
+          <h1 id="hero-title" data-i18n-text="hero.titleLead">A room<br><span data-i18n="hero.titleTail">with the TV on.</span></h1>
+          <p class="lead" data-i18n="hero.body">Twenty channels open in the same window. Chat across the full width, avatars and emotes in full, replies in threads. The stream beside it, at the size you give it.</p>
+          <div class="hero-actions"><div class="download-split" data-download-split><a class="button primary" data-download href="/download?platform=mac" data-i18n="download.cta">Download for macOS</a><button class="download-split-toggle" type="button" aria-expanded="false" aria-haspopup="true" aria-label="Other versions" data-i18n-attr="aria-label=download.otherVersionsLabel"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><ul class="download-split-menu" hidden><li><a href="/download?platform=mac" data-download-item="mac">macOS <span>.dmg</span></a></li><li><a href="/download?platform=windows" data-download-item="windows">Windows <span>.exe</span></a></li><li><a href="/download?platform=deb" data-download-item="deb">Linux <span>.deb</span></a></li><li><a href="/download?platform=rpm" data-download-item="rpm">Linux <span>.rpm</span></a></li></ul></div><a class="button ghost github-cta" href="https://github.com/theslumdogemillionaire/twichat"><svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>GitHub</a></div>
+          <p class="platforms"><span class="os-list" aria-hidden="true"><svg class="os"><use href="#os-mac"/></svg><svg class="os"><use href="#os-windows"/></svg><svg class="os"><use href="#os-linux"/></svg></span><span data-i18n="download.platforms">macOS, Windows and Linux</span></p>
+          <a class="preview-link" href="#captures"><span data-i18n="gallery.preview">Take a closer look</span><span aria-hidden="true">↘</span></a>
+          <p class="release-note" data-i18n-text="hero.note"><span>●</span> ALPHA · free, direct download</p>
+        </div>
+        <div class="hero-visual">
+          <div class="visual-index" aria-hidden="true"><span>01</span><i></i><small data-i18n="hero.shotCaption">CHAT<br>IN FULL</small></div>
+          <figure class="hero-window">
+            <div class="window-bar"><span></span><span></span><span></span><b data-i18n="hero.shotChrome">TWICHAT / STUDIO_NOVA</b></div>
+            <div class="hero-shot"><picture><source data-shot="light" media="(prefers-color-scheme: light)" srcset="/assets/app-chat-light.webp?v=6" type="image/webp"><source data-shot="dark" media="(prefers-color-scheme: dark)" srcset="/assets/app-chat.webp?v=6" type="image/webp"><img src="/assets/app-chat.webp?v=6" width="1320" height="880" fetchpriority="high" decoding="async" alt="Twichat open on a busy channel: messages with avatars, badges, emotes and quoted replies in the centre, a regular's profile card on hover, and the stream in a compact player on the right" data-i18n-attr="alt=hero.shotAlt"></picture><img class="hero-peek" alt="" aria-hidden="true" decoding="async" width="1320" height="880" data-shot-light="/assets/app-chat-light.webp?v=6" data-shot-dark="/assets/app-chat.webp?v=6"></div>
+          </figure>
+          <div class="visual-caption" aria-hidden="true"><b>500</b><span data-i18n="hero.shotNote">MESSAGES<br>KEPT PER CHANNEL</span></div>
+        </div>
+      </section>
+
+      <section id="produit" class="product" aria-labelledby="product-title">
+        <div class="section-heading"><p class="eyebrow" data-i18n="product.kicker">THE APP · 01</p><h2 id="product-title" data-i18n="product.title">Every channel,<br>open all the time.</h2><p data-i18n="product.body">Chat takes the width of the window instead of a narrow column. Avatars, badges and emotes show in full, replies form threads, and the stream sits in a player you can resize.</p></div>
+        <div class="experience-grid">
+          <article><span class="experience-number">01</span><div><h3 data-i18n="product.channelsTitle">Open your channels</h3><p data-i18n="product.channelsBody">Up to twenty channels in the sidebar, and ⌘ K to move between them.</p></div></article>
+          <article><span class="experience-number">02</span><div><h3 data-i18n="product.peopleTitle">See who is there</h3><p data-i18n="product.peopleBody">Twitch avatars and badges, plus Twitch, 7TV, BetterTTV and FrankerFaceZ emotes.</p></div></article>
+          <article><span class="experience-number">03</span><div><h3 data-i18n="product.streamTitle">Place the stream</h3><p data-i18n="product.streamBody">The player resizes, goes fullscreen, switches to audio only or moves to its own window.</p></div></article>
+        </div>
+      </section>
+
+      <section id="captures" class="screenshots" aria-labelledby="gallery-title">
+        <div class="gallery-heading">
+          <div><p class="eyebrow" data-i18n="gallery.kicker">A CLOSER LOOK</p><h2 id="gallery-title" data-i18n="gallery.title">Make yourself at home.</h2></div>
+          <div class="gallery-aside"><p id="gallery-hint" data-i18n="gallery.hint">Six screens of the app, in the theme you are reading. Click one to enlarge it.</p><div class="gallery-controls" hidden><button type="button" class="gallery-arrow" data-gallery-prev aria-label="Previous screenshots" data-i18n-attr="aria-label=gallery.previousStrip" aria-controls="screenshot-strip">←</button><button type="button" class="gallery-arrow" data-gallery-next aria-label="Next screenshots" data-i18n-attr="aria-label=gallery.nextStrip" aria-controls="screenshot-strip">→</button></div></div>
+        </div>
+        <ul id="screenshot-strip" class="screenshot-strip" tabindex="0" aria-label="App screenshots" data-i18n-attr="aria-label=gallery.stripLabel">
+          <li class="screenshot-card">
+            <a class="screenshot-link" href="/assets/app-chat.png?v=6" data-screenshot data-shot-dark="/assets/app-chat.png?v=6" data-shot-light="/assets/app-chat-light.png?v=6" aria-labelledby="shot-1-title" aria-describedby="shot-1-alt">
+              <div class="screenshot-frame"><picture><source data-shot="light" media="(prefers-color-scheme: light)" srcset="/assets/app-chat-light.webp?v=6" type="image/webp"><source data-shot="dark" media="(prefers-color-scheme: dark)" srcset="/assets/app-chat.webp?v=6" type="image/webp"><img id="shot-1-alt" src="/assets/app-chat.webp?v=6" width="1320" height="880" loading="lazy" decoding="async" alt="" data-i18n-attr="alt=gallery.chatAlt"></picture><span class="screenshot-expand" aria-hidden="true">↗</span></div>
+              <div class="screenshot-caption"><span class="screenshot-number">01</span><h3 id="shot-1-title" data-i18n="gallery.chat">Screenshot</h3></div>
+            </a>
+          </li>
+          <li class="screenshot-card">
+            <a class="screenshot-link" href="/assets/app-emotes.png?v=6" data-screenshot data-shot-dark="/assets/app-emotes.png?v=6" data-shot-light="/assets/app-emotes-light.png?v=6" aria-labelledby="shot-2-title" aria-describedby="shot-2-alt">
+              <div class="screenshot-frame"><picture><source data-shot="light" media="(prefers-color-scheme: light)" srcset="/assets/app-emotes-light.webp?v=6" type="image/webp"><source data-shot="dark" media="(prefers-color-scheme: dark)" srcset="/assets/app-emotes.webp?v=6" type="image/webp"><img id="shot-2-alt" src="/assets/app-emotes.webp?v=6" width="1320" height="880" loading="lazy" decoding="async" alt="" data-i18n-attr="alt=gallery.emotesAlt"></picture><span class="screenshot-expand" aria-hidden="true">↗</span></div>
+              <div class="screenshot-caption"><span class="screenshot-number">02</span><h3 id="shot-2-title" data-i18n="gallery.emotes">Screenshot</h3></div>
+            </a>
+          </li>
+          <li class="screenshot-card">
+            <a class="screenshot-link" href="/assets/app-discover.png?v=6" data-screenshot data-shot-dark="/assets/app-discover.png?v=6" data-shot-light="/assets/app-discover-light.png?v=6" aria-labelledby="shot-3-title" aria-describedby="shot-3-alt">
+              <div class="screenshot-frame"><picture><source data-shot="light" media="(prefers-color-scheme: light)" srcset="/assets/app-discover-light.webp?v=6" type="image/webp"><source data-shot="dark" media="(prefers-color-scheme: dark)" srcset="/assets/app-discover.webp?v=6" type="image/webp"><img id="shot-3-alt" src="/assets/app-discover.webp?v=6" width="1320" height="880" loading="lazy" decoding="async" alt="" data-i18n-attr="alt=gallery.discoverAlt"></picture><span class="screenshot-expand" aria-hidden="true">↗</span></div>
+              <div class="screenshot-caption"><span class="screenshot-number">03</span><h3 id="shot-3-title" data-i18n="gallery.discover">Screenshot</h3></div>
+            </a>
+          </li>
+          <li class="screenshot-card">
+            <a class="screenshot-link" href="/assets/app-detached.png?v=6" data-screenshot data-shot-dark="/assets/app-detached.png?v=6" data-shot-light="/assets/app-detached-light.png?v=6" aria-labelledby="shot-4-title" aria-describedby="shot-4-alt">
+              <div class="screenshot-frame"><picture><source data-shot="light" media="(prefers-color-scheme: light)" srcset="/assets/app-detached-light.webp?v=6" type="image/webp"><source data-shot="dark" media="(prefers-color-scheme: dark)" srcset="/assets/app-detached.webp?v=6" type="image/webp"><img id="shot-4-alt" src="/assets/app-detached.webp?v=6" width="1320" height="880" loading="lazy" decoding="async" alt="" data-i18n-attr="alt=gallery.detachedAlt"></picture><span class="screenshot-expand" aria-hidden="true">↗</span></div>
+              <div class="screenshot-caption"><span class="screenshot-number">04</span><h3 id="shot-4-title" data-i18n="gallery.detached">Screenshot</h3></div>
+            </a>
+          </li>
+          <li class="screenshot-card">
+            <a class="screenshot-link" href="/assets/app-welcome.png?v=6" data-screenshot data-shot-dark="/assets/app-welcome.png?v=6" data-shot-light="/assets/app-welcome-light.png?v=6" aria-labelledby="shot-5-title" aria-describedby="shot-5-alt">
+              <div class="screenshot-frame"><picture><source data-shot="light" media="(prefers-color-scheme: light)" srcset="/assets/app-welcome-light.webp?v=6" type="image/webp"><source data-shot="dark" media="(prefers-color-scheme: dark)" srcset="/assets/app-welcome.webp?v=6" type="image/webp"><img id="shot-5-alt" src="/assets/app-welcome.webp?v=6" width="1320" height="880" loading="lazy" decoding="async" alt="" data-i18n-attr="alt=gallery.welcomeAlt"></picture><span class="screenshot-expand" aria-hidden="true">↗</span></div>
+              <div class="screenshot-caption"><span class="screenshot-number">05</span><h3 id="shot-5-title" data-i18n="gallery.welcome">Screenshot</h3></div>
+            </a>
+          </li>
+          <li class="screenshot-card">
+            <a class="screenshot-link" href="/assets/app-settings.png?v=6" data-screenshot data-shot-dark="/assets/app-settings.png?v=6" data-shot-light="/assets/app-settings-light.png?v=6" aria-labelledby="shot-6-title" aria-describedby="shot-6-alt">
+              <div class="screenshot-frame"><picture><source data-shot="light" media="(prefers-color-scheme: light)" srcset="/assets/app-settings-light.webp?v=6" type="image/webp"><source data-shot="dark" media="(prefers-color-scheme: dark)" srcset="/assets/app-settings.webp?v=6" type="image/webp"><img id="shot-6-alt" src="/assets/app-settings.webp?v=6" width="1320" height="880" loading="lazy" decoding="async" alt="" data-i18n-attr="alt=gallery.settingsAlt"></picture><span class="screenshot-expand" aria-hidden="true">↗</span></div>
+              <div class="screenshot-caption"><span class="screenshot-number">06</span><h3 id="shot-6-title" data-i18n="gallery.settings">Screenshot</h3></div>
+            </a>
+          </li>
+        </ul>
+      </section>
+
+      <section id="pourquoi" class="why" aria-labelledby="why-title">
+        <div class="why-intro">
+          <p class="eyebrow" data-i18n="why.kicker">WHY TWICHAT · 02</p>
+          <h2 id="why-title" data-i18n-text="why.titleLead">Why not<br><span data-i18n="why.titleTail">just use the site?</span></h2>
+          <p data-i18n="why.body">On a stream page, chat sits in a narrow column to the right of the video. In Twichat the proportions are yours: chat takes the window and the stream takes the space you leave it.</p>
+          <p data-i18n="why.bodyMore">This desktop Twitch client keeps several channels open at once without loading Twitch's web page. Chat goes through a single IRC connection over TLS, history stays smooth on busy channels, and switching channels reloads nothing.</p>
+        </div>
+        <div class="comparison" aria-label="Comparison between a usual stream page and Twichat" data-i18n-attr="aria-label=why.comparisonLabel">
+          <article class="comparison-before">
+            <span data-i18n="why.beforeLabel">THE USUAL STREAM PAGE</span>
+            <h3 data-i18n="why.beforeTitle">Chat fits in a column.</h3>
+            <ul><li data-i18n="why.beforeColumn">A fixed column right of the video</li><li data-i18n="why.beforeNames">Usernames and emotes cut to the bone</li><li data-i18n="why.beforeTabs">One browser tab per channel</li></ul>
+          </article>
+          <article class="comparison-after">
+            <span data-i18n="why.afterLabel">WITH TWICHAT</span>
+            <h3 data-i18n="why.afterTitle">Chat takes the window.</h3>
+            <ul><li data-i18n="why.afterWidth">Chat across the full width, smooth history</li><li data-i18n="why.afterAvatars">Avatars, badges and emotes at full size</li><li data-i18n="why.afterChannels">Up to twenty channels in the same window</li></ul>
+          </article>
+        </div>
+      </section>
+
+      <section id="principes" class="principles" aria-labelledby="principles-title">
+        <div class="section-heading compact"><p class="eyebrow" data-i18n="how.kicker">UNDER THE HOOD · 03</p><h2 id="principles-title" data-i18n="how.title">How it works.</h2></div>
+        <div class="principle-grid">
+          <article><span data-i18n="how.chatIndex">01 / CHAT</span><h3 data-i18n="how.chatTitle">IRC, no Twitch page</h3><p data-i18n="how.chatBody">A single TLS connection serves all your channels. Each channel keeps its last 500 messages, and only the ones on screen are in the DOM.</p></article>
+          <article><span data-i18n="how.streamIndex">02 / STREAM</span><h3 data-i18n="how.streamTitle">A single HLS stream</h3><p data-i18n="how.streamBody">Video starts with the channel, resizes, switches to audio only or to its own window, and detects when the stream stops or comes back.</p></article>
+          <article><span data-i18n="how.displayIndex">03 / DISPLAY</span><h3 data-i18n="how.displayTitle">Avatars and emotes</h3><p data-i18n="how.displayBody">Twitch avatars are loaded in batches for the authors on screen, along with Twitch, 7TV, BetterTTV and FrankerFaceZ emotes. A mention colours the line and notifies you.</p></article>
+        </div>
+      </section>
+
+      <section id="faq" class="faq" aria-labelledby="faq-title">
+        <div class="faq-heading">
+          <div><p class="eyebrow" data-i18n="faq.kicker">FREQUENTLY ASKED · 04</p><h2 id="faq-title" data-i18n="faq.title">Before you<br>download.</h2></div>
+          <p data-i18n="faq.body">Twichat is an independent Twitch client, free and currently in alpha on macOS, Windows and Linux. Here is what to know about IRC chat, the video player, Twitch accounts and supported platforms.</p>
+        </div>
+        <div class="faq-list">
+          <details open><summary data-i18n="faq.whatQuestion">What is Twichat?</summary><p data-i18n="faq.whatAnswer">Twichat is a desktop Twitch client where chat takes the window. Avatars, badges and emotes show in full, replies form threads, and the stream stays beside it at whatever size you give it.</p></details>
+          <details><summary data-i18n="faq.accountQuestion">Can you use Twichat without a Twitch account?</summary><p data-i18n="faq.accountAnswer">Yes. Anonymous mode lets you read channel chat and watch streams. A Twitch account is only needed to send messages and reach authenticated features.</p></details>
+          <details><summary data-i18n="faq.connectionQuestion">How does Twichat connect to Twitch chat?</summary><p data-i18n="faq.connectionAnswer">Twichat uses a secure IRC connection shared across channels. It does not open Twitch's full web page, which keeps resource use down and chat rendering responsive.</p></details>
+          <details><summary data-i18n="faq.streamQuestion">Can you watch a stream inside Twichat?</summary><p data-i18n="faq.streamAnswer">Yes. An HLS player starts with the channel. It resizes, goes fullscreen, switches to audio only or moves to its own window. One stream is active at a time.</p></details>
+          <details><summary data-i18n="faq.emotesQuestion">Which avatars and emotes show in chat?</summary><p data-i18n="faq.emotesAnswer">Twichat shows Twitch avatars and badges as well as Twitch, 7TV, BetterTTV and FrankerFaceZ emotes, so each channel keeps its own face.</p></details>
+          <details><summary data-i18n="faq.platformsQuestion">Which systems is Twichat available on?</summary><p data-i18n="faq.platformsAnswer">Twichat is available for macOS, Windows and Linux. The download offers the build for your system automatically.</p></details>
+        </div>
+      </section>
+
+      <section class="download-band" aria-labelledby="download-title">
+        <div><p class="eyebrow" data-i18n="download.kicker">DOWNLOAD</p><h2 id="download-title" data-i18n="download.title">Try the alpha<br>on your machine.</h2></div>
+        <div><div class="download-actions"><div class="download-split" data-download-split><a class="button primary large" data-download href="/download?platform=mac" data-i18n="download.cta">Download for macOS</a><button class="download-split-toggle large" type="button" aria-expanded="false" aria-haspopup="true" aria-label="Other versions" data-i18n-attr="aria-label=download.otherVersionsLabel"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><ul class="download-split-menu" hidden><li><a href="/download?platform=mac" data-download-item="mac">macOS <span>.dmg</span></a></li><li><a href="/download?platform=windows" data-download-item="windows">Windows <span>.exe</span></a></li><li><a href="/download?platform=deb" data-download-item="deb">Linux <span>.deb</span></a></li><li><a href="/download?platform=rpm" data-download-item="rpm">Linux <span>.rpm</span></a></li></ul></div><a class="button ghost large github-cta" href="https://github.com/theslumdogemillionaire/twichat"><svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>GitHub</a></div><p class="platforms"><span class="os-list" aria-hidden="true"><svg class="os"><use href="#os-mac"/></svg><svg class="os"><use href="#os-windows"/></svg><svg class="os"><use href="#os-linux"/></svg></span><span data-i18n="download.platforms">macOS, Windows and Linux</span></p><p data-i18n="download.body">Free download, straight from this site. macOS, Windows and Linux: the build for your system is offered automatically.</p></div>
+      </section>
+    </main>
+    <dialog class="lightbox" id="screenshot-lightbox" aria-labelledby="lightbox-title">
+      <div class="lightbox-toolbar">
+        <span class="lightbox-brand">twichat<span>.</span></span>
+        <p id="lightbox-title" data-i18n="gallery.lightboxTitle">App screenshots</p>
+        <button type="button" class="lightbox-zoom" aria-pressed="false" data-i18n="gallery.zoom" data-i18n-attr="data-zoom-label=gallery.zoom;data-fit-label=gallery.fit">Zoom in</button>
+        <button type="button" class="gallery-arrow lightbox-close" autofocus aria-label="Close preview" data-i18n-attr="aria-label=gallery.close">×</button>
+      </div>
+      <div class="lightbox-stage" tabindex="0" role="region" aria-label="Screenshot preview" data-i18n-attr="aria-label=gallery.previewRegion"><img class="lightbox-image" alt="" width="1320" height="880"></div>
+      <div class="lightbox-footer"><p class="lightbox-caption" aria-live="polite" aria-atomic="true"></p><div class="lightbox-navigation"><button type="button" class="gallery-arrow" data-lightbox-prev aria-label="Previous screenshot" data-i18n-attr="aria-label=gallery.previous">←</button><span class="lightbox-count"></span><button type="button" class="gallery-arrow" data-lightbox-next aria-label="Next screenshot" data-i18n-attr="aria-label=gallery.next">→</button></div></div>
+    </dialog>
+    <footer><a class="brand footer-brand" href="/"><img src="/assets/twichat-logo.png" width="30" height="30" alt=""><strong data-i18n-text="brand.name">twichat<span>.</span></strong></a><nav class="footer-nav" aria-label="Site sections" data-i18n-attr="aria-label=nav.footerLabel"><a href="#produit" data-i18n="nav.product">The app</a><a href="#captures" data-i18n="gallery.nav">Screenshots</a><a href="#pourquoi" data-i18n="nav.why">Why Twichat</a><a href="#principes" data-i18n="nav.how">Under the hood</a><a href="#faq" data-i18n="nav.faq">FAQ</a><a href="https://github.com/theslumdogemillionaire/twichat">GitHub</a></nav><p data-i18n="footer.legal">Independent Twitch client. Twitch is a trademark of Twitch Interactive, Inc.</p><span data-i18n="footer.tech">IRC / TLS <i></i> HLS VIDEO</span></footer>
+  </body>
+</html>
