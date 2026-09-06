@@ -45,14 +45,18 @@ export function parsePublicProfile(channelInput: string, html: string): RoomProf
     ?? html.match(/<meta\s+content=["']([^"']+)["']\s+property=["']og:image["']/i)?.[1]
   const title = htmlValue(html.match(/<meta\s+property=["']og:title["']\s+content=["']([^"']*)["']/i)?.[1] ?? '')
   const description = htmlValue(html.match(/<meta\s+name=["']description["']\s+content=["']([^"']*)["']/i)?.[1] ?? '')
-  const viewers = Number(description.match(/\b(?:for|pour)\s+([\d, .]+)\s+viewers\b/i)?.[1]?.replace(/[^\d]/g, '')) || undefined
+  // A login Twitch does not know is answered with the site's own home page, which names Twitch and
+  // shows the Twitch logo. Only a real channel page is typed `video.other`, so nothing on the page
+  // is read as the channel's own unless that type is there: the login stands in instead.
+  const known = /<meta\s+property=["']og:type["']\s+content=["']video\.other["']/i.test(html)
   return {
     channel,
-    displayName: cleanText(title.replace(/\s*[-–]\s*(?:Live (?:on|sur) Twitch|Twitch).*$/i, ''), 50) || channel,
-    avatarUrl: safeAvatar(image ? htmlValue(image) : ''),
-    live: /"isLiveBroadcast"\s*:\s*true/i.test(html) || /<meta\s+property=["']og:type["']\s+content=["']video\.other["']/i.test(html),
-    viewers,
-    title: cleanText(description.replace(/\s*\|\s*Streaming .*$/i, ''), 140) || undefined,
+    displayName: (known && cleanText(title.replace(/\s*[-–]\s*(?:Live (?:on|sur) Twitch|Twitch).*$/i, ''), 50)) || channel,
+    avatarUrl: known ? safeAvatar(image ? htmlValue(image) : '') : '',
+    // `video.other` is the type of every channel page, on air or not, so the JSON-LD broadcast is
+    // the only thing that tells them apart. The public page carries no audience count at all.
+    live: /"isLiveBroadcast"\s*:\s*true/i.test(html),
+    title: (known && cleanText(description.replace(/\s*\|\s*Streaming .*$/i, ''), 140)) || undefined,
     startedAt: liveStart(html)
   }
 }

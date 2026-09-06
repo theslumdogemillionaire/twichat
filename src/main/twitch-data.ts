@@ -63,7 +63,8 @@ async function scrapeProfile(channel: string): Promise<void> {
     if (html.length > 3 * 1024 * 1024) fail('twitchProfileTooLarge')
     const value = parsePublicProfile(channel, html)
     rememberIdentity(channel, { displayName: value.displayName, avatarUrl: value.avatarUrl })
-    rememberLive(channel, { live: value.live, viewers: value.viewers, title: value.title, startedAt: value.startedAt })
+    // No audience count: Twitch's public page names none, Helix is the only source of one.
+    rememberLive(channel, { live: value.live, title: value.title, startedAt: value.startedAt })
   } catch { /* The room stays usable: keep whatever is already known. */ }
 }
 

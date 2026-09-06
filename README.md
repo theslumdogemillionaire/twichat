@@ -171,8 +171,8 @@ working in all three cases.
 **Removing what Twichat stored.** Everything lives in one directory —
 `~/Library/Application Support/Twichat` on macOS, `%APPDATA%\Twichat` on Windows,
 `~/.config/Twichat` on Linux. `twichat.db` holds the preferences and rooms, `accounts.json` the
-enciphered tokens, `avatars.json` the cached profile pictures. Deleting the directory resets the
-app completely.
+enciphered tokens, `avatars.json` and `channel-avatars.json` the cached profile pictures. Deleting
+the directory resets the app completely.
 
 ## Contributing
 

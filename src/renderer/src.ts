@@ -6,7 +6,7 @@ import { hydrateIcons, icon } from './icons'
 import { ChatStore } from './chat-store'
 import { VirtualLog } from './virtual-log'
 import { StreamPlayer, type StreamPlayerState } from './player'
-import { messageFragments } from './emotes'
+import { inlineEmoteNodes, messageFragments } from './emotes'
 import { liveUptime } from './live-stats'
 import { idleChannels } from './idle-channels'
 import { createComposer } from './composer'
@@ -592,23 +592,48 @@ function dormantChannels(): Set<string> {
   })), idleSetting()))
 }
 
+function collapsedSidebar() { return appRoot.classList.contains('sidebar-collapsed') }
+/** How many are watching, spelled out. Empty when the channel is off air or Twitch never said. */
+function roomAudience(profile: RoomProfile | undefined) {
+  return profile?.live && profile.viewers !== undefined ? m.app.viewerCount(numbers.format(profile.viewers), profile.viewers) : ''
+}
+
 // Avatar, name and live dot are painted the same way on a room row and on the own-channel shortcut.
 function paintRoomButton(button: HTMLButtonElement, channel: string, hint: string, fallbackName = `# ${channel}`) {
   const profile = roomProfiles.get(channel)
   const live = profile ? (profile.live ? 'true' : 'false') : 'unknown'
   const status = profile ? (profile.live ? profile.viewers ? m.app.liveWithViewers(numbers.format(profile.viewers), profile.viewers) : m.app.live : m.app.offline) : ''
-  const title = status ? `${status} · ${hint}` : hint
+  const displayName = profile?.displayName || fallbackName
+  // Expanded, the tooltip is where a name too long for the column can still be read whole.
+  // Collapsed, the row hands that job to `#rail-tip`, which draws itself: keeping the attribute
+  // as well would have the two bubbles stacked on the same hover.
+  const title = collapsedSidebar() ? '' : [displayName, status, hint].filter(Boolean).join(' · ')
   if (button.title !== title) button.title = title
   button.classList.toggle('is-live', live === 'true')
   button.classList.toggle('is-offline', live === 'false')
   button.setAttribute('aria-current', String(channel === active && currentView === 'room'))
-  const displayName = profile?.displayName || fallbackName
-  const avatarKey = `${displayName}\n${profile?.avatarUrl ?? ''}`
+  // The dot said a channel was live without ever saying how live. Under the name there is width
+  // for the whole sentence rather than an abbreviated number, and it is marked away from the
+  // screen reader, whose own label on the dot already reads it.
+  const viewers = roomAudience(profile)
+  let count = button.querySelector<HTMLElement>('.room-viewers')
+  if (!viewers) count?.remove()
+  else {
+    if (!count) {
+      count = document.createElement('span'); count.className = 'room-viewers'; count.setAttribute('aria-hidden', 'true')
+      button.querySelector('.room-text')!.append(count)
+    }
+    if (count.textContent !== viewers) count.textContent = viewers
+  }
+  // The picture cached on disk stands in until Twitch names one, and stays when it names none:
+  // a room opened yesterday has no reason to come back this morning as a bare initial.
+  const avatarUrl = profile?.avatarUrl || state.channelAvatars[channel] || ''
+  const avatarKey = `${displayName}\n${avatarUrl}`
   const initial = button.querySelector<HTMLElement>('.room-avatar')!
   if (button.dataset.avatarKey !== avatarKey) {
     initial.replaceChildren((profile?.displayName || channel).slice(0, 1))
-    if (profile?.avatarUrl) {
-      const image = document.createElement('img'); image.src = profile.avatarUrl; image.alt = ''; image.width = 28; image.height = 28
+    if (avatarUrl) {
+      const image = document.createElement('img'); image.src = avatarUrl; image.alt = ''; image.width = 28; image.height = 28
       image.addEventListener('error', () => image.remove())
       initial.append(image)
     }
@@ -668,11 +693,13 @@ function renderRooms() {
       button = document.createElement('button')
       button.className = 'room-button'; button.type = 'button'; button.dataset.channel = channel
       const initial = document.createElement('span'); initial.className = 'room-avatar'
-      const name = document.createElement('span'); name.className = 'room-name'
+      // Name and audience share one column: the count goes on a line of its own under the name.
+      const text = document.createElement('span'); text.className = 'room-text'
+      const name = document.createElement('span'); name.className = 'room-name'; text.append(name)
       const liveDot = document.createElement('span'); liveDot.className = 'room-live'; liveDot.dataset.live = 'unknown'
       const liveLabel = document.createElement('span'); liveLabel.className = 'sr-only'; liveDot.append(liveLabel)
       const badge = document.createElement('span'); badge.className = 'unread'; badge.hidden = true
-      button.append(initial, name, liveDot, badge)
+      button.append(initial, text, liveDot, badge)
       button.addEventListener('click', () => activate(channel))
       button.addEventListener('contextmenu', event => { event.preventDefault(); openRoomContextMenu(channel, event.clientX, event.clientY) })
       button.addEventListener('keydown', event => {
@@ -699,6 +726,7 @@ function renderRooms() {
   idleNav.hidden = !idleExpanded
   $('#sidebar-empty').hidden = state.preferences.channels.length > 0
   renderOwnChannel()
+  followRailTip()
 }
 
 function activate(channel: string) {
@@ -749,6 +777,8 @@ function placeFloating(element: HTMLElement, requestedX: number, requestedY: num
   element.style.left = `${Math.max(8, Math.min(requestedX, innerWidth - bounds.width - 8))}px`
   element.style.top = `${Math.max(8, Math.min(requestedY, innerHeight - bounds.height - 8))}px`
 }
+// The rail bubble is not on this list: it is driven by the pointer alone, takes no click of its
+// own, and every click in the window passes through here — including the one on the row it names.
 function closeFloatingLayers() { closeAccountMenu(); closeRoomContextMenu(); closeMessageContextMenu(); closeUserCard() }
 
 function closeAccountMenu() {
@@ -1040,7 +1070,10 @@ async function addRoom(value?: string) {
   catch (error) { $('#join-error').textContent = displayError(error) }
 }
 
-const railHints = (): [string, string][] => [['#open-discover', m.app.exploreChannels], ['#add-room', platformKeys(m.app.joinChannelShortcut, commandKey())], ['#own-channel', m.app.yourChannel], ['#account-button', m.app.accountAndSettings]]
+// The own-channel shortcut is not on this list: `paintRoomButton` gives it a title of its own —
+// its name, whether it is live and how many are there — and this loop would replace it collapsed,
+// then strip it expanded, leaving the row without a tooltip until something repainted it.
+const railHints = (): [string, string][] => [['#open-discover', m.app.exploreChannels], ['#add-room', platformKeys(m.app.joinChannelShortcut, commandKey())], ['#account-button', m.app.accountAndSettings]]
 function setSidebarCollapsed(collapsed: boolean, remember = true) {
   appRoot.classList.toggle('sidebar-collapsed', collapsed)
   const toggle = $('#toggle-sidebar')
@@ -1050,7 +1083,52 @@ function setSidebarCollapsed(collapsed: boolean, remember = true) {
   toggle.title = `${label} (${keyLabel(SHORTCUTS.sidebar, commandKey())})`
   // Reduced to avatars, every row needs the tooltip its label used to carry.
   for (const [selector, hint] of railHints()) { const element = $(selector); if (collapsed) element.title = hint; else element.removeAttribute('title') }
+  // The rooms hold theirs in an attribute expanded and in `#rail-tip` collapsed, so they are
+  // repainted to swap the one for the other. Not before the workspace exists: this runs once at
+  // load, when there is no account, no preferences and nothing to draw.
+  hideRailTip()
+  if (workspaceEntered) { renderRooms(); renderOwnChannel() }
   if (remember) save()
+}
+
+const railTip = $('#rail-tip')
+/** The row the bubble is pinned to, so a list that moves under it can take it along. */
+let railTipRow: HTMLButtonElement | null = null
+/**
+ * Whether the pointer is on a row right now. Clicking one opens the room, which puts the caret in
+ * the composer — focus leaves the rail while the pointer never moved, and without this the bubble
+ * would vanish from under a pointer still resting on the avatar it names.
+ */
+let railHovered = false
+/**
+ * What the collapsed rail cannot write on the row itself: the name of the channel, and how many
+ * are watching it. Drawn rather than left to the `title` attribute — the native tooltip does not
+ * come up over these rows, and this one carries the audience spelled out, without the delay.
+ */
+function showRailTip(button: HTMLButtonElement) {
+  const channel = button.dataset.channel ?? state.account ?? ''
+  if (!channel) return
+  railTipRow = button
+  const profile = roomProfiles.get(channel)
+  const name = document.createElement('strong')
+  name.textContent = profile?.displayName || (button === ownChannelButton ? channel : `# ${channel}`)
+  railTip.replaceChildren(name)
+  const status = roomAudience(profile) || (profile ? profile.live ? m.app.live : m.app.offline : '')
+  if (status) { const line = document.createElement('span'); line.textContent = status; railTip.append(line) }
+  railTip.hidden = false
+  const row = button.getBoundingClientRect()
+  placeFloating(railTip, row.right + 8, row.top + row.height / 2 - railTip.getBoundingClientRect().height / 2)
+}
+function hideRailTip() { railTipRow = null; railTip.hidden = true }
+/**
+ * The rows move under the bubble: a channel going live grows the one above it by a line, and a
+ * room falling dormant leaves the list altogether. Left alone, the bubble would keep pointing at
+ * a row that is no longer there. Called after every repaint of the list.
+ */
+function followRailTip() {
+  if (!railTipRow) return
+  if (collapsedSidebar() && railTipRow.isConnected) showRailTip(railTipRow)
+  else hideRailTip()
 }
 
 function scheduleLiveRefresh() {
@@ -1548,8 +1626,10 @@ function createMessage(message: ChatMessage) {
     quote.title = m.app.goToMessageOf(message.reply.user)
     const who = document.createElement('span'); who.className = 'message-quote-user'; who.textContent = message.reply.user
     const said = document.createElement('span'); said.className = 'message-quote-text'
-    // The parent body arrives without an `emotes` tag: no offset would let us render it as images.
-    said.textContent = message.reply.text || m.app.deletedMessage
+    // The parent body arrives without an `emotes` tag: its emotes are matched on their name, as
+    // for a message of our own. Links stay text — an anchor has no place inside this button.
+    if (message.reply.text) said.append(...inlineEmoteNodes(message.reply.text, thirdPartyEmotes.get(message.channel), twitchEmoteIds.get(message.channel)))
+    else said.textContent = m.app.deletedMessage
     quote.append(who, said)
     main.append(quote)
   }
@@ -2362,6 +2442,19 @@ document.addEventListener('visibilitychange', () => {
 })
 window.addEventListener('pagehide', () => { flushActivity(); flushPreferences() })
 $('#toggle-sidebar').addEventListener('click', () => setSidebarCollapsed(!appRoot.classList.contains('sidebar-collapsed')))
+// The bubble follows the pointer from one row to the next, and goes as soon as the pointer leaves
+// the rail or the list scrolls under it. Focus gets it too: collapsed, the keyboard is as blind
+// to which room it is on as the pointer.
+const railRow = (event: Event) => collapsedSidebar() ? (event.target as HTMLElement).closest<HTMLButtonElement>('.room-button') : null
+$('#sidebar').addEventListener('pointerover', event => {
+  const row = railRow(event)
+  railHovered = Boolean(row)
+  if (row) showRailTip(row); else hideRailTip()
+})
+$('#sidebar').addEventListener('focusin', event => { const row = railRow(event); if (row) showRailTip(row); else if (!railHovered) hideRailTip() })
+$('#sidebar').addEventListener('pointerleave', () => { railHovered = false; hideRailTip() })
+$('#sidebar').addEventListener('focusout', () => { if (!railHovered) hideRailTip() })
+for (const selector of ['#rooms', '#idle-rooms']) $(selector).addEventListener('scroll', hideRailTip)
 $('#toggle-player').addEventListener('click', () => setChatOnly(!$('#room-body').classList.contains('chat-only')))
 $('#play-stream').addEventListener('click', () => player.play(active, $<HTMLSelectElement>('#quality').value, playback().buffer))
 fullscreenButton.addEventListener('click', () => void togglePlayerFullscreen())
@@ -2387,7 +2480,8 @@ function repaintDynamic() {
   // change has to put it back itself.
   disarmForget()
   renderSavedAccounts(); renderRooms(); updateAccount(state.account)
-  // The collapsed rail tooltips are set when the sidebar is toggled: we replay it for them.
+  // The collapsed rail hints are written when the sidebar is toggled, in the language of the
+  // moment: replaying the toggle is what puts them back in the new one.
   setSidebarCollapsed(appRoot.classList.contains('sidebar-collapsed'), false)
   updateConnection(state.status, active ? m.app.twitchChannel : m.app.connectingToTwitchChat)
   // `hydrate` has just put the shipped sentence back into the title bar note: it is rewritten here.

@@ -52,12 +52,13 @@ test('the site serves the names the packages are built under', () => {
   const extensions = { dmg: 'mac', exe: 'windows', deb: 'deb', rpm: 'rpm' }
   const promised = new Set([...read('server/app.mjs').matchAll(/name:\s*'(Twichat-[^']+)'/g)].map(match => match[1]))
   assert.ok(built.size >= 3, `electron-builder names no artifact: ${[...built]}`)
-  assert.ok(promised.size === 4, `the site promises ${promised.size} downloads, expected four`)
+  assert.ok(promised.size === 6, `the site promises ${promised.size} downloads, expected six`)
   for (const name of promised) {
     const extension = name.split('.').pop() as keyof typeof extensions
     assert.ok(extension in extensions, `${name} has an extension the release does not build`)
-    // `Twichat-linux.deb` has to come from a template reading `Twichat-linux.${ext}`.
-    const template = name.replace(/\.[^.]+$/, '.${ext}')
+    // `Twichat-linux-arm64.deb` has to come from `Twichat-linux-${arch}.${ext}`: the extension,
+    // and the architecture where the name carries one, are both what the template fills in.
+    const template = name.replace(/\.[^.]+$/, '.${ext}').replace(/-(?:x64|arm64)\./, '-${arch}.')
     assert.ok(built.has(template), `the site serves ${name} but nothing is built as ${template}`)
   }
 })

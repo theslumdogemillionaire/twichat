@@ -62,6 +62,7 @@ npm run test:desktop   # startup, joining a room, avatars, layout
 npm run test:settings  # playback settings, per-account scoping, saving on the way out
 npm run test:video     # HLS resolution, playback, fullscreen — needs a live channel
 npm run test:chat      # rendering a busy room: messages, badges, emotes
+npm run test:avatars   # the room pictures cached on disk, from one launch to the next
 ```
 
 The ones that watch a channel take it as an argument — `npm run test:video anyme023`. Pick one

@@ -19,11 +19,15 @@ const mimeTypes = new Map([
   ['.svg', 'image/svg+xml'], ['.webp', 'image/webp'], ['.woff2', 'font/woff2'], ['.txt', 'text/plain; charset=utf-8'],
   ['.xml', 'application/xml; charset=utf-8']
 ])
+// The keys are what `?platform=` accepts and what names the override variable, so they stay
+// shaped like an environment variable: `deb_arm64` reads `TWICHAT_DOWNLOAD_DEB_ARM64_URL`.
 const downloadFiles = {
   mac: { name: 'Twichat-mac.dmg', type: 'application/x-apple-diskimage' },
   windows: { name: 'Twichat-windows.exe', type: 'application/vnd.microsoft.portable-executable' },
-  deb: { name: 'Twichat-linux.deb', type: 'application/vnd.debian.binary-package' },
-  rpm: { name: 'Twichat-linux.rpm', type: 'application/x-rpm' }
+  deb: { name: 'Twichat-linux-x64.deb', type: 'application/vnd.debian.binary-package' },
+  rpm: { name: 'Twichat-linux-x64.rpm', type: 'application/x-rpm' },
+  deb_arm64: { name: 'Twichat-linux-arm64.deb', type: 'application/vnd.debian.binary-package' },
+  rpm_arm64: { name: 'Twichat-linux-arm64.rpm', type: 'application/x-rpm' }
 }
 
 /**

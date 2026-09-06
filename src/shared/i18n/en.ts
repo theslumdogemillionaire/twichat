@@ -195,7 +195,6 @@ export const en = {
     roomLimitReached: '20 channels maximum: leave a channel before joining another.',
     exploreChannels: 'Explore channels',
     joinChannelShortcut: 'Join a channel (⌘ K)',
-    yourChannel: 'Your channel',
     accountAndSettings: 'Account and settings',
     expandSidebar: 'Expand the sidebar',
     collapseSidebar: 'Collapse the sidebar',

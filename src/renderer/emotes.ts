@@ -86,3 +86,22 @@ export function messageFragments(text: string, emoteTag = '', thirdParty?: Reado
   if (cursor < characters.length) fragments.push(...wordFragments(characters.slice(cursor).join(''), thirdParty, ownEmotes))
   return fragments.length ? fragments : wordFragments(text, thirdParty, ownEmotes)
 }
+
+/**
+ * The emotes of a body that carries no tag of its own — the quote of a reply, the composer's
+ * preview of its target: Twitch hands those over as plain text, so only a name match can give
+ * them their image back. Images only: a GIF or a link needs more than the single line they get.
+ */
+export function inlineEmoteNodes(text: string, thirdParty?: ReadonlyMap<string, ThirdPartyEmote>, twitchNames?: ReadonlyMap<string, string>): Node[] {
+  return messageFragments(text, '', thirdParty, twitchNames).map(fragment => {
+    if (fragment.type !== 'emote') return document.createTextNode(fragment.text)
+    const image = document.createElement('img')
+    // No title of its own: the quote is a button, and its own tooltip must survive the hover.
+    image.className = 'inline-emote'; image.alt = fragment.text
+    image.loading = 'lazy'; image.decoding = 'async'
+    // Same fallback as in the log: the code takes the image's place rather than a broken frame.
+    image.addEventListener('error', () => image.replaceWith(document.createTextNode(fragment.text)), { once: true })
+    image.src = fragment.url
+    return image
+  })
+}

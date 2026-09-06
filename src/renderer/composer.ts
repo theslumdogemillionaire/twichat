@@ -1,7 +1,7 @@
 import { ComposerMemory } from './composer-memory'
 import { composing, sends } from './keys'
 import type { ChatMessage, ReplyReference, ThirdPartyEmote, TwitchEmote } from '../shared/types'
-import { twitchEmoteUrl } from './emotes'
+import { inlineEmoteNodes, twitchEmoteUrl } from './emotes'
 import { EMOJIS, EMOJI_GROUPS, searchEmojis, type Emoji } from './emoji'
 import { m } from '../shared/i18n'
 import { AppError } from '../shared/errors'
@@ -95,6 +95,11 @@ export function createComposer(hooks: ComposerHooks) {
     const codes = new Set<string>(hooks.emotes()?.keys() ?? [])
     for (const emote of hooks.twitch() ?? []) codes.add(emote.name)
     return codes
+  }
+
+  /** Name to id, as the log holds it for our own messages: a body with no emote tag needs it. */
+  function twitchEmoteIds(): ReadonlyMap<string, string> {
+    return new Map((hooks.twitch() ?? []).map(emote => [emote.name, emote.id]))
   }
 
   // The mirror only paints backgrounds behind the textarea, so its metrics must never diverge from it.
@@ -461,7 +466,9 @@ export function createComposer(hooks: ComposerHooks) {
     replyBar.hidden = !target
     if (!target) return
     replyUser.textContent = target.user
-    replyText.textContent = target.text ? ` · ${target.text}` : ''
+    // The same name matching as the quote in the log: the target is recognised by its emotes.
+    replyText.replaceChildren()
+    if (target.text) replyText.append(' · ', ...inlineEmoteNodes(target.text, hooks.emotes(), twitchEmoteIds()))
   }
   function setReply(target: ReplyReference | null) {
     memory.setReply(channel, target)

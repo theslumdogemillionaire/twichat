@@ -25,6 +25,15 @@ for (const item of document.querySelectorAll('[data-download-item]')) {
   if (item.dataset.downloadItem === primary) item.setAttribute('aria-current', 'true')
 }
 
+// A phone has nothing to install: handing it a disk image would be a download that ends in a
+// file it cannot open. The buttons give way to the one sentence that is true there, and the
+// header link points at the section instead of at the installer.
+if (mobile) {
+  for (const split of document.querySelectorAll('[data-download-split]')) split.hidden = true
+  for (const note of document.querySelectorAll('[data-download-mobile]')) note.hidden = false
+  for (const link of document.querySelectorAll('.nav-download')) link.href = '#download-title'
+}
+
 function closeDownloadMenus() {
   for (const menu of document.querySelectorAll('.download-split-menu')) menu.hidden = true
   for (const toggle of document.querySelectorAll('.download-split-toggle')) toggle.setAttribute('aria-expanded', 'false')
@@ -194,5 +203,20 @@ if (strip && lightbox && typeof lightbox.showModal === 'function') {
     document.documentElement.classList.remove('lightbox-open')
     setZoom(false)
     opener?.focus({ preventScroll: true })
+  })
+}
+
+// Copying an address is the whole interaction: the button carries it, and the confirmation is
+// announced rather than drawn, since the address stays visible either way. A refusal from the
+// clipboard says nothing: the address is on screen and can still be selected by hand.
+let copiedTimer
+for (const button of document.querySelectorAll('[data-copy]')) {
+  button.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(button.dataset.copy) } catch { return }
+    const status = document.querySelector('.donate-status')
+    if (!status) return
+    status.textContent = status.dataset.copied ?? ''
+    clearTimeout(copiedTimer)
+    copiedTimer = setTimeout(() => { status.textContent = '' }, 4000)
   })
 }

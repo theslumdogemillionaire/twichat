@@ -73,9 +73,37 @@ try {
     fullWidthChat: Math.abs((document.querySelector('.conversation') as HTMLElement).getBoundingClientRect().width - (document.querySelector('#room-body') as HTMLElement).getBoundingClientRect().width) < 2,
     floatingPlayer: getComputedStyle(document.querySelector('#stream-dock')!).position,
     resizedPlayer: Math.round((document.querySelector('#stream-dock') as HTMLElement).getBoundingClientRect().width),
-    nodeIntegration: typeof (globalThis as any).require
+    nodeIntegration: typeof (globalThis as any).require,
+    // What the row says about the channel without being opened: its tooltip, and the audience
+    // beside the live dot.
+    roomTitle: document.querySelector('.room-button[data-channel="twitch"]')?.getAttribute('title') ?? '',
+    roomLive: document.querySelector('.room-button[data-channel="twitch"]')?.classList.contains('is-live') ?? false,
+    roomViewers: document.querySelector('.room-button[data-channel="twitch"] .room-viewers')?.textContent ?? ''
   }))
-  if (metrics.bodyWidth > metrics.viewport || metrics.rooms !== 1 || metrics.title !== 'twitch' || !metrics.avatar?.startsWith('https://static-cdn.jtvnw.net/') || metrics.player === 'À L’ARRÊT' || !metrics.fullWidthChat || metrics.floatingPlayer !== 'absolute' || metrics.nodeIntegration !== 'undefined') throw new Error(`Renderer check failed: ${JSON.stringify(metrics)}`)
+  // Reduced to an avatar, the collapsed row has nowhere left to name its channel: the tooltip is
+  // it, and it is the same attribute expanded, where it also rescues a name cut by the column.
+  if (!/twitch/i.test(metrics.roomTitle)) throw new Error(`The room tooltip does not name the channel: ${JSON.stringify(metrics.roomTitle)}`)
+  // The count is shown for a live channel and for nothing else. Whether Twitch is on air right
+  // now is not this script's to decide, so the check is the rule rather than the number.
+  if (metrics.roomViewers && !metrics.roomLive) throw new Error(`An offline room counts an audience: ${JSON.stringify(metrics.roomViewers)}`)
+  if (metrics.roomViewers.trim() === '' && metrics.roomViewers !== '') throw new Error('The audience is shown as an empty label.')
+  // Either source is a pass: the room draws the address Twitch names, and the picture cached on
+  // disk when it names none.
+  const avatarSourceOk = ['https://static-cdn.jtvnw.net/', 'data:image/'].some(prefix => metrics.avatar?.startsWith(prefix))
+  if (metrics.bodyWidth > metrics.viewport || metrics.rooms !== 1 || metrics.title !== 'twitch' || !avatarSourceOk || metrics.player === 'À L’ARRÊT' || !metrics.fullWidthChat || metrics.floatingPlayer !== 'absolute' || metrics.nodeIntegration !== 'undefined') throw new Error(`Renderer check failed: ${JSON.stringify(metrics)}`)
+  // Collapsed, the row is an avatar and nothing else: `#rail-tip` is what names the channel, and
+  // the attribute is dropped so a native tooltip cannot come up beside it.
+  await window.locator('#toggle-sidebar').click()
+  await window.locator('.room-button[data-channel="twitch"]').hover()
+  const bubble = await window.evaluate(() => ({
+    shown: !(document.querySelector('#rail-tip') as HTMLElement).hidden,
+    text: document.querySelector('#rail-tip')?.textContent ?? '',
+    rowTitle: document.querySelector('.room-button[data-channel="twitch"]')?.getAttribute('title') ?? ''
+  }))
+  if (!bubble.shown || !/twitch/i.test(bubble.text)) throw new Error(`The collapsed rail names no channel: ${JSON.stringify(bubble)}`)
+  if (bubble.rowTitle) throw new Error(`The collapsed row keeps a tooltip under the bubble: ${JSON.stringify(bubble.rowTitle)}`)
+  await window.screenshot({ path: resolve(artifacts, 'sidebar-collapsed.png') })
+  await window.locator('#toggle-sidebar').click()
   await window.locator('#add-room').click()
   await window.getByLabel('Nom de la chaîne', { exact: true }).fill('busyroom')
   await window.getByRole('button', { name: 'Rejoindre', exact: true }).click()

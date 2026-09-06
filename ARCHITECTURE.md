@@ -173,6 +173,7 @@ macOS, `%APPDATA%\Twichat` on Windows, `~/.config/Twichat` on Linux):
 | `twichat.db` | Preferences, rooms and window geometry, one row per account. SQLite through Node's built-in `node:sqlite`; the schema is a numbered list of revisions replayed in order and remembered in `user_version`. No native module to rebuild. |
 | `accounts.json` | Access and refresh tokens, enciphered by the operating-system keychain through `safeStorage`. The logins sit beside them in the clear; the credentials never do. |
 | `avatars.json` | Ten cached profile pictures as data URLs, so the account chooser can draw before any Twitch call. |
+| `channel-avatars.json` | Thirty cached channel pictures as data URLs, same store and a wider cap, so the room list draws before Twitch answers — and still draws when it answers without an avatar, which is what a dead token or an anonymous session gets. Each is fetched again after a day, or as soon as Twitch names another address. Unscoped, unlike everything below: a channel looks the same to every account. |
 
 Preferences are **scoped**: each account has its own rooms, sizes, quality, theme and window, and
 `#anonymous` is a scope like any other. Switching account loads another scope; nothing carries

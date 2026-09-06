@@ -970,3 +970,36 @@ html.lightbox-open { overflow: hidden; scrollbar-gutter: stable; }
 @media (max-width: 380px) {
   .topbar .brand strong { display: none; }
 }
+
+/* Shown only on a phone, in place of the buttons: the same room in the layout, said plainly. */
+.download-mobile { margin: 0; max-width: 34ch; color: var(--text-3); font-size: 13px; line-height: 1.5; }
+.download-band .download-mobile { color: #3f4736; }
+.download-mobile[hidden] { display: none; }
+
+/* The support block. Each card is one paper tile, so the code sits on the card's own ground
+   instead of on a plate inside it, and the modules stay dark on light: the polarity every
+   scanner was built for. The card is not the button; the button is. */
+.donate { padding: 96px 22px 104px; border-top: 1px solid var(--line); }
+.donate > * { max-width: 1040px; margin-left: auto; margin-right: auto; }
+.donate .eyebrow { margin-left: auto; margin-right: auto; }
+.donate h2 { margin: 10px auto 0; font-size: clamp(28px, 3.4vw, 40px); line-height: 1.02; letter-spacing: -.04em; }
+.donate-list { list-style: none; margin: 34px auto 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.donate-card {
+  display: grid; justify-items: center; gap: 12px; padding: 22px 20px 20px;
+  border-radius: 4px; background: var(--paper); color: #1b1e17;
+}
+.donate-qr { display: block; width: 100%; height: auto; max-width: 190px; }
+.donate-name { display: flex; align-items: center; gap: 9px; margin: 4px 0 0; font-size: 12px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
+.donate-name em { font-style: normal; font-weight: 400; letter-spacing: .1em; color: #6a6f60; }
+.donate-mark { display: block; width: 20px; height: 20px; border-radius: 50%; }
+.donate-card code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 1.5; color: #5d6355; word-break: break-all; text-align: center; }
+.donate-copy {
+  width: 100%; margin-top: 4px; padding: 10px 12px; border: 1px solid #c3bfae; border-radius: 3px;
+  background: transparent; color: #1b1e17; font: inherit; font-size: 11px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase; cursor: pointer;
+  transition: background .18s ease, border-color .18s ease;
+}
+.donate-copy:hover { background: var(--ink); border-color: var(--ink); color: var(--acid); }
+.donate-status { margin: 16px auto 0; min-height: 1.2em; color: var(--acid-ink); font-size: 12px; }
+@media (max-width: 900px) { .donate-list { grid-template-columns: 1fr; max-width: 360px; } }
+@media (max-width: 560px) { .donate { padding: 64px 22px 72px; } }

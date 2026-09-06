@@ -1,24 +1,47 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { channelTags, combineHelix, followerTotal, helixUsersToProfiles, helixUserToCard, offlineFollowed, parseFollowedChannels, parsePublicProfile, safeThumbnail } from '../src/main/twitch-data-parse'
 
-test('extracts a public Twitch avatar without exposing a third-party URL', () => {
-  const profile = parsePublicProfile('Ponce', `
-    <meta property="og:image" content="https://static-cdn.jtvnw.net/jtv_user_pictures/ponce-profile_image-70x70.png">
-    <meta property="og:title" content="Ponce - Live on Twitch">
-    <meta name="description" content="Ponce streams for 12,345 viewers | Streaming Just Chatting">
-    <script>{"uploadDate":"2026-09-04T15:48:03Z","publication":{"@type":"BroadcastEvent","endDate":"2026-09-05T00:04:34Z","startDate":"2026-09-04T15:48:03Z","isLiveBroadcast":true}}</script>
-  `)
+// Pages saved from www.twitch.tv on 2026-09-06, trimmed to the tags the parser reads.
+const page = (name: string) => readFileSync(join(import.meta.dirname, 'fixtures', name), 'utf8')
+
+test('reads a live channel off its public page, the audience excepted', () => {
+  const profile = parsePublicProfile('Ponce', page('channel-live.html'))
+  // The page names no audience in either language it is served in, so no count is read from it.
+  assert.equal(profile.viewers, undefined)
   assert.deepEqual(profile, {
-    channel: 'ponce', displayName: 'Ponce', avatarUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/ponce-profile_image-70x70.png',
-    live: true, viewers: 12345, title: 'Ponce streams for 12,345 viewers', startedAt: '2026-09-04T15:48:03Z'
+    channel: 'ponce', displayName: 'Ponce',
+    avatarUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/d4737061-8f00-49d9-a56f-fcb4a9230b3f-profile_image-300x300.png',
+    live: true, title: 'ZEVENT JOUR 3 !don !zevent !tombolart', startedAt: '2026-09-06T09:30:49Z'
   })
+  assert.equal(parsePublicProfile('zerator', '<meta property="og:type" content="video.other"><meta name="description" content="ZeratoR streame en direct sur Twitch ! D\u00e9couvrez ses vid\u00e9os, inscrivez-vous au chat et rejoignez sa communaut\u00e9.">').viewers, undefined)
   // Reruns listed under the live stream carry their own date: only the live stream's own date counts.
   assert.equal(parsePublicProfile('ponce', '<script>{"publication":{"startDate":"2026-08-30T10:00:00Z","isLiveBroadcast":false}},{"uploadDate":"2026-08-29T10:00:00Z"}</script>').startedAt, undefined)
   assert.equal(parsePublicProfile('ponce', '<script>{"publication":{"startDate":"hier","isLiveBroadcast":true}}</script>').startedAt, undefined)
-  assert.equal(parsePublicProfile('ponce', '<meta property="og:image" content="https://example.com/tracker.png">').avatarUrl, '')
-  assert.equal(parsePublicProfile('anyme023', '<meta property="og:title" content="Anyme023 - Live sur Twitch">').displayName, 'Anyme023')
-  assert.equal(parsePublicProfile('zerator', '<meta name="description" content="Stream de zevent pour 31 473 viewers.">').viewers, 31473)
+  assert.equal(parsePublicProfile('ponce', '<meta property="og:type" content="video.other"><meta property="og:image" content="https://example.com/tracker.png">').avatarUrl, '')
+  assert.equal(parsePublicProfile('anyme023', '<meta property="og:type" content="video.other"><meta property="og:title" content="Anyme023 - Live sur Twitch">').displayName, 'Anyme023')
+})
+
+test('tells an offline channel from a live one by its broadcast, not by its page type', () => {
+  const profile = parsePublicProfile('anyme023', page('channel-offline.html'))
+  // An offline channel page is typed `video.other` like any other: only the JSON-LD broadcast is missing.
+  assert.equal(profile.live, false)
+  assert.equal(profile.startedAt, undefined)
+  assert.equal(profile.displayName, 'Anyme023')
+  assert.equal(profile.avatarUrl, 'https://static-cdn.jtvnw.net/jtv_user_pictures/17ef7a09-3473-4ff8-85ca-e6648d392116-profile_image-300x300.png')
+})
+
+test('falls back to the login when Twitch does not know the channel', () => {
+  const profile = parsePublicProfile('unnomdechainetreslong1234', page('channel-unknown.html'))
+  // Twitch answers an unknown login with its own home page: its name, its logo, its blurb.
+  assert.equal(profile.displayName, 'unnomdechainetreslong1234')
+  assert.equal(profile.avatarUrl, '')
+  assert.equal(profile.live, false)
+  assert.equal(profile.title, undefined)
+  // Twitch's own channel is a channel like any other, and keeps the name its page gives.
+  assert.equal(parsePublicProfile('twitch', '<meta property="og:type" content="video.other"><meta property="og:title" content="Twitch - Twitch">').displayName, 'Twitch')
 })
 
 test('assembles and sorts the Helix catalog with tags and viewer counts', () => {

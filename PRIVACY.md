@@ -28,6 +28,7 @@ Everything sits in the per-user data directory — `~/Library/Application Suppor
 | `twichat.db` | Preferences, the rooms you joined, window geometry, per account. SQLite. |
 | `accounts.json` | Your Twitch access and refresh tokens, enciphered by the operating-system keychain (`safeStorage`). The logins sit beside them in the clear; the credentials never do. |
 | `avatars.json` | Up to ten cached profile pictures, so the account chooser can draw before any Twitch call. |
+| `channel-avatars.json` | Up to thirty cached channel pictures, refetched after a day or when Twitch names another address, so the room list draws before any Twitch call. Shared by every account, and outlives any one of them: see below. |
 
 Chat messages are **not** stored. The window keeps 500 per channel in memory and they are gone when
 it closes.
@@ -44,6 +45,13 @@ the tokens, the avatar and the preferences all stay. An account is only erased w
 *forgotten* — which happens when Twitch refuses both its token and its renewal — and forgetting
 takes all three: the credentials, the cached picture, and the rooms and settings the account had,
 including the pointer that would otherwise reopen it.
+
+One file sits outside that scoping, deliberately: `channel-avatars.json`. The pictures of the
+channels opened are cached once for the whole application — a channel is public and its picture is
+the same whoever is watching, so anonymous viewing and every account share them. Forgetting an
+account therefore does not clear it, and the logins it is keyed by are a list of the channels this
+computer opened, without saying which account opened them. Deleting the file clears it; so does
+deleting the directory.
 
 ## Who the application talks to
 

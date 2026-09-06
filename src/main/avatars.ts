@@ -23,10 +23,10 @@ export function avatarSource(value: unknown): string {
   return url.href
 }
 
-function validData(input: unknown): AvatarData {
+function validData(input: unknown, max: number): AvatarData {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return {}
   const result: AvatarData = {}
-  for (const [key, item] of Object.entries(input as Record<string, unknown>).slice(0, MAX_ENTRIES)) {
+  for (const [key, item] of Object.entries(input as Record<string, unknown>).slice(0, max)) {
     if (!item || typeof item !== 'object') continue
     const value = item as Record<string, unknown>
     try {
@@ -46,7 +46,17 @@ export class AvatarStore {
   // the write alone let two avatars cached at once read the same state, and the second file
   // replaced the first.
   private queue: Promise<unknown> = Promise.resolve()
-  constructor(private readonly path: string, private readonly fetch: Fetch) {}
+  /**
+   * What the file holds, without the pictures themselves. The room list asks after every refresh
+   * whether each of its twenty avatars is still fresh; parsing a cache full of data URLs twenty
+   * times to answer that is work the answer does not need. Populated by `read`, rewritten by
+   * `persist` — both run inside the queue, so it cannot drift from the file. Null until the file
+   * has been read once.
+   */
+  private index: Map<string, { source: string; fetchedAt: number }> | null = null
+
+  /** @param max how many pictures the file may hold. Reached, the oldest fetch goes. */
+  constructor(private readonly path: string, private readonly fetch: Fetch, private readonly max = MAX_ENTRIES) {}
 
   /** Anything running inside here uses `read`/`persist`: the queue does not re-enter. */
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
@@ -56,14 +66,22 @@ export class AvatarStore {
   }
 
   private async read(): Promise<AvatarData> {
-    try { return validData(JSON.parse(await readFile(this.path, 'utf8'))) }
-    catch { return {} }
+    let data: AvatarData = {}
+    try { data = validData(JSON.parse(await readFile(this.path, 'utf8')), this.max) }
+    catch { /* No file yet, or one that will not parse: nothing is cached. */ }
+    this.reindex(data)
+    return data
   }
 
   private async persist(data: AvatarData) {
     await mkdir(dirname(this.path), { recursive: true })
     await writeFile(`${this.path}.tmp`, JSON.stringify(data, null, 2), { mode: 0o600 })
     await rename(`${this.path}.tmp`, this.path)
+    this.reindex(data)
+  }
+
+  private reindex(data: AvatarData) {
+    this.index = new Map(Object.entries(data).map(([login, avatar]) => [login, { source: avatar.source, fetchedAt: avatar.fetchedAt }]))
   }
 
   private isFresh(data: AvatarData, login: string, source?: string) {
@@ -79,6 +97,12 @@ export class AvatarStore {
 
   async fresh(input: unknown, source?: string) {
     const login = channelName(input)
+    // The index answers without opening the file. It only ever says what the last read or write
+    // put there, so a stale "no" costs one download too many — never a stale picture served.
+    if (this.index) {
+      const known = this.index.get(login)
+      return Boolean(known && known.fetchedAt + FRESH_FOR > Date.now() && (!source || known.source === source))
+    }
     return this.serialize(async () => this.isFresh(await this.read(), login, source))
   }
 
@@ -99,7 +123,7 @@ export class AvatarStore {
     return this.serialize(async () => {
       const data = await this.read()
       // Keep the freshest avatars only, so app:init never ships an unbounded payload.
-      const kept = Object.entries(data).filter(([key]) => key !== login).sort((a, b) => b[1].fetchedAt - a[1].fetchedAt).slice(0, MAX_ENTRIES - 1)
+      const kept = Object.entries(data).filter(([key]) => key !== login).sort((a, b) => b[1].fetchedAt - a[1].fetchedAt).slice(0, this.max - 1)
       await this.persist({ [login]: { source, fetchedAt: Date.now(), data: `data:${type};base64,${body.toString('base64')}` }, ...Object.fromEntries(kept) })
     })
   }

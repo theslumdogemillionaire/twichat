@@ -71,3 +71,42 @@ test('two avatars cached at the same time both survive', async () => {
 
   assert.deepEqual(Object.keys(await avatars.all()).sort(), ['alice', 'bob'])
 })
+
+test('a wider store keeps more than the ten faces the account chooser needs', async () => {
+  // The rooms have a file of their own precisely so their twenty entries cannot push the
+  // accounts out of theirs — and a cap that only reached the writes would truncate the reads.
+  const path = await directory('avatars-cap')
+  const now = Date.now()
+  await writeFile(path, JSON.stringify(Object.fromEntries(Array.from({ length: 12 }, (_, index) => [
+    `room${index}`, { source: source.replace('alice', `room${index}`), fetchedAt: now - index * 1000, data: `data:image/png;base64,${PNG.toString('base64')}` }
+  ]))))
+
+  const wide = new AvatarStore(path, async () => reply(PNG), 12)
+  assert.equal(Object.keys(await wide.all()).length, 12)
+  assert.equal(Object.keys(await new AvatarStore(path, async () => reply(PNG)).all()).length, 10)
+
+  // A thirteenth drops the oldest fetch rather than growing the file.
+  await wide.remember('newcomer', source.replace('alice', 'newcomer'))
+  const kept = Object.keys(await wide.all())
+  assert.equal(kept.length, 12)
+  assert.ok(kept.includes('newcomer'))
+  assert.ok(!kept.includes('room11'))
+})
+
+test('a channel that changed its picture is fetched again, an unchanged one is not', async () => {
+  // This is the whole of the periodic re-check: the room list hands over whatever address Twitch
+  // named, and only a different one costs a download.
+  const path = await directory('avatars-recheck')
+  const calls: string[] = []
+  const avatars = new AvatarStore(path, async url => { calls.push(url); return reply(PNG) })
+  const renamed = source.replace('alice-profile_image', 'alice-profile_image-2')
+
+  await avatars.remember('alice', source)
+  await avatars.remember('alice', source)
+  assert.deepEqual(calls, [source])
+
+  await avatars.remember('alice', renamed)
+  assert.deepEqual(calls, [source, renamed])
+  assert.equal(await avatars.fresh('alice', renamed), true)
+  assert.equal(await avatars.fresh('alice', source), false)
+})

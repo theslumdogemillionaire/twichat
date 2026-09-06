@@ -58,6 +58,14 @@ let store: PreferencesStore
 let accountStore: AccountStore
 let avatarStore: AvatarStore
 /**
+ * The pictures of the rooms, in a file of their own. Keeping them beside the accounts would have
+ * the twenty rooms a workspace holds evict the ten faces the session chooser draws from — and the
+ * two are not forgotten at the same moment either. A channel is public and looks the same to
+ * everyone, so this file is shared by every account and by anonymous viewing, and forgetting an
+ * account leaves it standing. `PRIVACY.md` says so rather than implying the opposite.
+ */
+let channelAvatarStore: AvatarStore
+/**
  * The Twitch account: its credentials, the ways in and out, the renewal and the two lists that
  * belong to it. Built in `whenReady`, since it needs the stores — before that the application has
  * no window, no handler and no chat, so nothing here is reachable.
@@ -360,6 +368,9 @@ app.whenReady().then(async () => {
     }
   )
   avatarStore = new AvatarStore(join(app.getPath('userData'), 'avatars.json'), url => net.fetch(url, { signal: AbortSignal.timeout(10000) }))
+  // Twenty rooms, the own-channel shortcut, and room enough for a few left behind before the
+  // oldest fetch is dropped.
+  channelAvatarStore = new AvatarStore(join(app.getPath('userData'), 'channel-avatars.json'), url => net.fetch(url, { signal: AbortSignal.timeout(10000) }), 30)
   const account = createAccountSession({
     accounts: accountStore,
     chat: {
@@ -474,7 +485,7 @@ app.whenReady().then(async () => {
   handle('app:init', async () => {
     initialAccountRestore ??= account.restore()
     await initialAccountRestore
-    return { preferences, scope: activeScope, locale: activeLocale, commandKey: commandKey(), insetWindowControls: process.platform === 'darwin', status: irc.status, account: irc.login, savedAccounts: await accountStore.list(), savedAvatars: await avatarStore.all(), roomStates: Object.fromEntries(irc.roomStates), userBadges: Object.fromEntries(irc.userBadges) }
+    return { preferences, scope: activeScope, locale: activeLocale, commandKey: commandKey(), insetWindowControls: process.platform === 'darwin', status: irc.status, account: irc.login, savedAccounts: await accountStore.list(), savedAvatars: await avatarStore.all(), channelAvatars: await channelAvatarStore.all(), roomStates: Object.fromEntries(irc.roomStates), userBadges: Object.fromEntries(irc.userBadges) }
   })
   handle('account:avatars', () => avatarStore.all())
   handle('chat:join', (channel: string) => irc.join(channel))
@@ -496,9 +507,22 @@ app.whenReady().then(async () => {
   handle('rooms:activity', () => store.channelActivity(activeScope))
   // The renderer holds the room list and sees the messages: it says what stirred, the store dates it.
   handle('rooms:mark-activity', (channels: string[]) => { store.markChannelActivity(activeScope, channels) })
-  handle('rooms:profiles', (channels: string[]) => {
+  handle('rooms:profiles', async (channels: string[]) => {
     const { token, clientId } = account.credentials()
-    return getRoomProfiles(channels, token && clientId ? { token, clientId } : null)
+    const profiles = await getRoomProfiles(channels, token && clientId ? { token, clientId } : null)
+    for (const profile of profiles) {
+      if (!profile.avatarUrl) continue
+      // Cheap while the picture is both unchanged and under a day old, and a download the moment
+      // Twitch names another address — which is the whole of the periodic re-check.
+      void channelAvatarStore.remember(profile.channel, profile.avatarUrl)
+        .catch(error => console.warn('Unable to cache a channel avatar:', error instanceof Error ? error.message : 'unknown error'))
+    }
+    // Twitch names an avatar only when it answers, and a token that died overnight or an anonymous
+    // session leaves the public page as the only source — which does not always carry one. What is
+    // already on disk fills those gaps rather than sending the row back to its initial.
+    if (profiles.every(profile => profile.avatarUrl)) return profiles
+    const cached = await channelAvatarStore.all()
+    return profiles.map(profile => profile.avatarUrl || !cached[profile.channel] ? profile : { ...profile, avatarUrl: cached[profile.channel] })
   })
   handle('chatters:profiles', (logins: string[]) => {
     const { token, clientId } = accountAuth('needAccountForAvatars')

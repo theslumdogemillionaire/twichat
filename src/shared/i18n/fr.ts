@@ -188,7 +188,6 @@ export const fr: Messages = {
     roomLimitReached: '20 chaînes maximum : quittez une chaîne avant d’en rejoindre une autre.',
     exploreChannels: 'Explorer les chaînes',
     joinChannelShortcut: 'Rejoindre une chaîne (⌘ K)',
-    yourChannel: 'Votre chaîne',
     accountAndSettings: 'Compte et réglages',
     expandSidebar: 'Déployer la barre latérale',
     collapseSidebar: 'Réduire la barre latérale',

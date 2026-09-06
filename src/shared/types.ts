@@ -136,6 +136,12 @@ export interface Snapshot {
   account: string | null
   savedAccounts: string[]
   savedAvatars: Record<string, string>
+  /**
+   * The pictures of the joined rooms, as data URLs, from the disk cache. The sidebar draws from
+   * these before the first `rooms:profiles` answer — and, when Twitch answers without an avatar,
+   * instead of it.
+   */
+  channelAvatars: Record<string, string>
   roomStates: Record<string, Record<string, string>>
   userBadges: Record<string, string[]>
 }

@@ -78,6 +78,21 @@ the avatars and the video frame show what reads as a person; none of them is a p
 one, and none is a capture of a real Twitch broadcast. They belong to this project and are covered
 by [LICENSE](LICENSE).
 
+## Currency marks and payment codes
+
+The support block on the landing site carries three currency marks and three QR codes, under
+[`server/public/assets/donate/`](server/public/assets/donate/).
+
+| File | Where it came from |
+| --- | --- |
+| `mark-bitcoin.svg` | [Bitcoin.svg](https://commons.wikimedia.org/wiki/File:Bitcoin.svg) on Wikimedia Commons, released into the public domain. Inkscape metadata stripped, nothing else changed. |
+| `mark-ethereum.svg` | [Ethereum_logo_2014.svg](https://commons.wikimedia.org/wiki/File:Ethereum_logo_2014.svg) on Wikimedia Commons. XML declaration stripped, nothing else changed. |
+| `mark-dogecoin.png` | The Dogecoin logo, from [`share/pixmaps`](https://github.com/dogecoin/dogecoin/blob/master/share/pixmaps/dogecoin256.png) in the Dogecoin repository, by way of Wikipedia. Kept as it is. |
+| `bitcoin.svg`, `dogecoin.svg`, `ethereum.svg` | The payment codes, generated for this project. Recoloured here, and the background removed so each one sits on its card rather than on a plate. Every one was decoded and checked against the address printed beside it. |
+
+These are the marks of the projects they name, and the trademark rights stay with their holders.
+Their use here says which address is which, and nothing more.
+
 ## Twitch
 
 Twitch, the Twitch logo, and the emotes Twitch serves are the property of Twitch Interactive, Inc.
