@@ -24,10 +24,12 @@ const mimeTypes = new Map([
 const downloadFiles = {
   mac: { name: 'Twichat-mac.dmg', type: 'application/x-apple-diskimage' },
   windows: { name: 'Twichat-windows.exe', type: 'application/vnd.microsoft.portable-executable' },
-  deb: { name: 'Twichat-linux-x64.deb', type: 'application/vnd.debian.binary-package' },
-  rpm: { name: 'Twichat-linux-x64.rpm', type: 'application/x-rpm' },
+  // electron-builder fills `${arch}` with each packager's own vocabulary, not its own: deb says
+  // amd64 and arm64, rpm says x86_64 and aarch64. These are the names the release really carries.
+  deb: { name: 'Twichat-linux-amd64.deb', type: 'application/vnd.debian.binary-package' },
+  rpm: { name: 'Twichat-linux-x86_64.rpm', type: 'application/x-rpm' },
   deb_arm64: { name: 'Twichat-linux-arm64.deb', type: 'application/vnd.debian.binary-package' },
-  rpm_arm64: { name: 'Twichat-linux-arm64.rpm', type: 'application/x-rpm' }
+  rpm_arm64: { name: 'Twichat-linux-aarch64.rpm', type: 'application/x-rpm' }
 }
 
 /**
