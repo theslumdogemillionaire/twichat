@@ -305,6 +305,14 @@ const MESSAGES = CONVERSATIONS[locale]!
 const CARD = locale === 'en' ? CARD_EN : CARD_FR
 const TEXT = CHROME[locale]
 const THREAD = WHISPERS[locale]!
+
+/** The staged evening, on the day of the capture: the window then heads the thread with `Today`. */
+const atToday = (time: string) => {
+  const [hours, minutes] = time.split(':').map(Number)
+  const day = new Date()
+  day.setHours(hours!, minutes!, 0, 0)
+  return day.getTime()
+}
 const STREAMS = DISCOVERY[locale]!
 const PICKER_TEXT = PICKER[locale]
 const VIEW_TEXT = VIEWS[locale]
@@ -811,7 +819,7 @@ try {
       thread: THREAD.map((line, index) => ({
         id: `demo-${index}`, peer: 'xx_grenouille_xx', peerName: 'xX_Grenouille_Xx',
         outgoing: line.outgoing, text: line.text,
-        at: Date.parse(`2026-01-15T${line.at}:00`)
+        at: atToday(line.at)
       }))
     }
   })
