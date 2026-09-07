@@ -112,7 +112,7 @@ test('exchanges a Twitch code for a single-use ticket bound to the device', asyn
   assert.equal(start.status, 302)
   const authorization = new URL(start.headers.get('location'))
   assert.equal(authorization.origin, 'https://id.example')
-  assert.equal(authorization.searchParams.get('scope'), 'chat:read chat:edit user:read:follows')
+  assert.equal(authorization.searchParams.get('scope'), 'chat:read chat:edit user:read:follows user:manage:whispers')
   assert.equal(authorization.searchParams.get('force_verify'), 'true')
   const state = authorization.searchParams.get('state')
 

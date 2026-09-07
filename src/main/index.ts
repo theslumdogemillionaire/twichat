@@ -3,10 +3,10 @@ import { join, resolve, sep, extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readFile } from 'node:fs/promises'
 import { renameSync } from 'node:fs'
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { TwitchIrc } from './irc'
 import { TwitchEventSub } from './eventsub'
-import type { RaidNotice } from './eventsub-parse'
+import type { RaidNotice, WhisperNotice } from './eventsub-parse'
 import { DatabaseTooNew } from './database'
 import { ANONYMOUS_SCOPE, PreferencesStore, scopeName } from './preferences'
 import { AccountStore } from './accounts'
@@ -14,11 +14,12 @@ import { createAccountSession } from './account-session'
 import { AvatarStore } from './avatars'
 import { StreamResolver, withoutAds } from './streams'
 import { getChannelInfo, getFollowStatus, getFollowedChannels, getHelixProfiles, getHelixStreams, getRoomProfiles, getUserCard } from './twitch-data'
-import { getThirdPartyEmotes } from './third-party-emotes'
-import { getTwitchEmotes } from './twitch-emotes'
+import { getGlobalThirdPartyEmotes, getThirdPartyEmotes } from './third-party-emotes'
+import { sendWhisper, whisperRecipientId } from './whisper-send'
+import { getGlobalTwitchEmotes, getTwitchEmotes } from './twitch-emotes'
 import { applyUpdate, watchUpdates } from './updates'
-import { bufferMode, channelName, chatReply, mediaUrl, PLAYER_WINDOW_MIN_HEIGHT, PLAYER_WINDOW_MIN_WIDTH, qualityName, WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH } from '../shared/validation'
-import type { ChatEvent, CommandKey, DetachedContext, MentionNotice, Preferences } from '../shared/types'
+import { bufferMode, channelName, chatReply, mediaUrl, PLAYER_WINDOW_MIN_HEIGHT, PLAYER_WINDOW_MIN_WIDTH, qualityName, whisperText, WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH } from '../shared/validation'
+import type { ChatEvent, CommandKey, DetachedContext, MentionNotice, Preferences, Whisper, WhisperContext } from '../shared/types'
 import { AppError, errorKey, fail, serializeError, type ErrorKey } from '../shared/errors'
 import { locale as activeLocale, m, resolveLocale, setLocale } from '../shared/i18n'
 
@@ -108,6 +109,15 @@ const mediaRequests = new Set<AbortController>()
 // or so, the room counter carrying the others.
 const MENTION_NOTICE_INTERVAL = 20_000
 const lastMentionNotice = new Map<string, number>()
+/**
+ * One window per conversation, and no more than this many opened on their own. Without a
+ * ceiling, ten whispers in a burst cover the screen — and it would be us who did it. Past it
+ * the notification alone speaks, and the window opens on the click.
+ */
+const WHISPER_WINDOW_LIMIT = 5
+const WHISPER_NOTICE_INTERVAL = 8_000
+const whisperWindows = new Map<string, BrowserWindow>()
+const lastWhisperNotice = new Map<string, number>()
 let events: ChatEvent[] = []
 const flush = setInterval(() => {
   if (!events.length || !window || window.isDestroyed()) return
@@ -128,24 +138,63 @@ function queue(event: ChatEvent) {
   }
   events.push(event)
   // ROOMSTATE lands after the JOIN: it carries the channel id EventSub expects.
-  if (event.type === 'roomstate' && event.channel === preferences?.active) refreshRaidWatch()
+  if (event.type === 'roomstate' && event.channel === preferences?.active) refreshWatches()
 }
 irc.on('event', queue)
 
-// EventSub listens to a single channel, the one being watched: the only one where "follow the raid"
-// means anything, and one subscription instead of twenty. The raid then reaches the renderer with its system line.
-function refreshRaidWatch() {
+// EventSub carries what the chat protocol does not. Raids are watched on a single channel, the
+// one in front of the user: the only one where "follow the raid" means anything, and one
+// subscription instead of twenty. Whispers are watched on the account itself, so the watch
+// outlives every room change — and only where the token was granted the scope, which no account
+// saved before it has.
+function refreshWatches() {
   const channel = preferences?.active ?? ''
   const broadcasterId = channel ? irc.roomStates.get(channel)?.['room-id'] ?? '' : ''
-  const { token, clientId } = accountSession?.credentials() ?? { token: null, clientId: null }
-  eventSub.watch(token && clientId ? { token, clientId } : null, channel, broadcasterId)
+  const { token, clientId, userId, whispers } = accountSession?.credentials() ?? { token: null, clientId: null, userId: null, whispers: false }
+  // Said once per account, because the alternative is silence: with no scope nothing is
+  // subscribed, and a whisper that never arrives looks exactly like nobody writing.
+  if (token && clientId && !whispers && whisperScopeReported !== token) {
+    whisperScopeReported = token
+    console.info('This account was saved before the whisper scope: whispers are not being watched. Sign in again through the browser to grant it.')
+  }
+  eventSub.watch(token && clientId ? { token, clientId } : null, { channel, broadcasterId, userId: whispers ? userId ?? '' : '' })
 }
+/** The token a missing whisper scope was already named for: once per account, not per room change. */
+let whisperScopeReported: string | null = null
 eventSub.on('raid', (raid: RaidNotice) => {
   // The same sentence as an incoming raid, seen from the other side: the channel, where it goes, who follows.
   irc.system(raid.from, m.chat.raidOutgoing(raid.toDisplayName, raid.viewers))
   queue({ type: 'raid', channel: raid.from, to: raid.to, toDisplayName: raid.toDisplayName, viewers: raid.viewers })
 })
+eventSub.on('whisper', (whisper: WhisperNotice) => {
+  // Written down before anything else is done with it. Twitch keeps no history and replays
+  // nothing: a whisper this process drops is a whisper nobody can go back for.
+  // Whose whisper this is, said by the frame rather than read off the session. `activeScope`
+  // follows a scope switch that is started and not waited for: at sign-in, and for a moment at
+  // every account change, it still names the account before. A chat message would survive that —
+  // Twitch replays the room — and a whisper filed under the wrong account, or dropped because
+  // the scope still read anonymous, would not.
+  const scope = whisper.to || (activeScope === ANONYMOUS_SCOPE ? '' : activeScope)
+  if (!scope) return
+  const line = {
+    id: whisper.id, peer: whisper.from, peerName: whisper.fromDisplayName,
+    outgoing: false, text: whisper.text, at: whisper.at || Date.now()
+  }
+  let fresh = false
+  try { fresh = store.whispers.record(scope, line) }
+  catch (error) { console.warn('Unable to keep an incoming whisper:', error instanceof Error ? error.message : 'unknown error') }
+  // The same frame twice — EventSub repeats one across a reconnect — must not ring twice nor
+  // reopen a window somebody has just closed.
+  if (!fresh) return
+  // A whisper for an account that is not the one in front is kept, not shown: its conversation
+  // belongs to a session this window is not running.
+  if (scope !== activeScope || !preferences?.notifications.whispers) return
+  deliverWhisper(line)
+})
 eventSub.on('notice', (channel: string, text: string) => irc.system(channel, text))
+// The whisper watch has no room to complain in. Named here rather than swallowed, so a refusal
+// is not mistaken for nobody writing.
+eventSub.on('unavailable', (type: string, status: number) => console.warn(`Twitch refused the ${type} subscription with status ${status}.`))
 // A refused subscription that names the token, not the raids: renewing the session answers it.
 // A session that was alive all along leaves the refusal to the subscription, which tries again —
 // and says so if Twitch holds, so a 401 that is not an expiry never passes in silence.
@@ -153,7 +202,7 @@ eventSub.on('unauthorized', () => void checkSession().then(renewed => { if (!ren
 
 function stopMedia() { resolver.stop(); for (const request of mediaRequests) request.abort(); mediaRequests.clear() }
 /** The address of either application page, in development as in the shipped app. */
-function pageUrl(page: 'index.html' | 'player.html') {
+function pageUrl(page: 'index.html' | 'player.html' | 'whisper.html') {
   const dev = process.env.ELECTRON_RENDERER_URL
   return dev ? new URL(`/${page}`, dev).href : `twichat://app/${page}`
 }
@@ -161,25 +210,140 @@ function pageUrl(page: 'index.html' | 'player.html') {
  * Does the call come from one of our windows, and from its page? The room keeps the whole IPC;
  * the video window only gets the channels explicitly opened to it.
  */
-function trustedFrom(event: IpcMainInvokeEvent, allowPlayer: boolean) {
+type WindowKind = 'room' | 'player' | 'whisper'
+const WINDOW_PAGES = { room: 'index.html', player: 'player.html', whisper: 'whisper.html' } as const
+
+/** Alive, or nobody: a window being torn down must not still answer for its page. */
+const living = (target: BrowserWindow | null | undefined) => target && !target.isDestroyed() ? target : null
+
+/**
+ * Which of our windows sent this. The conversation windows are looked up by their contents
+ * rather than by anything the page claims: that is what keeps one of them from asking for
+ * someone else's conversation.
+ */
+/**
+ * One conversation, one window — the shape whispers had before they were folded into a page.
+ * It never takes the focus: a window jumping in front of what you are typing is the habit of
+ * AIM nobody misses. `wanted` is the click on a notification, which may open past the ceiling
+ * and may come forward, because there a person asked for it.
+ */
+function openWhisperWindow(peer: string, wanted: boolean): BrowserWindow | null {
+  const open = living(whisperWindows.get(peer))
+  if (open) {
+    if (wanted) { open.show(); open.focus() }
+    return open
+  }
+  if (!wanted && whisperWindows.size >= WHISPER_WINDOW_LIMIT) return null
+  // Cascaded off the room rather than stacked exactly: three conversations must not look like one.
+  const anchorBounds = living(window)?.getBounds()
+  const step = 28 * (whisperWindows.size % 6)
+  const target = new BrowserWindow({
+    width: 420, height: 540, minWidth: 320, minHeight: 300,
+    ...(anchorBounds ? { x: anchorBounds.x + 64 + step, y: anchorBounds.y + 64 + step } : {}),
+    title: `@${peer} · Twichat`, show: false,
+    webPreferences: { preload: join(here, '../preload/index.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, spellcheck: false }
+  })
+  whisperWindows.set(peer, target)
+  target.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  target.webContents.on('will-navigate', event => event.preventDefault())
+  void target.webContents.setVisualZoomLevelLimits(1, 1)
+  target.webContents.on('zoom-changed', () => target.webContents.setZoomFactor(1))
+  target.webContents.on('context-menu', (_event, params) => { if (!target.isDestroyed()) popupContextMenu(target, params) })
+  target.once('ready-to-show', () => { if (wanted) target.show(); else target.showInactive() })
+  // Dropped on `closed`, not on `close`: between the two, a call already in flight would still
+  // find the window in the map and answer for a page that is gone.
+  target.on('closed', () => { if (whisperWindows.get(peer) === target) whisperWindows.delete(peer) })
+  void target.loadURL(pageUrl('whisper.html'))
+  return target
+}
+
+/** Every conversation window shut at once: a sign-out, an account change, a quit. */
+function closeWhisperWindows() {
+  for (const target of [...whisperWindows.values()]) if (living(target)) target.close()
+  whisperWindows.clear()
+  lastWhisperNotice.clear()
+}
+
+/**
+ * A whisper that has just been written down, brought to the screen: its window, and one ring.
+ * The window may refuse to open — the ceiling — and the notification then carries the whole
+ * message, since nothing else will say it arrived.
+ */
+function deliverWhisper(line: Whisper) {
+  const target = openWhisperWindow(line.peer, false)
+  if (target && !target.isDestroyed()) target.webContents.send('app:whisper', line)
+  // Looking at the conversation is being told: no ring over a window that already has the focus.
+  if (target && !target.isDestroyed() && target.isFocused()) return
+  if (!Notification.isSupported()) return
+  const now = Date.now()
+  if (now - (lastWhisperNotice.get(line.peer) ?? 0) < WHISPER_NOTICE_INTERVAL) return
+  for (const [peer, at] of lastWhisperNotice) if (now - at > WHISPER_NOTICE_INTERVAL) lastWhisperNotice.delete(peer)
+  lastWhisperNotice.set(line.peer, now)
+  const notification = new Notification({
+    title: m.notifications.whisper(line.peerName || line.peer),
+    body: line.text.replace(/\s+/g, ' ').trim().slice(0, 200)
+  })
+  // The click is a person asking for this conversation: it opens even past the ceiling.
+  notification.on('click', () => openWhisperWindow(line.peer, true))
+  notification.show()
+}
+
+function popupContextMenu(target: BrowserWindow, params: Electron.ContextMenuParams) {
+  const flags = params.editFlags
+  if (!params.isEditable && !params.selectionText.trim()) return
+  const template: Electron.MenuItemConstructorOptions[] = params.isEditable
+    ? [
+        { label: m.menu.undo, role: 'undo', enabled: flags.canUndo },
+        { label: m.menu.redo, role: 'redo', enabled: flags.canRedo },
+        { type: 'separator' },
+        { label: m.menu.cut, role: 'cut', enabled: flags.canCut },
+        { label: m.menu.copy, role: 'copy', enabled: flags.canCopy },
+        { label: m.menu.paste, role: 'paste', enabled: flags.canPaste },
+        { type: 'separator' },
+        { label: m.menu.selectAll, role: 'selectAll', enabled: flags.canSelectAll }
+      ]
+    : [{ label: m.menu.copy, role: 'copy', enabled: flags.canCopy }]
+  Menu.buildFromTemplate(template).popup({ window: target })
+}
+
+function senderKind(event: IpcMainInvokeEvent): { kind: WindowKind; target: BrowserWindow } | null {
+  const room = living(window)
+  if (room && event.sender === room.webContents) return { kind: 'room', target: room }
+  const player = living(playerWindow)
+  if (player && event.sender === player.webContents) return { kind: 'player', target: player }
+  for (const target of whisperWindows.values()) {
+    if (living(target) && event.sender === target.webContents) return { kind: 'whisper', target }
+  }
+  return null
+}
+/** The peer a conversation window belongs to, read from the map and never from the payload. */
+function whisperPeerOf(contents: Electron.WebContents): string {
+  for (const [peer, target] of whisperWindows) if (living(target) && target.webContents === contents) return peer
+  return ''
+}
+
+function trustedFrom(event: IpcMainInvokeEvent, allowed: readonly WindowKind[]) {
+  const source = senderKind(event)
+  if (!source || !allowed.includes(source.kind)) fail('originForbidden')
   const frame = event.senderFrame
-  const isPlayer = !!playerWindow && !playerWindow.isDestroyed() && event.sender === playerWindow.webContents
-  const source = isPlayer ? (allowPlayer ? playerWindow : null) : (window && event.sender === window.webContents ? window : null)
-  if (!source || frame !== source.webContents.mainFrame) fail('originForbidden')
+  if (frame !== source.target.webContents.mainFrame) fail('originForbidden')
   const current = frame.url
   const dev = process.env.ELECTRON_RENDERER_URL
-  if (!(dev ? new URL(current).origin === new URL(dev).origin : current === pageUrl(isPlayer ? 'player.html' : 'index.html'))) fail('originForbidden')
+  if (!(dev ? new URL(current).origin === new URL(dev).origin : current === pageUrl(WINDOW_PAGES[source.kind]))) fail('originForbidden')
 }
-function trusted(event: IpcMainInvokeEvent) { trustedFrom(event, false) }
+function trusted(event: IpcMainInvokeEvent) { trustedFrom(event, ['room']) }
 function isAppPage(url: string) {
   try {
     const dev = process.env.ELECTRON_RENDERER_URL
-    return dev ? new URL(url).origin === new URL(dev).origin : url === pageUrl('index.html') || url === pageUrl('player.html')
+    if (dev) return new URL(url).origin === new URL(dev).origin
+    return Object.values(WINDOW_PAGES).some(page => url === pageUrl(page))
   } catch { return false }
 }
 /** Our windows, and only ours: the room and the detached video share the same need for fullscreen. */
 function ownContents(contents: Electron.WebContents | null) {
-  return !!contents && (contents === window?.webContents || (!!playerWindow && !playerWindow.isDestroyed() && contents === playerWindow.webContents))
+  if (!contents) return false
+  if (contents === window?.webContents || contents === living(playerWindow)?.webContents) return true
+  return !!whisperPeerOf(contents)
 }
 /**
  * Electron only forwards an `Error`'s message: a known error therefore goes back as an
@@ -199,9 +363,16 @@ function handle(name: string, callback: (...args: any[]) => unknown) {
   })
 }
 /** The channels the video window shares with the room: the stream, and its own lifecycle. */
+function handleFrom(name: string, kinds: readonly WindowKind[], callback: (...args: any[]) => unknown) {
+  ipcMain.handle(name, async (event, ...args) => {
+    trustedFrom(event, kinds)
+    try { return await callback(...args) }
+    catch (error) { return serializeError(error) ?? Promise.reject(error) }
+  })
+}
 function handleShared(name: string, callback: (...args: any[]) => unknown) {
   ipcMain.handle(name, async (event, ...args) => {
-    trustedFrom(event, true)
+    trustedFrom(event, ['room', 'player'])
     try { return await callback(...args) }
     catch (error) { return serializeError(error) ?? Promise.reject(error) }
   })
@@ -237,6 +408,9 @@ async function rememberAvatar(login: string, auth: { token: string; clientId: st
 async function switchScope(login: string | null) {
   const scope = scopeName(login)
   if (scope === activeScope) return
+  // A conversation belongs to the account that held it: nothing of it stays on screen under
+  // the next one. What was said is in the database, and opens again from there.
+  closeWhisperWindows()
   // The outgoing scope's last write must land before another one is loaded.
   await store.settled()
   activeScope = scope
@@ -246,7 +420,7 @@ async function switchScope(login: string | null) {
   nativeTheme.themeSource = preferences.theme
   applyScopeWindow?.(preferences)
   window?.webContents.send('app:preferences', { scope, preferences, locale: activeLocale })
-  refreshRaidWatch()
+  refreshWatches()
 }
 
 function focusWindow() {
@@ -381,7 +555,7 @@ app.whenReady().then(async () => {
     },
     fetch: (url, init) => net.fetch(url, init),
     switchScope,
-    refreshRaidWatch,
+    refreshWatches,
     announce: outcome => irc.system(preferences.active, outcome === 'renewed' ? m.chat.sessionRenewed : m.chat.sessionExpired),
     rememberAvatar,
     forgetAvatar: login => avatarStore.forget(login),
@@ -502,7 +676,7 @@ app.whenReady().then(async () => {
     applyLanguage(preferences)
     nativeTheme.themeSource = preferences.theme
     // Changing room moves the raid watch: the new channel is the one being watched.
-    refreshRaidWatch()
+    refreshWatches()
   })
   handle('rooms:activity', () => store.channelActivity(activeScope))
   // The renderer holds the room list and sees the messages: it says what stirred, the store dates it.
@@ -534,6 +708,23 @@ app.whenReady().then(async () => {
     const name = channelName(channel)
     if (typeof roomId !== 'string' || !/^\d{1,30}$/.test(roomId)) fail('roomIdInvalid')
     return getThirdPartyEmotes(name, roomId)
+  })
+  /**
+   * The sets that belong to no channel. A whisper is said nowhere, so a name in it can only be
+   * matched against these — and matched by name, since Twitch sends a whisper without the
+   * `emotes` tag that carries the positions everywhere else.
+   */
+  handleFrom('emotes:global', ['room', 'whisper'], async () => {
+    const [thirdParty, twitch] = await Promise.allSettled([
+      getGlobalThirdPartyEmotes(),
+      getGlobalTwitchEmotes(accountAuth('needAccountForEmotes'))
+    ])
+    // One set failing does not cost the other: a conversation reads better with half the emotes
+    // than with none, and neither is worth an error in a window that came up on its own.
+    return {
+      thirdParty: thirdParty.status === 'fulfilled' ? thirdParty.value : [],
+      twitch: twitch.status === 'fulfilled' ? twitch.value : []
+    }
   })
   handle('emotes:twitch', (roomId: unknown) => {
     if (typeof roomId !== 'string' || !/^\d{1,30}$/.test(roomId)) fail('roomIdInvalid')
@@ -670,7 +861,8 @@ app.whenReady().then(async () => {
     })
     notification.show()
   })
-  handle('app:external', (target: string, channel?: string) => {
+  // Opening a Twitch page is not the room's alone: a conversation links to the person it is with.
+  handleFrom('app:external', ['room', 'whisper'], (target: string, channel?: string) => {
     const urls: Record<string, string> = { twitch: `https://www.twitch.tv/${channel ? channelName(channel) : ''}`, ...externalDocs }
     if (!Object.hasOwn(urls, target)) fail('linkForbidden')
     return shell.openExternal(urls[target])
@@ -680,7 +872,55 @@ app.whenReady().then(async () => {
    * is checked here as well as in the window: only HTTP and HTTPS reach the browser, and never
    * a `javascript:`, a `file:` or an application scheme that would run something on the machine.
    */
-  handle('app:open-link', (input: unknown) => {
+  /**
+   * A conversation window, on opening. The peer is looked up by the contents that called, so a
+   * window cannot ask for a conversation that is not its own, and the thread comes from the
+   * database rather than from what happened to be on screen: what arrived in earlier sessions
+   * is there too.
+   */
+  ipcMain.handle('whispers:context', async event => {
+    trustedFrom(event, ['whisper'])
+    try {
+      const peer = whisperPeerOf(event.sender)
+      if (!peer) fail('originForbidden')
+      const thread = store.whispers.thread(activeScope, peer)
+      const named = [...thread].reverse().find(line => !line.outgoing && line.peerName)
+      return {
+        peer, peerName: named?.peerName || peer, thread,
+        chat: preferences.chat, theme: preferences.theme, locale: activeLocale
+      } satisfies WhisperContext
+    } catch (error) { return serializeError(error) ?? Promise.reject(error) }
+  })
+  /**
+   * A reply, into the conversation the calling window holds. Twitch answers a send with a bare
+   * 204: no id, no echo, and nothing that will ever come back to name this message. It is
+   * written down here, under an id of our own, or it would exist nowhere at all.
+   */
+  ipcMain.handle('whispers:send', async (event, input: unknown) => {
+    trustedFrom(event, ['whisper'])
+    try {
+      const peer = whisperPeerOf(event.sender)
+      if (!peer) fail('originForbidden')
+      const text = whisperText(input)
+      const { token, clientId, userId, whispers } = accountSession?.credentials() ?? { token: null, clientId: null, userId: null, whispers: false }
+      if (!token || !clientId || !userId) fail('whisperNoAccount')
+      if (!whispers) fail('whisperScopeMissing')
+      const auth = { token, clientId }
+      // The id Twitch sent with their whisper, when they wrote first: a reply then costs no
+      // lookup, and reaches them even if they have changed their login since.
+      const to = store.whispers.peerId(activeScope, peer) || await whisperRecipientId(peer, auth)
+      await sendWhisper(userId, to, text, auth)
+      const line = { id: randomUUID(), peer, peerId: to, peerName: peer, outgoing: true, text, at: Date.now() } satisfies Whisper
+      store.whispers.record(activeScope, line)
+      return line
+    } catch (error) {
+      const key = errorKey(error)
+      if (key && SESSION_EXPIRED.has(key)) void checkSession()
+      return serializeError(error) ?? Promise.reject(error)
+    }
+  })
+  // A conversation window opens its links the same way the room does: never by navigating.
+  handleFrom('app:open-link', ['room', 'whisper'], (input: unknown) => {
     if (typeof input !== 'string' || input.length > 2048) fail('linkForbidden')
     let url: URL
     try { url = new URL(input) } catch { return fail('linkForbidden') }
@@ -691,24 +931,6 @@ app.whenReady().then(async () => {
   })
 
   // A desktop app offers a context menu only where something can be edited or copied; inert chrome keeps its own menus.
-  function popupContextMenu(target: BrowserWindow, params: Electron.ContextMenuParams) {
-    const flags = params.editFlags
-    if (!params.isEditable && !params.selectionText.trim()) return
-    const template: Electron.MenuItemConstructorOptions[] = params.isEditable
-      ? [
-          { label: m.menu.undo, role: 'undo', enabled: flags.canUndo },
-          { label: m.menu.redo, role: 'redo', enabled: flags.canRedo },
-          { type: 'separator' },
-          { label: m.menu.cut, role: 'cut', enabled: flags.canCut },
-          { label: m.menu.copy, role: 'copy', enabled: flags.canCopy },
-          { label: m.menu.paste, role: 'paste', enabled: flags.canPaste },
-          { type: 'separator' },
-          { label: m.menu.selectAll, role: 'selectAll', enabled: flags.canSelectAll }
-        ]
-      : [{ label: m.menu.copy, role: 'copy', enabled: flags.canCopy }]
-    Menu.buildFromTemplate(template).popup({ window: target })
-  }
-
   // The default Electron menu exposes reload and devtools; a shipped app keeps only what a user acts on.
   function applicationMenu() {
     const editing: Electron.MenuItemConstructorOptions[] = [
@@ -904,7 +1126,7 @@ app.whenReady().then(async () => {
     window.on('maximize', scheduleWindowBounds); window.on('unmaximize', scheduleWindowBounds)
     // The last gesture counts as much as the others: closing does not wait for the debounce.
     window.on('close', () => { clearTimeout(boundsTimer); rememberWindowBounds(); shuttingDown = true; closePlayerWindow() })
-    window.on('closed', () => { nativeTheme.off('updated', paintWindow); window = null; stopMedia(); irc.disconnect(); eventSub.stop(); accountSession?.release() })
+    window.on('closed', () => { nativeTheme.off('updated', paintWindow); window = null; closeWhisperWindows(); stopMedia(); irc.disconnect(); eventSub.stop(); accountSession?.release() })
     window.webContents.on('did-finish-load', () => {
       for (const channel of preferences.channels) irc.join(channel)
       // Reloading the renderer does not close the video window: the room learns again that it is there.

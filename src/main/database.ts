@@ -87,7 +87,45 @@ const REVISIONS = [
   `ALTER TABLE scopes ADD COLUMN chat_link_confirm INTEGER NOT NULL DEFAULT 1`,
   // The GIFs of Twitch's GIPHY keyboard are shown as images. On by default: that is how the
   // message reads on Twitch, and the title it carries stays there for whoever turns them off.
-  `ALTER TABLE scopes ADD COLUMN chat_gifs INTEGER NOT NULL DEFAULT 1`
+  `ALTER TABLE scopes ADD COLUMN chat_gifs INTEGER NOT NULL DEFAULT 1`,
+  // Revision 11. The first messages this application keeps. Chat is not stored — Twitch replays a room, and
+  // the log lives in memory — but a whisper is delivered once, over EventSub, and to whoever is
+  // connected at that second. Twitch does keep them — its own inbox shows every one — but opens
+  // them to no API, so what is not written here is out of this application's reach for good.
+  // `id` is the whisper's own, which is what tells a repeated frame from a new message;
+  // an outgoing one is given a local id, since the send is answered with a bare 204.
+  `CREATE TABLE whispers (
+     scope TEXT NOT NULL REFERENCES scopes(scope) ON DELETE CASCADE,
+     id TEXT NOT NULL,
+     peer_login TEXT NOT NULL,
+     peer_name TEXT NOT NULL DEFAULT '',
+     outgoing INTEGER NOT NULL DEFAULT 0,
+     text TEXT NOT NULL,
+     sent_at INTEGER NOT NULL,
+     PRIMARY KEY (scope, id)
+   );
+   CREATE INDEX whispers_thread ON whispers(scope, peer_login, sent_at);`,
+  // Revision 12. The address book Twitch no longer has: it closed its own Friends feature on 25 May 2022, so
+  // nothing is synchronised and nothing can be taken away again. `user_id` is the identity that
+  // survives a rename, `login` the one everything else in the application is keyed by, and `note`
+  // is the whole point — the sentence about someone that Twitch has never had a field for.
+  `CREATE TABLE contacts (
+     scope TEXT NOT NULL REFERENCES scopes(scope) ON DELETE CASCADE,
+     login TEXT NOT NULL,
+     user_id TEXT NOT NULL DEFAULT '',
+     display_name TEXT NOT NULL DEFAULT '',
+     note TEXT NOT NULL DEFAULT '',
+     added_at INTEGER NOT NULL,
+     PRIMARY KEY (scope, login)
+   );`,
+  // Revision 13. A whisper opens its own window and rings: one switch turns the pair off. Kept
+  // apart from the mentions — a room going by is not someone writing to you — and on by default,
+  // since a whisper nobody was told about is one Twitch will never show again.
+  `ALTER TABLE scopes ADD COLUMN notify_whispers INTEGER NOT NULL DEFAULT 1`,
+  // Revision 14. Twitch names the sender of every whisper by id as well as by login, and a reply
+  // is addressed to the id. Kept here rather than looked up again — and it is the identity that
+  // survives a change of login, which the column beside it does not.
+  `ALTER TABLE whispers ADD COLUMN peer_id TEXT NOT NULL DEFAULT ''`
 ]
 
 /**

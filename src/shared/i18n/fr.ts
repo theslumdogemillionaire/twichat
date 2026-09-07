@@ -70,6 +70,15 @@ export const fr: Messages = {
     twitchCatalogUnavailable: 'Le catalog Twitch est momentanément indisponible.',
     twitchProfilesUnavailable: 'Les profils Twitch sont momentanément indisponibles.',
     twitchProfileUnavailable: 'Le profil Twitch est momentanément indisponible.',
+    whisperEmpty: 'Écrivez un message avant de l’envoyer.',
+    whisperTooLong: 'Twitch limite un message privé à 500 caractères.',
+    whisperToSelf: 'On ne s’écrit pas à soi-même en privé.',
+    whisperNoAccount: 'Connectez votre compte Twitch pour écrire en privé.',
+    whisperRefused: () => 'Twitch a refusé : cette personne ne reçoit pas vos messages privés. Elle vous a bloqué, ou elle n’accepte que ceux des comptes qu’elle suit.',
+    whisperNeedsPhone: () => 'Twitch a refusé : envoyer un message privé demande un numéro de téléphone vérifié sur votre compte. Si le vôtre l’est, c’est la session qui vient d’expirer.',
+    whisperTooMany: () => 'Twitch a refusé : trop de messages privés. La limite est de 40 destinataires différents par jour, et de 3 messages par seconde.',
+    whisperUnavailable: (status: number) => `Twitch a refusé le message privé (erreur ${status}).`,
+    whisperScopeMissing: 'Reconnectez ce compte dans le navigateur pour envoyer et recevoir des messages privés.',
     twitchFollowedUnavailable: 'Vos chaînes suivies sont momentanément indisponibles.',
     twitchFollowedScope: 'Reconnectez votre compte Twitch pour autoriser l’accès à vos chaînes suivies.',
     twitchFollowedReconnect: 'Reconnectez votre compte Twitch pour retrouver vos chaînes suivies.',
@@ -144,7 +153,23 @@ export const fr: Messages = {
 
   /** The system notifications, written by the main process. */
   notifications: {
-    mention: (author: string, channel: string) => `${author} vous mentionne dans #${channel}`
+    mention: (author: string, channel: string) => `${author} vous mentionne dans #${channel}`,
+    whisper: (author: string) => `${author} vous écrit en privé`
+  },
+
+  /** The conversation window: one whisper thread, opened on its own. */
+  whisperWindow: {
+    pageTitle: 'Message privé — Twichat',
+    title: (name: string) => `${name} — Twichat`,
+    empty: 'Rien reçu ici pour l’instant. Ce qui a été dit avant est dans votre boîte sur twitch.tv.',
+    noHistory: 'Twitch garde vos messages privés sur twitch.tv, mais n’en ouvre l’accès à aucune application : Twichat n’affiche que ce qu’il a reçu pendant qu’il tournait.',
+    reply: 'Ouvrir sur Twitch',
+    openOnTwitch: (login: string) => `Ouvrir la conversation avec ${login} sur twitch.tv`,
+    you: 'Vous',
+    inputLabel: 'Votre message',
+    placeholder: 'Répondre en privé',
+    sending: 'Envoi…',
+    label: { conversation: 'Conversation privée', send: 'Envoyer le message' }
   },
 
   /** Everything the app's HTML carries, hydrated at startup and on every language switch. */
@@ -175,7 +200,6 @@ export const fr: Messages = {
     channelMessage: 'Message de la chaîne',
     goToTheirChannel: 'Aller à sa chaîne',
     joinTheirChannel: 'Rejoindre sa chaîne',
-    theirChannel: 'Sa chaîne',
     messageGone: 'Ce message n’est plus dans l’historique de la chaîne.',
     partnerChannel: 'Chaîne partenaire Twitch',
     affiliateChannel: 'Chaîne affiliée Twitch',
@@ -276,8 +300,7 @@ export const fr: Messages = {
     messagesHere: (count: number): string => (count > 1 ? 'Messages ici' : 'Message ici'),
     onTwitch: 'Sur Twitch',
     mentionUser: 'Mentionner',
-    join: 'Rejoindre',
-    follow: 'Suivre',
+    channel: 'Chaîne',
     raidFollowed: (channel: string) => `Raid suivi : bienvenue chez ${channel}.`,
     connectMyAccount: 'Connecter mon compte',
     allCategories: 'Toutes',
@@ -828,6 +851,9 @@ export const fr: Messages = {
       mentionsHint: 'Notification système quand on vous cite, fenêtre en arrière-plan.',
       mentions: 'Mentions',
       mentionsNote: 'Le compteur de mentions dans la liste des chaînes ne dépend pas de ce réglage : il compte même notification coupée.',
+      whispers: 'Messages privés',
+      whispersHint: 'La conversation s’ouvre dans sa fenêtre, derrière ce que vous faites, et une notification le signale.',
+      whispersNote: 'Twitch n’ouvre l’accès aux messages privés à aucune application : Twichat ne peut afficher que ceux reçus pendant qu’il tournait. Les autres restent dans votre boîte sur twitch.tv.',
       connectionTitle: 'Connexion',
       connecting: 'Connexion…',
       reconnect: 'Reconnecter le chat',

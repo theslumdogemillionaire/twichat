@@ -73,6 +73,8 @@ export interface PlaybackPreferences {
 export interface NotificationPreferences {
   /** System notification when you are mentioned, window in the background. The list counter does not depend on this choice. */
   mentions: boolean
+  /** A whisper opens its conversation window, behind what you are doing, and rings once. */
+  whispers: boolean
 }
 /** How the chat itself reads. */
 export interface ChatPreferences {
@@ -240,6 +242,32 @@ export interface DetachedContext {
 }
 /** What a mention passes to the main process: enough to title the notification, nothing more. */
 export interface MentionNotice { channel: string; user: string; text: string }
+/**
+ * One whisper as Twichat keeps it. `peer` is the other party in the conversation, whichever way
+ * the message went: Twitch gives no thread of its own, so the pair is what gathers them.
+ */
+export interface Whisper {
+  id: string
+  peer: string
+  /** Twitch's id for the peer, when it is known: what a reply is addressed to. */
+  peerId?: string
+  peerName: string
+  outgoing: boolean
+  text: string
+  at: number
+}
+/** What a conversation window is handed on opening: who it is with, and everything said so far. */
+export interface WhisperContext {
+  peer: string
+  peerName: string
+  thread: Whisper[]
+  /** The same reading rules as the room: links on or off, and whether one is confirmed first. */
+  chat: ChatPreferences
+  theme: Theme
+  locale: Locale
+}
+/** The emote sets that belong to no channel, for a body Twitch sent without an `emotes` tag. */
+export interface GlobalEmotes { thirdParty: ThirdPartyEmote[]; twitch: TwitchEmote[] }
 export interface TwichatAPI {
   init(): Promise<Snapshot>
   join(channel: string): Promise<void>
@@ -334,6 +362,13 @@ export interface TwichatAPI {
    */
   onNavigate(callback: (direction: 'back' | 'forward') => void): () => void
   onEvents(callback: (events: ChatEvent[]) => void): () => void
+  /** The conversation window asking who it is with. The peer comes from the main process,
+   * never from the page: a window cannot name someone else's conversation. */
+  whisperContext(): Promise<WhisperContext>
+  globalEmotes(): Promise<GlobalEmotes>
+  /** Sends into the conversation this window holds. The recipient is never named by the page. */
+  sendWhisper(text: string): Promise<Whisper>
+  onWhisper(callback: (whisper: Whisper) => void): () => void
   /** A release worth knowing about, sent once per version. */
   onUpdate(callback: (notice: UpdateNotice) => void): () => void
   /** Acts on the notice: restart onto the downloaded build, or open the release page. */

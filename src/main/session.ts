@@ -4,7 +4,7 @@ import type { AccountCredentials } from './accounts'
 /** A rejected token: a catalog error like any other, so it crosses the IPC with its key. */
 export class InvalidTokenError extends AppError {}
 
-export interface ValidatedToken { login: string; clientId: string; userId: string; follows: boolean; expiresIn: number }
+export interface ValidatedToken { login: string; clientId: string; userId: string; follows: boolean; whispers: boolean; expiresIn: number }
 
 /** Twitch asks for a validation at startup, then once an hour, whatever the token announces. */
 const VALIDATION_INTERVAL = 60 * 60 * 1000

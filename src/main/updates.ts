@@ -26,7 +26,11 @@ const CHECK_TIMEOUT = 10_000
 /** Long enough for the window to be up and the chat connected: the check is never the priority. */
 const FIRST_CHECK = 30_000
 
-const selfUpdates = process.platform === 'win32'
+// Windows updates itself, and so does Linux, but only when the running copy is the AppImage:
+// `APPIMAGE` holds the path of the image the process was launched from, and it is the one file
+// electron-updater can replace. A deb or an rpm belongs to the system's package manager, and
+// the same binary launched that way carries no such variable.
+const selfUpdates = process.platform === 'win32' || (process.platform === 'linux' && Boolean(process.env.APPIMAGE))
 let pending: UpdateNotice | null = null
 
 function releaseUrl(version: string) {

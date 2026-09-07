@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { isWireError, wireErrorToError } from '../shared/wire'
-import type { BufferMode, ChatEvent, ScopedPreferences, TwichatAPI, UpdateNotice } from '../shared/types'
+import type { BufferMode, ChatEvent, ScopedPreferences, TwichatAPI, UpdateNotice, Whisper } from '../shared/types'
 
 /**
  * Every invocation goes through here: the main process returns its known errors as an envelope
@@ -108,6 +108,14 @@ const api: TwichatAPI = {
     const listener = (_event: unknown, events: ChatEvent[]) => callback(events)
     ipcRenderer.on('chat:events', listener)
     return () => ipcRenderer.removeListener('chat:events', listener)
+  },
+  whisperContext: () => invoke('whispers:context'),
+  globalEmotes: () => invoke('emotes:global'),
+  sendWhisper: text => invoke('whispers:send', text),
+  onWhisper: callback => {
+    const listener = (_event: unknown, whisper: Whisper) => callback(whisper)
+    ipcRenderer.on('app:whisper', listener)
+    return () => ipcRenderer.removeListener('app:whisper', listener)
   }
 }
 contextBridge.exposeInMainWorld('twichat', api)

@@ -1,5 +1,5 @@
 import type { BufferMode, ChatPreferences, LayoutPreferences, NotificationPreferences, PlaybackPreferences, PlayerWindowState, ReplyReference, Theme, WindowBounds } from './types'
-import { fail } from './errors'
+import { fail, type ErrorKey } from './errors'
 import { isLocale } from './i18n'
 
 export function channelName(value: unknown): string {
@@ -70,7 +70,7 @@ export function playbackPreferences(value: unknown): PlaybackPreferences {
 /** No preference means consent: mentions already notified before the setting existed. */
 export function notificationPreferences(value: unknown): NotificationPreferences {
   const input = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>
-  return { mentions: input.mentions !== false }
+  return { mentions: input.mentions !== false, whispers: input.whispers !== false }
 }
 
 /**
@@ -145,4 +145,33 @@ export function mediaUrl(value: unknown): URL {
     fail('mediaHostForbidden')
   }
   return url
+}
+
+/** Twitch refuses a longer whisper outright; cutting one here would send half a sentence. */
+export const WHISPER_LIMIT = 500
+
+/** The message as Twitch will take it. Empty and over-long are ours to catch, not its. */
+export function whisperText(input: unknown): string {
+  if (typeof input !== 'string') fail('whisperEmpty')
+  const text = input.trim()
+  if (!text) fail('whisperEmpty')
+  if ([...text].length > WHISPER_LIMIT) fail('whisperTooLong')
+  return text
+}
+
+/**
+ * What a refusal from Twitch means, in the user's terms. The two documentation pages do not
+ * agree on the code for a recipient who refuses whispers — the API reference says 403, the
+ * whispers page says 400 — so both lead to the same sentence rather than to a guess about
+ * which page is right.
+ *
+ * A 401 is the one that reads oddly: the scope was checked before the call, so what is left is
+ * a session that has just died, or the verified phone number Twitch requires of every sender
+ * and never mentions until it refuses. The sentence names both.
+ */
+export function whisperFailure(status: number): ErrorKey {
+  if (status === 400 || status === 403) return 'whisperRefused'
+  if (status === 401) return 'whisperNeedsPhone'
+  if (status === 429) return 'whisperTooMany'
+  return 'whisperUnavailable'
 }

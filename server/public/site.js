@@ -5,13 +5,12 @@ const agent = navigator.userAgent
 // Android carries "Linux" and iOS installs no desktop binary: mobile is ruled out first.
 const mobile = /Android|iPhone|iPad|iPod/i.test(agent)
 const platform = mobile ? 'mac' : /Windows/i.test(agent) ? 'windows' : /Linux|X11/i.test(agent) ? 'linux' : 'mac'
-// The User-Agent does not reveal the distribution: on Linux there is no telling
-// deb from rpm. Both are offered — deb by default (the desktop majority),
-// rpm beside it.
-const primary = platform === 'linux' ? 'deb' : platform
+// The User-Agent does not reveal the distribution, so the default is the format that needs no
+// package manager and runs anywhere. deb and rpm sit beside it for whoever prefers their own.
+const primary = platform === 'linux' ? 'appimage' : platform
 const labels = {
-  fr: { mac: 'Télécharger pour macOS', windows: 'Télécharger pour Windows', linux: 'Télécharger pour Linux (.deb)' },
-  en: { mac: 'Download for macOS', windows: 'Download for Windows', linux: 'Download for Linux (.deb)' }
+  fr: { mac: 'Télécharger pour macOS', windows: 'Télécharger pour Windows', linux: 'Télécharger pour Linux (.AppImage)' },
+  en: { mac: 'Download for macOS', windows: 'Download for Windows', linux: 'Download for Linux (.AppImage)' }
 }
 for (const link of document.querySelectorAll('[data-download]')) {
   link.href = `/download?platform=${primary}&lang=${current}`

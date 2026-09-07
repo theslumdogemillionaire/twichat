@@ -41,23 +41,27 @@ With no active session, Twichat offers to resume an account already used, connec
 
 ## Updates
 
-A `v*` tag builds the four installers and publishes them as a GitHub release. The app checks that
+A `v*` tag builds the eight installers and publishes them as a GitHub release. The app checks that
 release half a minute after launch, then every six hours, and says so on one line of the status bar.
 
 Windows updates itself: the NSIS installer electron-updater drives needs no signature, so the build
-downloads in the background and the line offers the restart that applies it. macOS and Linux are told
-rather than updated, and the line opens the release page instead. Squirrel.Mac verifies the code
-signature of what it downloads and these builds carry none; deb and rpm belong to the system's package
-manager.
+downloads in the background and the line offers the restart that applies it. Linux does too, but only
+when the running copy is the AppImage, which is the one Linux file electron-updater can replace in
+place; a deb or an rpm belongs to the system's package manager and is left to it. macOS is told rather
+than updated, and the line opens the release page instead: Squirrel.Mac verifies the code signature of
+what it downloads, and these builds carry none.
 
 The tag and the `version` field of `package.json` have to match: that field is what the running app
 compares against the release. `scripts/release-gate.mjs` enforces it — it runs before anything is
 installed, so a tag ahead of the file costs seconds instead of three packaging jobs and a release
 whose installers announce a version that was never cut.
 
-The installers are built under fixed names — `Twichat-mac.dmg`, `Twichat-windows.exe`,
-`Twichat-linux.deb`, `Twichat-linux.rpm` — rather than the versioned ones electron-builder writes
-by default. Two things depend on that. The site serves those exact names from `/download`, and
+The installers are built under fixed names rather than the versioned ones electron-builder writes by
+default: `Twichat-mac.dmg`, `Twichat-windows.exe`, and six Linux packages carrying their architecture,
+`Twichat-linux-x86_64.AppImage`, `Twichat-linux-arm64.AppImage`, `Twichat-linux-amd64.deb`,
+`Twichat-linux-arm64.deb`, `Twichat-linux-x86_64.rpm` and `Twichat-linux-aarch64.rpm`. That spelling
+is not ours: `${arch}` is filled with each packager's own vocabulary, so deb says `amd64` where rpm
+says `x86_64`. Two things depend on that. The site serves those exact names from `/download`, and
 GitHub keeps a permanent address per name:
 
     https://github.com/theslumdogemillionaire/twichat/releases/latest/download/Twichat-mac.dmg
@@ -65,9 +69,10 @@ GitHub keeps a permanent address per name:
 And `latest*.yml`, the file the in-app check reads, names the installer by its file name and
 carries its checksum — so the name has to come from the build rather than from a rename after it,
 or that metadata points at a file the release does not hold. A test compares the names the site
-promises against the ones `electron-builder.yml` builds.
+promises against the ones the release really carries, spelled out: comparing against the template
+alone once passed while three of the four Linux names did not exist.
 
-Each release also carries `SHA256SUMS.txt`, listing the four installers under those same names.
+Each release also carries `SHA256SUMS.txt`, listing the eight installers under those same names.
 
 A failed check is never shown: the version in hand keeps working. It is written to the log, so a
 month of silent failures does not look like a month without a release.

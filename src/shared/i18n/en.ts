@@ -79,6 +79,15 @@ export const en = {
     twitchCatalogUnavailable: 'The Twitch catalog is momentarily unavailable.',
     twitchProfilesUnavailable: 'Twitch profiles are momentarily unavailable.',
     twitchProfileUnavailable: 'The Twitch profile is momentarily unavailable.',
+    whisperEmpty: 'Write a message before sending it.',
+    whisperTooLong: 'Twitch caps a whisper at 500 characters.',
+    whisperToSelf: 'You cannot whisper yourself.',
+    whisperNoAccount: 'Connect your Twitch account to write privately.',
+    whisperRefused: () => 'Twitch refused: this person does not receive your whispers. They have blocked you, or they only accept whispers from accounts they follow.',
+    whisperNeedsPhone: () => 'Twitch refused: sending a whisper requires a verified phone number on your account. If yours is verified, the session has just expired.',
+    whisperTooMany: () => 'Twitch refused: too many whispers. The limit is 40 different recipients a day, and 3 messages a second.',
+    whisperUnavailable: (status: number) => `Twitch refused the whisper (error ${status}).`,
+    whisperScopeMissing: 'Sign in to this account again in your browser to send and receive whispers.',
     twitchFollowedUnavailable: 'Your followed channels are momentarily unavailable.',
     twitchFollowedScope: 'Reconnect your Twitch account to allow access to your followed channels.',
     twitchFollowedReconnect: 'Reconnect your Twitch account to get your followed channels back.',
@@ -151,9 +160,25 @@ export const en = {
   },
 
   notifications: {
-    mention: (author: string, channel: string) => `${author} mentions you in #${channel}`
+    mention: (author: string, channel: string) => `${author} mentions you in #${channel}`,
+    whisper: (author: string) => `${author} sent you a whisper`
   },
 
+
+  /** The conversation window: one whisper thread, opened on its own. */
+  whisperWindow: {
+    pageTitle: 'Whisper — Twichat',
+    title: (name: string) => `${name} — Twichat`,
+    empty: 'Nothing received here yet. What was said before is in your inbox on twitch.tv.',
+    noHistory: 'Twitch keeps your whispers on twitch.tv, but opens them to no application: Twichat shows only what it received while running.',
+    reply: 'Open on Twitch',
+    openOnTwitch: (login: string) => `Open the conversation with ${login} on twitch.tv`,
+    you: 'You',
+    inputLabel: 'Your message',
+    placeholder: 'Reply privately',
+    sending: 'Sending…',
+    label: { conversation: 'Private conversation', send: 'Send the message' }
+  },
 
   app: {
     theAudio: 'audio',
@@ -182,7 +207,6 @@ export const en = {
     channelMessage: 'Channel message',
     goToTheirChannel: 'Go to their channel',
     joinTheirChannel: 'Join their channel',
-    theirChannel: 'Their channel',
     messageGone: 'This message is no longer in the channel history.',
     partnerChannel: 'Twitch partner channel',
     affiliateChannel: 'Twitch affiliate channel',
@@ -283,8 +307,7 @@ export const en = {
     messagesHere: (count: number): string => (count === 1 ? 'Message here' : 'Messages here'),
     onTwitch: 'On Twitch',
     mentionUser: 'Mention',
-    join: 'Join',
-    follow: 'Follow',
+    channel: 'Channel',
     raidFollowed: (channel: string) => `Raid followed: welcome to ${channel}.`,
     connectMyAccount: 'Connect my account',
     allCategories: 'All',
@@ -620,6 +643,9 @@ export const en = {
       mentions: 'Mentions',
       mentionsHint: 'A system notification when someone mentions you, window in the background.',
       mentionsNote: 'The mention counter in the channel list does not depend on this setting: it counts even with notifications off.',
+      whispers: 'Whispers',
+      whispersHint: 'The conversation opens in its own window, behind what you are doing, and a notification says so.',
+      whispersNote: 'Twitch opens whispers to no application: Twichat can only show those received while it was running. The rest stay in your inbox on twitch.tv.',
       connectionTitle: 'Connection',
       connecting: 'Connecting…',
       reconnect: 'Reconnect chat',

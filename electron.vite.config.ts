@@ -8,10 +8,17 @@ export default defineConfig({
   renderer: {
     resolve: { alias: { '@': resolve('src/renderer') } },
     server: { host: '127.0.0.1' },
-    // Two pages: the room, and the window the video moves into when it is detached.
+    // Three pages: the room, the window the video moves into when it is detached, and the one a
+    // whisper opens — one per conversation.
     build: {
       target: 'es2022',
-      rollupOptions: { input: { index: resolve('src/renderer/index.html'), player: resolve('src/renderer/player.html') } }
+      rollupOptions: {
+        input: {
+          index: resolve('src/renderer/index.html'),
+          player: resolve('src/renderer/player.html'),
+          whisper: resolve('src/renderer/whisper.html')
+        }
+      }
     }
   }
 })

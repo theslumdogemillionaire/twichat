@@ -49,10 +49,10 @@ test('a prerelease tag is a release tag', () => {
  */
 test('the site serves the names the packages are built under', () => {
   const built = new Set([...read('electron-builder.yml').matchAll(/^\s*artifactName:\s*(\S+)/gm)].map(match => match[1]))
-  const extensions = { dmg: 'mac', exe: 'windows', deb: 'deb', rpm: 'rpm' }
+  const extensions = { dmg: 'mac', exe: 'windows', deb: 'deb', rpm: 'rpm', AppImage: 'appimage' }
   const promised = new Set([...read('server/app.mjs').matchAll(/name:\s*'(Twichat-[^']+)'/g)].map(match => match[1]))
   assert.ok(built.size >= 3, `electron-builder names no artifact: ${[...built]}`)
-  assert.ok(promised.size === 6, `the site promises ${promised.size} downloads, expected six`)
+  assert.ok(promised.size === 8, `the site promises ${promised.size} downloads, expected eight`)
   for (const name of promised) {
     const extension = name.split('.').pop() as keyof typeof extensions
     assert.ok(extension in extensions, `${name} has an extension the release does not build`)
@@ -64,7 +64,7 @@ test('the site serves the names the packages are built under', () => {
     assert.ok(built.has(template), `the site serves ${name} but nothing is built as ${template}`)
   }
   // The four Linux packages, by the names deb and rpm each give an architecture.
-  for (const expected of ['Twichat-linux-amd64.deb', 'Twichat-linux-arm64.deb', 'Twichat-linux-x86_64.rpm', 'Twichat-linux-aarch64.rpm']) {
+  for (const expected of ['Twichat-linux-x86_64.AppImage', 'Twichat-linux-arm64.AppImage', 'Twichat-linux-amd64.deb', 'Twichat-linux-arm64.deb', 'Twichat-linux-x86_64.rpm', 'Twichat-linux-aarch64.rpm']) {
     assert.ok(promised.has(expected), `the release carries ${expected} and the site does not serve it`)
   }
 })

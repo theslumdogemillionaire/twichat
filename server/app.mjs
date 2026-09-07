@@ -10,9 +10,11 @@ import { AUTH, DEFAULT_LOCALE, LOCALES, pickLocale } from './site-messages.mjs'
 const directory = fileURLToPath(new URL('.', import.meta.url))
 const defaultPublicDirectory = join(directory, 'public')
 const requiredScopes = ['chat:read', 'chat:edit']
-// Requested at sign-in for the list of followed channels, but never required at validation:
-// a session opened before that view existed must keep renewing itself, without that scope.
-const loginScopes = [...requiredScopes, 'user:read:follows']
+// Requested at sign-in, never required at validation: a session opened before the view that
+// needs one must keep renewing itself without it. `user:read:follows` carries the followed
+// channels; `user:manage:whispers` carries both halves of the whispers — receiving them over
+// EventSub and sending them — so a single consent covers the pair.
+const loginScopes = [...requiredScopes, 'user:read:follows', 'user:manage:whispers']
 const mimeTypes = new Map([
   ['.html', 'text/html; charset=utf-8'], ['.css', 'text/css; charset=utf-8'],
   ['.js', 'text/javascript; charset=utf-8'], ['.png', 'image/png'],
@@ -26,6 +28,8 @@ const downloadFiles = {
   windows: { name: 'Twichat-windows.exe', type: 'application/vnd.microsoft.portable-executable' },
   // electron-builder fills `${arch}` with each packager's own vocabulary, not its own: deb says
   // amd64 and arm64, rpm says x86_64 and aarch64. These are the names the release really carries.
+  appimage: { name: 'Twichat-linux-x86_64.AppImage', type: 'application/x-executable' },
+  appimage_arm64: { name: 'Twichat-linux-arm64.AppImage', type: 'application/x-executable' },
   deb: { name: 'Twichat-linux-amd64.deb', type: 'application/vnd.debian.binary-package' },
   rpm: { name: 'Twichat-linux-x86_64.rpm', type: 'application/x-rpm' },
   deb_arm64: { name: 'Twichat-linux-arm64.deb', type: 'application/vnd.debian.binary-package' },

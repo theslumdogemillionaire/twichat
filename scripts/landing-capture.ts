@@ -13,6 +13,18 @@ const locale = (process.argv[2] ?? process.env.TWICHAT_LOCALE) === 'en' ? 'en' :
 const assets = resolve('server/public/assets')
 const sprite = `data:image/png;base64,${(await readFile(resolve('server/demo-assets/avatar-sprite.png'))).toString('base64')}`
 const stream = `data:image/png;base64,${(await readFile(resolve('server/demo-assets/stream-frame.png'))).toString('base64')}`
+
+/**
+ * One preview per channel. A single frame reused six times put the same face on every card,
+ * which is not what a catalog of live channels looks like.
+ */
+const THUMBNAILS = ['speedrun', 'pixels', 'lofi', 'scope', 'talk'] as const
+const thumbs: Record<string, string> = {}
+for (const name of THUMBNAILS) {
+  const path = resolve(`server/demo-assets/thumb-${name}.png`)
+  try { thumbs[name] = `data:image/png;base64,${(await readFile(path)).toString('base64')}` }
+  catch { throw new Error(`Missing demo thumbnail: ${path}. Each channel of the catalog shows its own preview.`) }
+}
 await mkdir(assets, { recursive: true })
 
 /** The demo faces live in a 4 × 3 sprite sheet: the crop is computed here, the page only receives a style. */
@@ -147,7 +159,7 @@ const CHROME = {
     liveBadge: '● EN DIRECT',
     liveTag: 'EN DIRECT',
     modes: ['Lent 3 s', 'Followers'],
-    cardActions: [['chat', 'Mentionner'], ['hash', 'Rejoindre'], ['external', 'Twitch']] as [string, string][],
+    cardActions: [['chat', 'Mentionner'], ['hash', 'Chaîne'], ['external', 'Twitch']] as [string, string][],
     draft: '@cat_on_keyboard mrrrp aussi, je garde la boucle pour le prochain live :musical_note:',
     composerPlaceholder: 'Écrire dans #studio_nova',
     idle: ['radio_ancienne', 'kraken_du_dimanche'],
@@ -165,7 +177,7 @@ const CHROME = {
     liveBadge: '● LIVE',
     liveTag: 'LIVE',
     modes: ['Slow 3s', 'Followers'],
-    cardActions: [['chat', 'Mention'], ['hash', 'Join'], ['external', 'Twitch']] as [string, string][],
+    cardActions: [['chat', 'Mention'], ['hash', 'Channel'], ['external', 'Twitch']] as [string, string][],
     draft: '@cat_on_keyboard mrrrp too, keeping the loop for the next stream :musical_note:',
     composerPlaceholder: 'Write in #studio_nova',
     idle: ['radio_ancienne', 'kraken_du_dimanche'],
@@ -186,6 +198,8 @@ interface DemoStream {
   title: string
   tags: string[]
   joined?: boolean
+  /** What the preview shows: the demo photo, or a scene drawn for the category. */
+  art: 'photo' | 'speedrun' | 'pixels' | 'lofi' | 'scope' | 'talk'
 }
 
 /**
@@ -195,20 +209,20 @@ interface DemoStream {
  */
 const DISCOVERY: Record<string, DemoStream[]> = {
   fr: [
-    { channel: 'studio_nova', avatar: 2, viewers: '42,7 k', uptime: '3 h 12', game: 'Musique', title: 'Session modulaire : on construit un patch en direct', tags: ['Français', 'Musique', 'Détente'], joined: true },
-    { channel: 'lofi_garden', avatar: 6, viewers: '8,4 k', uptime: '11 h 40', game: 'Musique', title: 'lofi pour réviser · la playlist du soir', tags: ['Français', 'Chill'], joined: true },
-    { channel: 'speedrun_fr', avatar: 1, viewers: '5,1 k', uptime: '1 h 08', game: 'Hollow Knight', title: 'Any% jusqu’au PB ou jusqu’à l’aube', tags: ['Français', 'Speedrun'] },
-    { channel: 'atelier_synthe', avatar: 3, viewers: '2,3 k', uptime: '45 min', game: 'Musique', title: 'On répare un Juno-106 à l’oscilloscope', tags: ['Français', 'Bricolage'] },
-    { channel: 'le_chat_du_coin', avatar: 8, viewers: '1,9 k', uptime: '2 h 30', game: 'Just Chatting', title: 'Café, courrier des auditeurs, questions bêtes', tags: ['Français', 'Discussion'] },
-    { channel: 'pixel_crab', avatar: 1, viewers: '860', uptime: '22 min', game: 'Art', title: 'Pixel art : on finit le tileset de la grotte', tags: ['Français', 'Création'] }
+    { channel: 'studio_nova', avatar: 2, viewers: '42,7 k', uptime: '3 h 12', game: 'Musique', title: 'Session modulaire : on construit un patch en direct', tags: ['Français', 'Musique', 'Détente'], joined: true , art: 'photo' },
+    { channel: 'lofi_garden', avatar: 6, viewers: '8,4 k', uptime: '11 h 40', game: 'Musique', title: 'lofi pour réviser · la playlist du soir', tags: ['Français', 'Chill'], joined: true , art: 'lofi' },
+    { channel: 'speedrun_fr', avatar: 1, viewers: '5,1 k', uptime: '1 h 08', game: 'Hollow Knight', title: 'Any% jusqu’au PB ou jusqu’à l’aube', tags: ['Français', 'Speedrun'] , art: 'speedrun' },
+    { channel: 'atelier_synthe', avatar: 3, viewers: '2,3 k', uptime: '45 min', game: 'Musique', title: 'On répare un Juno-106 à l’oscilloscope', tags: ['Français', 'Bricolage'] , art: 'scope' },
+    { channel: 'le_chat_du_coin', avatar: 8, viewers: '1,9 k', uptime: '2 h 30', game: 'Just Chatting', title: 'Café, courrier des auditeurs, questions bêtes', tags: ['Français', 'Discussion'] , art: 'talk' },
+    { channel: 'pixel_crab', avatar: 1, viewers: '860', uptime: '22 min', game: 'Art', title: 'Pixel art : on finit le tileset de la grotte', tags: ['Français', 'Création'], art: 'pixels' }
   ],
   en: [
-    { channel: 'studio_nova', avatar: 2, viewers: '42.7K', uptime: '3h 12', game: 'Music', title: 'Modular session: building a patch live', tags: ['English', 'Music', 'Chill'], joined: true },
-    { channel: 'lofi_garden', avatar: 6, viewers: '8.4K', uptime: '11h 40', game: 'Music', title: 'lofi to study to · tonight’s playlist', tags: ['English', 'Chill'], joined: true },
-    { channel: 'speedrun_fr', avatar: 1, viewers: '5.1K', uptime: '1h 08', game: 'Hollow Knight', title: 'Any% until the PB or until sunrise', tags: ['English', 'Speedrun'] },
-    { channel: 'atelier_synthe', avatar: 3, viewers: '2.3K', uptime: '45m', game: 'Music', title: 'Fixing a Juno-106 with an oscilloscope', tags: ['English', 'Repair'] },
-    { channel: 'le_chat_du_coin', avatar: 8, viewers: '1.9K', uptime: '2h 30', game: 'Just Chatting', title: 'Coffee, listener mail, silly questions', tags: ['English', 'Talk'] },
-    { channel: 'pixel_crab', avatar: 1, viewers: '860', uptime: '22m', game: 'Art', title: 'Pixel art: finishing the cave tileset', tags: ['English', 'Creative'] }
+    { channel: 'studio_nova', avatar: 2, viewers: '42.7K', uptime: '3h 12', game: 'Music', title: 'Modular session: building a patch live', tags: ['English', 'Music', 'Chill'], joined: true , art: 'photo' },
+    { channel: 'lofi_garden', avatar: 6, viewers: '8.4K', uptime: '11h 40', game: 'Music', title: 'lofi to study to · tonight’s playlist', tags: ['English', 'Chill'], joined: true , art: 'lofi' },
+    { channel: 'speedrun_fr', avatar: 1, viewers: '5.1K', uptime: '1h 08', game: 'Hollow Knight', title: 'Any% until the PB or until sunrise', tags: ['English', 'Speedrun'] , art: 'speedrun' },
+    { channel: 'atelier_synthe', avatar: 3, viewers: '2.3K', uptime: '45m', game: 'Music', title: 'Fixing a Juno-106 with an oscilloscope', tags: ['English', 'Repair'] , art: 'scope' },
+    { channel: 'le_chat_du_coin', avatar: 8, viewers: '1.9K', uptime: '2h 30', game: 'Just Chatting', title: 'Coffee, listener mail, silly questions', tags: ['English', 'Talk'] , art: 'talk' },
+    { channel: 'pixel_crab', avatar: 1, viewers: '860', uptime: '22m', game: 'Art', title: 'Pixel art: finishing the cave tileset', tags: ['English', 'Creative'], art: 'pixels' }
   ]
 }
 
@@ -648,35 +662,6 @@ try {
 
   await shoot('app-chat')
 
-  // Screen: the followers-only gate. Twitch refuses the message before it is sent, so the
-  // composer says the rule and offers the follow rather than letting a message fail.
-  await page.evaluate(chrome => {
-    const one = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!
-    one('#composer-reply').hidden = true
-    const input = one<HTMLTextAreaElement>('#composer')
-    input.value = ''
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-    input.disabled = true
-    input.placeholder = ''
-    one<HTMLButtonElement>('#emote-button').disabled = true
-    one('#composer-gate').hidden = false
-    one('#composer-gate-title').textContent = chrome.gateTitle
-    one('#composer-gate-detail').textContent = chrome.gateDetail
-  }, TEXT)
-  await shoot('app-gate')
-
-  // The gate steps aside: the screens that follow show the composer as a signed-in account has it.
-  await page.evaluate(chrome => {
-    const one = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!
-    one('#composer-gate').hidden = true
-    one('#composer-reply').hidden = false
-    const input = one<HTMLTextAreaElement>('#composer')
-    input.disabled = false
-    input.placeholder = chrome.composerPlaceholder
-    input.value = chrome.draft
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-    one<HTMLButtonElement>('#emote-button').disabled = false
-  }, TEXT)
 
   // Third screen: the emote picker. Twitch, 7TV, BetterTTV and FrankerFaceZ land in one grid,
   // which is the whole point of the panel: the channel's emotes, wherever they come from.
@@ -773,7 +758,8 @@ try {
     document.querySelector('#app .titlebar-note')!.textContent = note
   }, VIEW_TEXT.titlebarDiscover)
   await page.waitForTimeout(400)
-  await page.evaluate(({ streams, frame, view, icons }) => {
+  await page.evaluate(({ streams, frame, thumbs, view, icons }) => {
+
     const one = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!
     one('#discover-status').hidden = true
     one('#discover-skeleton').hidden = true
@@ -801,10 +787,11 @@ try {
     streams.forEach((stream, index) => {
       const article = document.createElement('article'); article.className = 'stream-card'
       const preview = document.createElement('div'); preview.className = 'stream-preview'
-      // One demo frame, framed differently on each card: a tight crop at its own origin and
-      // its own cast, so six previews come out of it without inventing six stream contents.
+      // Each channel shows its own thing: the demo photo for the one the chat screen is on,
+      // a scene drawn for the category on the others. Twitch is mostly games, not six webcams.
       const thumb = document.createElement('img'); thumb.className = 'stream-thumb'
-      thumb.src = frame; thumb.alt = ''; thumb.width = 440; thumb.height = 248; thumb.decoding = 'async'
+      thumb.alt = ''; thumb.width = 440; thumb.height = 248; thumb.decoding = 'async'
+      thumb.src = stream.art === 'photo' ? frame : thumbs[stream.art]!
       const framing = [
         { scale: 1, origin: '50% 50%', hue: 0 },
         { scale: 2.4, origin: '78% 72%', hue: 52 },
@@ -847,7 +834,7 @@ try {
       results.append(article)
     })
   }, {
-    frame: stream, view: { ...VIEW_TEXT, liveTag: TEXT.liveTag },
+    frame: stream, thumbs, view: { ...VIEW_TEXT, liveTag: TEXT.liveTag },
     icons: { clock: glyph('clock'), people: glyph('people'), chat: await page.evaluate(() => document.querySelector('[data-icon="chat"]')!.innerHTML) },
     streams: STREAMS.map(entry => ({ ...entry, avatar: avatarStyle(entry.avatar) }))
   })
@@ -859,37 +846,6 @@ try {
   await page.evaluate(() => { document.querySelector('#discover-content')!.scrollTop = 0 })
   await shoot('app-discover')
 
-  // Screen: the channels the account follows. The live ones keep the grid, the others land in
-  // their own list underneath — a followed channel is worth showing even when it is off air.
-  await page.evaluate(({ offline, chrome, heading }) => {
-    const one = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!
-    one('#scope-top').setAttribute('aria-pressed', 'false')
-    one('#scope-followed').setAttribute('aria-pressed', 'true')
-    // The language filter only speaks of popular channels: the application dims it here.
-    one('#discover-language-field').classList.add('is-muted')
-    one('#discover-summary').textContent = chrome.followedSummary
-    one('#discover-categories').hidden = true
-    // The grid keeps the first live channels; the rest of the follow list is offline.
-    const results = one('#discover-results')
-    while (results.children.length > 3) results.lastElementChild!.remove()
-
-    const section = one('#followed-offline'); section.hidden = false
-    one('#followed-offline-label').textContent = heading
-    const list = one('#followed-offline-list'); list.replaceChildren()
-    for (const channel of offline) {
-      const button = document.createElement('button'); button.type = 'button'; button.className = 'followed-card'
-      const avatar = document.createElement('span'); avatar.className = 'followed-avatar demo-room'; avatar.setAttribute('style', channel.avatar)
-      const name = document.createElement('span'); name.className = 'followed-name'; name.textContent = channel.channel
-      button.append(avatar, name)
-      list.append(button)
-    }
-  }, {
-    chrome: TEXT,
-    heading: offlineHeading(TEXT.offline.length),
-    offline: TEXT.offline.map((channel, index) => ({ channel, avatar: avatarStyle((index + 4) % 12) }))
-  })
-  await page.evaluate(() => { document.querySelector('#discover-content')!.scrollTop = 0 })
-  await shoot('app-followed')
 
   // Sixth screen: the settings. Nothing to stage — the panel says what it holds on its own.
   await page.evaluate(note => {

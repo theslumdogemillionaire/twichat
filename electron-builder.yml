@@ -67,6 +67,10 @@ linux:
   # a Linux user is the one person here who knows which machine they are on.
   artifactName: Twichat-linux-${arch}.${ext}
   target:
+    # AppImage first: it runs on any distribution without a package manager, and it is the only
+    # Linux format electron-updater can replace in place. deb and rpm belong to the system.
+    - target: AppImage
+      arch: [x64, arm64]
     - target: deb
       arch: [x64, arm64]
     - target: rpm

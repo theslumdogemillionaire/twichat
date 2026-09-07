@@ -55,6 +55,12 @@ async function room(channel: string, roomId: string): Promise<ThirdPartyEmote[]>
   })
 }
 
+/**
+ * The packs that belong to no channel. A conversation has none — a whisper is not said anywhere —
+ * so these are the only ones a name in it can be matched against.
+ */
+export async function getGlobalThirdPartyEmotes(): Promise<ThirdPartyEmote[]> { return globals() }
+
 export async function getThirdPartyEmotes(channel: string, roomId: string): Promise<ThirdPartyEmote[]> {
   const [global, local] = await Promise.all([globals(), room(channel, roomId)])
   // Repeat provider priority after combining both scopes: local packs always win.

@@ -48,6 +48,9 @@ async function channel(roomId: string, auth: EmoteAuth): Promise<TwitchEmote[]> 
 }
 
 /** Returns whatever Twitch answered: one failing scope must not hide the other. */
+/** Twitch's own global set, for a body that belongs to no channel. See the third-party twin. */
+export async function getGlobalTwitchEmotes(auth: EmoteAuth): Promise<TwitchEmote[]> { return globals(auth) }
+
 export async function getTwitchEmotes(roomId: string, auth: EmoteAuth): Promise<TwitchEmote[]> {
   const [global, local] = await Promise.allSettled([globals(auth), channel(roomId, auth)])
   if (global.status === 'rejected' && local.status === 'rejected') throw global.reason

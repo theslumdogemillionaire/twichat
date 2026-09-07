@@ -3,6 +3,8 @@ import type { DatabaseSync } from 'node:sqlite'
 import { channelName, chatPreferences, DEFAULT_IDLE_HOURS, languageChoice, layoutPreferences, notificationPreferences, playbackPreferences, playerWindowBounds, QUALITIES, qualityName, themeName, windowBounds } from '../shared/validation'
 import type { Preferences } from '../shared/types'
 import { ANONYMOUS_SCOPE, openDatabase } from './database'
+import { ContactStore } from './contacts'
+import { WhisperStore } from './whispers'
 import { fail } from '../shared/errors'
 
 export { ANONYMOUS_SCOPE } from './database'
@@ -10,7 +12,7 @@ export { ANONYMOUS_SCOPE } from './database'
 export const defaultPreferences: Preferences = {
   channels: [], active: '', quality: '480p,best', theme: 'system', language: '',
   layout: { playerWidth: 0, sidebarCollapsed: false, hideIdleChannels: true, idleChannelHours: DEFAULT_IDLE_HOURS },
-  playback: { buffer: 'balanced', autoplay: true, detached: false, volume: 1, muted: false }, notifications: { mentions: true },
+  playback: { buffer: 'balanced', autoplay: true, detached: false, volume: 1, muted: false }, notifications: { mentions: true, whispers: true },
   chat: { links: true, confirm: true, gifs: true }
 }
 
@@ -39,7 +41,7 @@ export function scopeName(login: string | null): string {
 interface ScopeRow {
   active: string; quality: string; theme: string; language: string
   player_width: number; sidebar_collapsed: number
-  buffer: string; autoplay: number; notify_mentions: number; video_detached: number; chat_links: number; chat_link_confirm: number; chat_gifs: number
+  buffer: string; autoplay: number; notify_mentions: number; notify_whispers: number; video_detached: number; chat_links: number; chat_link_confirm: number; chat_gifs: number
   window_width: number | null; window_height: number | null
   window_x: number | null; window_y: number | null; window_maximized: number
   player_window_width: number | null; player_window_height: number | null
@@ -74,7 +76,7 @@ function rowToPreferences(row: ScopeRow, channels: string[]): Preferences {
       hideIdleChannels: bool(row.hide_idle), idleChannelHours: row.idle_hours
     },
     playback: { buffer: row.buffer, autoplay: bool(row.autoplay), detached: bool(row.video_detached), volume: row.volume / 100, muted: bool(row.muted) },
-    notifications: { mentions: bool(row.notify_mentions) },
+    notifications: { mentions: bool(row.notify_mentions), whispers: bool(row.notify_whispers) },
     chat: { links: bool(row.chat_links), confirm: bool(row.chat_link_confirm), gifs: bool(row.chat_gifs) },
     ...(window ? { window } : {}),
     ...(playerWindow ? { playerWindow } : {})
@@ -92,8 +94,15 @@ function rowToPreferences(row: ScopeRow, channels: string[]): Preferences {
 export class PreferencesStore {
   private readonly database: DatabaseSync
   private writing: Promise<unknown> = Promise.resolve()
+  /** The same file, the same connection: neither of these is a preference, only a fellow tenant. */
+  readonly whispers: WhisperStore
+  readonly contacts: ContactStore
 
-  constructor(path: string) { this.database = openDatabase(path) }
+  constructor(path: string) {
+    this.database = openDatabase(path)
+    this.whispers = new WhisperStore(this.database)
+    this.contacts = new ContactStore(this.database)
+  }
 
   private read(scope: string): Preferences {
     const row = this.database.prepare('SELECT * FROM scopes WHERE scope = ?').get(scope) as ScopeRow | undefined
@@ -108,15 +117,16 @@ export class PreferencesStore {
     this.database.exec('BEGIN IMMEDIATE')
     try {
       this.database.prepare(`INSERT INTO scopes (
-          scope, active, quality, theme, language, player_width, sidebar_collapsed, buffer, autoplay, notify_mentions,
+          scope, active, quality, theme, language, player_width, sidebar_collapsed, buffer, autoplay, notify_mentions, notify_whispers,
           window_width, window_height, window_x, window_y, window_maximized,
           player_window_width, player_window_height, player_window_x, player_window_y, player_window_pinned, volume, muted, video_detached,
           hide_idle, idle_hours, chat_links, chat_link_confirm, chat_gifs, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(scope) DO UPDATE SET
           active = excluded.active, quality = excluded.quality, theme = excluded.theme, language = excluded.language,
           player_width = excluded.player_width, sidebar_collapsed = excluded.sidebar_collapsed,
           buffer = excluded.buffer, autoplay = excluded.autoplay, notify_mentions = excluded.notify_mentions,
+          notify_whispers = excluded.notify_whispers,
           window_width = excluded.window_width, window_height = excluded.window_height,
           window_x = excluded.window_x, window_y = excluded.window_y, window_maximized = excluded.window_maximized,
           player_window_width = excluded.player_window_width, player_window_height = excluded.player_window_height,
@@ -128,7 +138,7 @@ export class PreferencesStore {
           updated_at = excluded.updated_at`).run(
         scope, preferences.active, preferences.quality, preferences.theme, preferences.language,
         preferences.layout.playerWidth, flag(preferences.layout.sidebarCollapsed),
-        preferences.playback.buffer, flag(preferences.playback.autoplay), flag(preferences.notifications.mentions),
+        preferences.playback.buffer, flag(preferences.playback.autoplay), flag(preferences.notifications.mentions), flag(preferences.notifications.whispers),
         preferences.window?.width ?? null, preferences.window?.height ?? null,
         preferences.window?.x ?? null, preferences.window?.y ?? null, flag(preferences.window?.maximized ?? false),
         preferences.playerWindow?.width ?? null, preferences.playerWindow?.height ?? null,

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://static-cdn.jtvnw.net https://cdn.7tv.app https://cdn.betterttv.net https://cdn.frankerfacez.com data:; connect-src 'self' ws://127.0.0.1:*; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" type="image/png" href="/twichat-logo.png" />
+    <title data-i18n="whisperWindow.pageTitle">Message privé — Twichat</title>
+  </head>
+  <body class="whisper-body">
+    <header class="whisper-head">
+      <span id="whisper-avatar" class="whisper-avatar" aria-hidden="true"></span>
+      <span class="whisper-identity">
+        <strong id="whisper-name"></strong>
+        <span id="whisper-login" class="whisper-login"></span>
+      </span>
+      <button id="whisper-twitch" class="subtle" type="button" data-i18n-text="whisperWindow.reply">Ouvrir sur Twitch <span data-icon="external"></span></button>
+    </header>
+    <div id="whisper-log" class="whisper-log" role="log" aria-live="polite" aria-label="Conversation privée" data-i18n-attr="aria-label=whisperWindow.label.conversation" tabindex="0">
+      <p id="whisper-empty" class="whisper-empty" data-i18n="whisperWindow.empty">Rien reçu ici pour l’instant. Ce qui a été dit avant est dans votre boîte sur twitch.tv.</p>
+    </div>
+    <form id="whisper-form" class="whisper-composer">
+      <label id="whisper-label" for="whisper-input" class="sr-only" data-i18n="whisperWindow.inputLabel">Votre message</label>
+      <div class="composer-box">
+        <textarea id="whisper-input" rows="1" maxlength="500" autocomplete="off" spellcheck="true" placeholder="Répondre en privé" data-i18n-attr="placeholder=whisperWindow.placeholder"></textarea>
+        <button id="whisper-send" class="send-button" type="submit" disabled aria-label="Envoyer le message" data-i18n-attr="aria-label=whisperWindow.label.send"><span data-icon="arrow"></span></button>
+      </div>
+      <p id="whisper-error" class="form-error" role="status"></p>
+    </form>
+    <footer class="whisper-foot">
+      <span data-icon="clock"></span>
+      <span data-i18n="whisperWindow.noHistory">Twitch garde vos messages privés sur twitch.tv, mais n’en ouvre l’accès à aucune application : Twichat n’affiche que ce qu’il a reçu pendant qu’il tournait.</span>
+    </footer>
+    <!-- The same gate the room puts in front of a stranger's address, minus the switch that
+         turns it off: that choice belongs to the settings, and this window saves nothing. -->
+    <dialog id="link-dialog"><form id="link-form"><div class="dialog-heading"><span class="eyebrow" data-i18n="linkForm.kicker">VOUS QUITTEZ TWICHAT</span><button type="button" data-close="link-dialog" class="icon-button" aria-label="Fermer" data-i18n-attr="aria-label=linkForm.label.close"><span data-icon="close"></span></button></div><h2 data-i18n="linkForm.title">Ouvrir ce lien&nbsp;?</h2><p data-i18n="linkForm.body">Il s’ouvrira dans votre navigateur. L’adresse vient d’un message&nbsp;: lisez-la avant de partir.</p><p id="link-target" class="link-target"><span id="link-scheme"></span><b id="link-host"></b><span id="link-rest"></span></p><div class="dialog-footer"><button type="button" id="link-cancel" data-close="link-dialog" class="subtle" data-i18n="linkForm.cancel">Annuler</button><button id="link-open" class="primary" type="button" data-i18n-text="linkForm.open">Ouvrir le lien <span data-icon="external"></span></button></div></form></dialog>
+    <script type="module" src="/whisper.ts"></script>
+  </body>
+</html>

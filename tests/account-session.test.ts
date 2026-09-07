@@ -49,7 +49,7 @@ function harness(options: { saved?: Record<string, AccountCredentials>; preferre
       return next(url)
     },
     switchScope: async login => { calls.push(`scope:${login ?? 'anonymous'}`) },
-    refreshRaidWatch: () => calls.push('raidwatch'),
+    refreshWatches: () => calls.push('watches'),
     announce: outcome => calls.push(`announce:${outcome}`),
     rememberAvatar: async login => { calls.push(`avatar:${login}`) },
     forgetAvatar: async login => { calls.push(`forget-avatar:${login}`) },
@@ -81,9 +81,23 @@ test('the saved account is taken back up at startup', async () => {
   const bench = harness({ preferred: 'alice', saved: { alice: { accessToken: 'alice-token' } } })
   bench.reply(validated('alice'))
   await bench.session.restore()
-  assert.deepEqual(bench.calls, ['scope:alice', 'connect:alice:alice-token', 'avatar:alice', 'raidwatch'])
+  assert.deepEqual(bench.calls, ['scope:alice', 'connect:alice:alice-token', 'avatar:alice', 'watches'])
   assert.equal(bench.session.credentials().token, 'alice-token')
   assert.equal(bench.session.credentials().clientId, 'alice-client')
+})
+
+test('an account saved before the whisper scope existed comes back without it', async () => {
+  // The token renews itself as it always did — only the whispers know they are out of reach,
+  // and it takes a fresh sign-in through the browser to grant them.
+  const bench = harness({ preferred: 'alice', saved: { alice: { accessToken: 'alice-token' } } })
+  bench.reply(validated('alice'))
+  await bench.session.restore()
+  assert.equal(bench.session.credentials().whispers, false)
+
+  const scoped = harness({ preferred: 'bob', saved: { bob: { accessToken: 'bob-token' } } })
+  scoped.reply(answer(200, { login: 'bob', client_id: 'bob-client', user_id: '7', scopes: ['chat:read', 'chat:edit', 'user:manage:whispers'], expires_in: 14_400 }))
+  await scoped.session.restore()
+  assert.equal(scoped.session.credentials().whispers, true)
 })
 
 test('nothing is taken back up when no account asked to be', async () => {

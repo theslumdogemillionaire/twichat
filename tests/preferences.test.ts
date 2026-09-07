@@ -133,7 +133,7 @@ test('a never-written scope returns complete preferences rather than missing val
   const empty = await preferences.load('inconnu')
   assert.deepEqual(empty.layout, { playerWidth: 0, sidebarCollapsed: false, hideIdleChannels: true, idleChannelHours: 168 })
   assert.deepEqual(empty.playback, { buffer: 'balanced', autoplay: true, detached: false, volume: 1, muted: false })
-  assert.deepEqual(empty.notifications, { mentions: true })
+  assert.deepEqual(empty.notifications, { mentions: true, whispers: true })
   preferences.close()
 })
 
@@ -209,6 +209,36 @@ test('a database a newer version wrote is refused rather than written into', asy
   // version that wrote them will read back wrong. Stopping is the only answer that does not damage
   // the data on the way past.
   assert.throws(() => openDatabase(path), (error: Error) => error instanceof DatabaseTooNew && error.found === 99 && error.known < 99)
+})
+
+test('a database from before the whispers and the address book catches up, keeping what it had', async () => {
+  // What every installed copy looks like right now: the revisions up to the chat settings applied,
+  // rooms and settings in the file, and nothing of the whispers, the contacts or their switch. A
+  // migration that lost any of that would lose it on a machine, not in a test.
+  const path = join(await mkdtemp(join(tmpdir(), 'twichat-upgrade-')), 'twichat.db')
+  const before = new PreferencesStore(path)
+  await before.patch('alice', current => ({ ...current, channels: ['studio_nova', 'radio_ancienne'], active: 'studio_nova', quality: '720p60,720p,best' }))
+  before.markChannelActivity('alice', ['studio_nova'], 1_757_160_000_000)
+  await before.settled()
+  before.close()
+
+  const rolled = new DatabaseSync(path)
+  rolled.exec('DROP TABLE contacts; DROP TABLE whispers; ALTER TABLE scopes DROP COLUMN notify_whispers; PRAGMA user_version = 10')
+  rolled.close()
+
+  const after = new PreferencesStore(path)
+  const preferences = await after.patch('alice', current => current)
+  assert.deepEqual(preferences.channels, ['studio_nova', 'radio_ancienne'])
+  assert.equal(preferences.active, 'studio_nova')
+  assert.equal(preferences.quality, '720p60,720p,best')
+  assert.deepEqual(after.channelActivity('alice'), { studio_nova: 1_757_160_000_000 })
+  // The switch arrives on, so a whisper is not silently swallowed by a setting nobody chose.
+  assert.equal(preferences.notifications.whispers, true)
+  // And the two tables are there, empty, ready for the first whisper and the first contact.
+  assert.deepEqual(after.contacts.list('alice'), [])
+  assert.deepEqual(after.whispers.thread('alice', 'cat_on_keyboard'), [])
+  assert.equal(after.contacts.add('alice', { login: 'cat_on_keyboard' }), true)
+  after.close()
 })
 
 test('a database at the revision this build knows opens without migrating anything', async () => {

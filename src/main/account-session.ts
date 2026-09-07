@@ -40,7 +40,7 @@ export interface AccountSessionParts {
   /** Loads what the account owns — rooms, sizes, quality, theme, window. `null` is anonymous. */
   switchScope(login: string | null): Promise<void>
   /** The raid subscription authenticates as the account: it is remade on every change. */
-  refreshRaidWatch(): void
+  refreshWatches(): void
   /** The line the chat shows when the session was renewed, or ended. */
   announce(outcome: 'renewed' | 'expired'): void
   /** Caches the account's profile picture, so the chooser draws before any Twitch call. */
@@ -80,6 +80,10 @@ export function createAccountSession(parts: AccountSessionParts) {
   // from a status code, and a session opened before that view existed says so instead of claiming
   // it expired.
   let follows = false
+  // Whispers are the one thing an account already saved here cannot do: its token predates
+  // the scope. The flag says so, so the application offers the sign-in again instead of showing
+  // a silence that looks like nobody writing.
+  let whispers = false
   let generation = 0
 
   /** What Twitch is streaming, and what the account follows: cached, and dropped with the account. */
@@ -101,7 +105,8 @@ export function createAccountSession(parts: AccountSessionParts) {
     // Twitch dates the token here and nowhere else: without it the renewal has only the clock.
     return {
       login: channelName(result.login), clientId: result.client_id, userId: /^\d{1,30}$/.test(id) ? id : '',
-      follows: !!result.scopes?.includes('user:read:follows'), expiresIn: result.expires_in ?? 0
+      follows: !!result.scopes?.includes('user:read:follows'),
+      whispers: !!result.scopes?.includes('user:manage:whispers'), expiresIn: result.expires_in ?? 0
     }
   }
 
@@ -147,6 +152,7 @@ export function createAccountSession(parts: AccountSessionParts) {
     clientId = null
     userId = null
     follows = false
+    whispers = false
     data.clear()
     guard.stop()
   }
@@ -156,7 +162,7 @@ export function createAccountSession(parts: AccountSessionParts) {
     drop()
     parts.chat.logout(reconnectAnonymously)
     void parts.switchScope(null).catch(() => {})
-    parts.refreshRaidWatch()
+    parts.refreshWatches()
   }
 
   /**
@@ -173,10 +179,11 @@ export function createAccountSession(parts: AccountSessionParts) {
     // A refresh token carries the scopes of the sign-in that opened it: this only ever confirms
     // what was already granted, and must never be left true from the outgoing token.
     follows = validated.follows
+    whispers = validated.whispers
     parts.chat.renewToken(credentials.accessToken)
     // The token changed under EventSub: its subscription is remade with the new one, or the raids
     // stay silent until the next room change.
-    parts.refreshRaidWatch()
+    parts.refreshWatches()
   }
 
   /**
@@ -207,12 +214,13 @@ export function createAccountSession(parts: AccountSessionParts) {
     clientId = validated.clientId
     userId = validated.userId || null
     follows = validated.follows
+    whispers = validated.whispers
     data.clear()
     void parts.switchScope(login).catch(error => console.warn('Unable to load the account preferences:', error instanceof Error ? error.message : 'unknown error'))
     parts.chat.connect({ login, token: credentials.accessToken })
     void parts.rememberAvatar(login, { token: credentials.accessToken, clientId: validated.clientId })
       .catch(error => console.warn('Unable to cache the Twitch account avatar:', error instanceof Error ? error.message : 'unknown error'))
-    parts.refreshRaidWatch()
+    parts.refreshWatches()
     guard.schedule(validated.expiresIn)
   }
 
@@ -236,7 +244,7 @@ export function createAccountSession(parts: AccountSessionParts) {
 
   return {
     /** Read afresh at each call: nothing holds a copy of a token across a wait. */
-    credentials: () => ({ token, clientId, userId }),
+    credentials: () => ({ token, clientId, userId, whispers }),
     /** The current generation, and the way to open a new one. A second counter would be a bug. */
     generation: () => generation,
     nextGeneration: () => ++generation,

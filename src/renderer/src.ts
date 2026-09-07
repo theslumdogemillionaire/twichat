@@ -6,12 +6,12 @@ import { hydrateIcons, icon } from './icons'
 import { ChatStore } from './chat-store'
 import { VirtualLog } from './virtual-log'
 import { StreamPlayer, type StreamPlayerState } from './player'
-import { inlineEmoteNodes, messageFragments } from './emotes'
+import { inlineEmoteNodes } from './emotes'
+import { paintMessageBody } from './message-body'
 import { liveUptime } from './live-stats'
 import { idleChannels } from './idle-channels'
 import { createComposer } from './composer'
-import { isMention, mentionSegments, resetMentionCache } from './mentions'
-import { linkSegments } from './links'
+import { isMention, resetMentionCache } from './mentions'
 import { exemptFromFollowersOnly, followNotice, followersOnlyMinutes } from './follow-gate'
 import { setupTheme, currentTheme, applyTheme } from './theme'
 import { hydrate } from './hydrate'
@@ -430,7 +430,7 @@ function playback(): PlaybackPreferences {
   return { buffer: bufferMode($<HTMLSelectElement>('#buffer').value), autoplay: $<HTMLInputElement>('#autoplay').checked, detached: detachedWanted, volume, muted }
 }
 function notifications(): NotificationPreferences {
-  return { mentions: $<HTMLInputElement>('#notify-mentions').checked }
+  return { mentions: $<HTMLInputElement>('#notify-mentions').checked, whispers: $<HTMLInputElement>('#notify-whispers').checked }
 }
 function chat(): ChatPreferences {
   return { links: chatLinks, confirm: chatLinkConfirm, gifs: chatGifs }
@@ -445,6 +445,7 @@ function paintPreferenceControls(source: Preferences) {
   detachedWanted = source.playback.detached
   $<HTMLInputElement>('#detached-video').checked = detachedWanted
   $<HTMLInputElement>('#notify-mentions').checked = source.notifications.mentions
+  $<HTMLInputElement>('#notify-whispers').checked = source.notifications.whispers
   chatLinks = source.chat.links
   $<HTMLInputElement>('#chat-links').checked = chatLinks
   chatLinkConfirm = source.chat.confirm
@@ -652,7 +653,8 @@ function renderOwnChannel() {
   const login = state.account
   ownChannelBlock.hidden = !login
   if (!login) return
-  const hint = state.preferences.channels.includes(login) ? m.app.goToYourChannel : m.app.openYourChannelChat
+  // Joined, this row is the room row: it carries the leaving it would have carried in the list.
+  const hint = state.preferences.channels.includes(login) ? `${m.app.goToYourChannel} · ${m.app.rightClickToLeave}` : m.app.openYourChannelChat
   // Before the profile lands, the row reads as your own login, never as a room to join.
   paintRoomButton(ownChannelButton, login, hint, login)
   // The shortcut counts like any other row — but only your own channel joined has anything to count.
@@ -682,12 +684,15 @@ function renderRooms() {
   const nav = $('#rooms')
   const idleNav = $('#idle-rooms')
   const existing = new Map([...document.querySelectorAll<HTMLButtonElement>('.room-button[data-channel]')].map(button => [button.dataset.channel!, button]))
-  const expected = new Set(state.preferences.channels)
+  // Joined, your own channel already has the row above it: listing it here too would show the
+  // same channel twice, one section apart.
+  const listed = state.preferences.channels.filter(channel => channel !== state.account)
+  const expected = new Set(listed)
   for (const [channel, button] of existing) if (!expected.has(channel)) button.remove()
-  const dormant = dormantChannels()
+  const dormant = new Set([...dormantChannels()].filter(channel => channel !== state.account))
   // Two lists, one order: each row goes to its own list at its own rank.
   const ranks = new Map<HTMLElement, number>([[nav, 0], [idleNav, 0]])
-  state.preferences.channels.forEach(channel => {
+  listed.forEach(channel => {
     let button = existing.get(channel)
     if (!button) {
       button = document.createElement('button')
@@ -715,8 +720,9 @@ function renderRooms() {
     const current = target.children.item(rank)
     if (current !== button) target.insertBefore(button, current)
   })
-  // The heading counts the whole list, dormant rooms included: it is that total the 20-room cap bounds.
-  const roomCount = String(state.preferences.channels.length)
+  // The heading counts what stands under it, dormant rooms included: they are folded away, not
+  // gone. Your own channel is not on the count, having a block of its own above.
+  const roomCount = String(listed.length)
   if ($('#room-count').textContent !== roomCount) $('#room-count').textContent = roomCount
   // An emptied section closes: reopening it would otherwise show a heading with nothing under it.
   if (!dormant.size) idleExpanded = false
@@ -724,7 +730,8 @@ function renderRooms() {
   $('#idle-count').textContent = String(dormant.size)
   $('#idle-toggle').setAttribute('aria-expanded', String(idleExpanded))
   idleNav.hidden = !idleExpanded
-  $('#sidebar-empty').hidden = state.preferences.channels.length > 0
+  // Your own channel alone is not a room list: the invitation to add one stays.
+  $('#sidebar-empty').hidden = listed.length > 0
   renderOwnChannel()
   followRailTip()
 }
@@ -917,10 +924,11 @@ function renderUserCard(login: string, card: UserCard | null, note: string) {
   }
   const handle = document.createElement('p'); handle.className = 'user-card-login'; handle.textContent = `@${login}`
   identity.append(name, handle)
-  if (card) {
-    const live = document.createElement('span'); live.className = `user-card-live${card.live ? '' : ' offline'}`
+  // Off air is not a state of the person: they are right here, writing. Only a live channel gets a badge.
+  if (card?.live) {
+    const live = document.createElement('span'); live.className = 'user-card-live'
     live.append(document.createElement('i'))
-    live.append(card.live ? card.viewers ? m.app.liveWithViewers(numbers.format(card.viewers), card.viewers) : m.app.live : m.app.offline)
+    live.append(card.viewers ? m.app.liveWithViewers(numbers.format(card.viewers), card.viewers) : m.app.live)
     identity.append(live)
   }
   head.append(avatar, identity)
@@ -951,11 +959,11 @@ function renderUserCard(login: string, card: UserCard | null, note: string) {
   mention.disabled = !state.account || currentView !== 'room'
   mention.addEventListener('click', () => { closeUserCard(); mentionUser(displayName) })
   const join = document.createElement('button'); join.type = 'button'
-  join.innerHTML = `${icon('hash')}${state.preferences.channels.includes(login) ? m.app.theirChannel : m.app.join}`
+  // The two buttons name where they lead — their channel here, their page on Twitch — rather than
+  // an action: neither the joining nor the following happens on the card.
+  join.innerHTML = `${icon('hash')}${m.app.channel}`
   join.disabled = login === active
   join.addEventListener('click', () => { closeUserCard(); void openChannelOf(login) })
-  // Following and "open on Twitch" lead to the same page: a single button, whose label says what
-  // is left to do there. Three actions is also all the card's width holds.
   const twitch = document.createElement('button'); twitch.type = 'button'; twitch.className = 'user-card-follow'; twitch.dataset.follow = login
   twitch.addEventListener('click', () => { closeUserCard(); window.twichat.external('twitch', login).catch(error => toast(displayError(error))) })
   actions.append(mention, join, twitch)
@@ -965,14 +973,13 @@ function renderUserCard(login: string, card: UserCard | null, note: string) {
 
 /**
  * The way through to Twitch, from the card. Twichat cannot follow on the user's behalf — Twitch
- * closed that endpoint on 27 July 2021 — but it knows where the follow stands: while it is still
- * to be set, the button offers it; once set, it becomes a plain link to the channel.
+ * closed that endpoint on 27 July 2021 — so the button never claims to: it opens the channel, and
+ * only its tooltip and its accent say whether the follow is still to be set over there.
  */
 function paintFollowButton(button: HTMLElement, login: string) {
   const status = followStatuses.get(login)
-  const answered = !!status?.known
-  const following = answered && status.following
-  button.innerHTML = `${icon(answered && !following ? 'heart' : 'external')}${answered && !following ? m.app.follow : 'Twitch'}`
+  const following = !!status?.known && status.following
+  button.innerHTML = `${icon('external')}Twitch`
   button.dataset.following = String(following)
   button.title = following ? m.app.youFollowOpens(login) : m.app.followOnTwitch(login)
 }
@@ -993,7 +1000,7 @@ function openUserCard(login: string, requestedX: number, requestedY: number, pin
   placeFloating(element, requestedX, requestedY)
   if (!state.account) return
   // Opening a card is a gesture, not a loop: a question left unanswered deserves to be asked again
-  // here, otherwise the button would say "Twitch" to someone who does not follow, without saying why.
+  // here: it is the answer that tells the Twitch button whether the follow is still to be set there.
   if (!followStatuses.has(login)) void refreshFollowStatus(login, true)
   if (cached) return
   void window.twichat.userCard(login).then(profile => {
@@ -1646,53 +1653,17 @@ function createMessage(message: ChatMessage) {
   for (const badgeName of message.badges.slice(0, 2)) { const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = badgeName; meta.append(badge) }
   const time = document.createElement('time'); time.className = 'message-time'; time.dateTime = new Date(message.time).toISOString(); time.textContent = clock.format(message.time); meta.append(time)
   const text = document.createElement('p'); text.className = 'message-text'
-  // A reply to one of your own messages is a mention with no nickname in the text: nothing to underline.
-  const appendText = (value: string) => {
-    if (!mention) { text.append(document.createTextNode(value)); return }
-    for (const segment of mentionSegments(value, state.account, accountDisplayName)) {
-      if (!segment.mention) { text.append(document.createTextNode(segment.text)); continue }
-      const marked = document.createElement('b'); marked.className = 'message-mention'; marked.textContent = segment.text
-      text.append(marked)
-    }
-  }
   // The `gifs` tag is only handed over when the setting allows it: withheld, the title Twitch
   // wrote in the body — `[… GIF by …]` — stays where the image would have been.
-  for (const fragment of messageFragments(message.text, message.emotes, thirdPartyEmotes.get(message.channel), message.own ? twitchEmoteIds.get(message.channel) : undefined, chatGifs ? message.gifs : '')) {
-    if (fragment.type === 'text') {
-      if (!chatLinks) { appendText(fragment.text); continue }
-      // The links are cut out first: a nickname underlined inside an address would break it in two.
-      for (const segment of linkSegments(fragment.text)) {
-        if (!segment.url) { appendText(segment.text); continue }
-        const link = document.createElement('a')
-        link.className = 'message-link'; link.href = segment.url; link.textContent = segment.text
-        // The address in full, on hover: what is written is not always where the click leads.
-        link.title = segment.url; link.rel = 'noreferrer noopener'
-        // Not a tab stop, like the nicknames: the virtualised log would otherwise put hundreds
-        // of them between the reader and the composer.
-        link.tabIndex = -1
-        text.append(link)
-      }
-      continue
-    }
-    if (fragment.type === 'gif') {
-      const gif = document.createElement('img')
-      gif.className = 'message-gif'; gif.alt = fragment.text; gif.title = `${fragment.text} · GIPHY`
-      gif.loading = 'lazy'; gif.decoding = 'async'
-      // Same fallback as an emote that fails: the title Twitch wrote takes the image's place,
-      // rather than a broken frame in the middle of a sentence.
-      gif.addEventListener('error', () => gif.replaceWith(document.createTextNode(fragment.text)), { once: true })
-      // The address goes in whole, as Twitch gave it: its documentation forbids rewriting one.
-      gif.src = fragment.url
-      text.append(gif)
-      continue
-    }
-    const image = document.createElement('img')
-    const source = fragment.source === 'twitch' ? 'Twitch' : fragment.source === '7tv' ? '7TV' : fragment.source === 'bttv' ? 'BetterTTV' : 'FrankerFaceZ'
-    image.className = 'message-emote'; image.alt = fragment.text; image.title = `${fragment.text} · ${source}`; image.loading = 'lazy'; image.decoding = 'async'
-    image.addEventListener('error', () => image.replaceWith(document.createTextNode(fragment.text)), { once: true })
-    image.src = fragment.url
-    text.append(image)
-  }
+  paintMessageBody(text, message.text, {
+    emoteTag: message.emotes,
+    gifTag: chatGifs ? message.gifs : '',
+    thirdParty: thirdPartyEmotes.get(message.channel),
+    // Only a message of ours carries no tag: everyone else's arrives with its positions.
+    twitchNames: message.own ? twitchEmoteIds.get(message.channel) : undefined,
+    links: chatLinks,
+    mention: mention ? { login: state.account, displayName: accountDisplayName } : undefined
+  })
   main.append(meta, text); row.append(avatar, main)
   return row
 }
@@ -1967,7 +1938,9 @@ function updateAccount(login: string | null) {
   if (changed) channelInfos.clear()
   updateChannelIdentity()
   if (login && currentView === 'room' && active) { void refreshChannelInfo(active); void refreshFollowStatus(active) }
-  renderOwnChannel()
+  // Signing in takes your channel out of the room list for the block above it; signing out gives
+  // it back, so the whole sidebar is repainted rather than that one row.
+  renderRooms()
   if (login) { void refreshOwnProfile(); chatterAvatarRetryAt.clear(); queueRecentChatterAvatars(); for (const [room, roomId] of roomIds) void loadTwitchEmotes(room, roomId) }
 }
 
@@ -2277,6 +2250,18 @@ ownChannelButton.addEventListener('click', () => {
   if (state.preferences.channels.includes(login)) { activate(login); return }
   void joinChannel(login).catch(error => toast(displayError(error)))
 })
+// Left out of the room list, the shortcut is where leaving your own channel is asked for.
+ownChannelButton.addEventListener('contextmenu', event => {
+  const login = state.account
+  if (!login || !state.preferences.channels.includes(login)) return
+  event.preventDefault(); openRoomContextMenu(login, event.clientX, event.clientY)
+})
+ownChannelButton.addEventListener('keydown', event => {
+  if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+  const login = state.account
+  if (!login || !state.preferences.channels.includes(login)) return
+  event.preventDefault(); const bounds = ownChannelButton.getBoundingClientRect(); openRoomContextMenu(login, bounds.right - 8, bounds.top + 8)
+})
 $('#idle-toggle').addEventListener('click', () => { idleExpanded = !idleExpanded; renderRooms() })
 $('#account-button').addEventListener('click', () => { if ($('#account-menu').hidden) openAccountMenu(); else closeAccountMenu() })
 $('#account-menu-connect').addEventListener('click', () => { closeAccountMenu(); openAccount() })
@@ -2499,7 +2484,7 @@ function applyLanguageChoice() {
   repaintDynamic()
 }
 
-for (const selector of ['#buffer', '#autoplay', '#notify-mentions', '#language', '#hide-idle', '#idle-delay', '#chat-links', '#chat-link-confirm', '#chat-gifs']) $(selector).addEventListener('change', () => {
+for (const selector of ['#buffer', '#autoplay', '#notify-mentions', '#notify-whispers', '#language', '#hide-idle', '#idle-delay', '#chat-links', '#chat-link-confirm', '#chat-gifs']) $(selector).addEventListener('change', () => {
   // Read before saving: the payload takes the choice from here, not from the checkbox.
   if (selector === '#chat-links') chatLinks = $<HTMLInputElement>('#chat-links').checked
   if (selector === '#chat-link-confirm') chatLinkConfirm = $<HTMLInputElement>('#chat-link-confirm').checked

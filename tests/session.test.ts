@@ -4,7 +4,7 @@ import { AppError } from '../src/shared/errors'
 import { createSessionGuard, dueForRenewal, InvalidTokenError, nextCheckDelay, type SessionParts, type ValidatedToken } from '../src/main/session'
 
 function validated(overrides: Partial<ValidatedToken> = {}): ValidatedToken {
-  return { login: 'alice', clientId: 'client-id', userId: '1', follows: true, expiresIn: 14400, ...overrides }
+  return { login: 'alice', clientId: 'client-id', userId: '1', follows: true, whispers: true, expiresIn: 14400, ...overrides }
 }
 
 /**
