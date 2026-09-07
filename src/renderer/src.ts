@@ -958,6 +958,14 @@ function renderUserCard(login: string, card: UserCard | null, note: string) {
   const mention = document.createElement('button'); mention.type = 'button'; mention.innerHTML = `${icon('chat')}${m.app.mentionUser}`
   mention.disabled = !state.account || currentView !== 'room'
   mention.addEventListener('click', () => { closeUserCard(); mentionUser(displayName) })
+  // Writing to someone privately is the room's own doorway into a conversation window.
+  const whisper = document.createElement('button'); whisper.type = 'button'
+  whisper.innerHTML = `${icon('mail')}${m.app.whisperUser}`
+  whisper.disabled = !state.account || login === state.account
+  whisper.addEventListener('click', () => {
+    closeUserCard()
+    window.twichat.openWhisper(login).catch(error => toast(displayError(error)))
+  })
   const join = document.createElement('button'); join.type = 'button'
   // The two buttons name where they lead — their channel here, their page on Twitch — rather than
   // an action: neither the joining nor the following happens on the card.
@@ -966,7 +974,7 @@ function renderUserCard(login: string, card: UserCard | null, note: string) {
   join.addEventListener('click', () => { closeUserCard(); void openChannelOf(login) })
   const twitch = document.createElement('button'); twitch.type = 'button'; twitch.className = 'user-card-follow'; twitch.dataset.follow = login
   twitch.addEventListener('click', () => { closeUserCard(); window.twichat.external('twitch', login).catch(error => toast(displayError(error))) })
-  actions.append(mention, join, twitch)
+  actions.append(mention, whisper, join, twitch)
   paintFollowButton(twitch, login)
   element.append(actions)
 }
@@ -2348,6 +2356,8 @@ window.twichat.onSettings(openSettings)
 window.twichat.onPreferences(adoptScope)
 // A click on a mention notification: the main process already brought the window back; what is left is the room.
 window.twichat.onMentionOpen(channel => { if (state?.preferences.channels.includes(channel)) activate(channel) })
+// A channel named inside a conversation: unlike a mention, it may well be one we have never joined.
+window.twichat.onChannelOpen(channel => { void openChannelOf(channel) })
 $('#reconnect').addEventListener('click', () => window.twichat.reconnect().catch(error => toast(displayError(error))))
 $('#open-twitch').addEventListener('click', () => window.twichat.external('twitch', active))
 $('#leave-room').addEventListener('click', () => void leaveRoom(active))

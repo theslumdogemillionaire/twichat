@@ -368,6 +368,11 @@ export interface TwichatAPI {
   globalEmotes(): Promise<GlobalEmotes>
   /** Sends into the conversation this window holds. The recipient is never named by the page. */
   sendWhisper(text: string): Promise<Whisper>
+  /** Opens the conversation with someone, from the room: their window, brought to the front. */
+  openWhisper(login: string): Promise<void>
+  /** A channel named inside a whisper: the room comes forward and goes there. */
+  openChannel(channel: string): Promise<void>
+  onChannelOpen(callback: (channel: string) => void): () => void
   onWhisper(callback: (whisper: Whisper) => void): () => void
   /** A release worth knowing about, sent once per version. */
   onUpdate(callback: (notice: UpdateNotice) => void): () => void

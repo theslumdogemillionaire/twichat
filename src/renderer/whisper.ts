@@ -59,7 +59,7 @@ function paint(line: Whisper) {
   body.className = 'whisper-text'
   // No mention to underline: a whisper is already addressed to you, and the whole of it would
   // light up on your own name.
-  paintMessageBody(body, line.text, { thirdParty, twitchNames, links: chat.links, focusableLinks: true })
+  paintMessageBody(body, line.text, { thirdParty, twitchNames, links: chat.links, channels: true, focusableLinks: true })
   item.append(who, at, body)
   log.append(item)
 }
@@ -101,9 +101,9 @@ function openLink(href: string) {
 log.addEventListener('click', event => {
   // The window never navigates: the address goes to the system browser, checked once more there.
   const link = (event.target as Element).closest<HTMLAnchorElement>('a.message-link')
-  if (!link) return
-  event.preventDefault()
-  openLink(link.href)
+  if (link) { event.preventDefault(); openLink(link.href); return }
+  const room = (event.target as Element).closest<HTMLElement>('[data-channel]')
+  if (room?.dataset.channel) void api.openChannel(room.dataset.channel).catch(() => {})
 })
 // The cross in the corner carries no id of its own, only the dialog it closes.
 for (const button of document.querySelectorAll<HTMLElement>('[data-close="link-dialog"]')) {

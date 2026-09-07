@@ -892,6 +892,25 @@ app.whenReady().then(async () => {
     } catch (error) { return serializeError(error) ?? Promise.reject(error) }
   })
   /**
+   * The conversation with someone, opened from the room. Asked for by a person, so it comes to
+   * the front — and it is refused out loud when the account cannot carry whispers at all, rather
+   * than opening a window that could only ever stay empty.
+   */
+  handleFrom('whispers:open', ['room'], (input: unknown) => {
+    const peer = channelName(input)
+    const { token, clientId, whispers } = accountSession?.credentials() ?? { token: null, clientId: null, whispers: false }
+    if (!token || !clientId) fail('whisperNoAccount')
+    if (!whispers) fail('whisperScopeMissing')
+    if (peer === irc.login) fail('whisperToSelf')
+    openWhisperWindow(peer, true)
+  })
+  /** A channel named in a conversation: the room comes forward and opens it, joining if it must. */
+  handleFrom('app:open-channel', ['room', 'whisper'], (input: unknown) => {
+    const channel = channelName(input)
+    focusWindow()
+    window?.webContents.send('app:channel-open', channel)
+  })
+  /**
    * A reply, into the conversation the calling window holds. Twitch answers a send with a bare
    * 204: no id, no echo, and nothing that will ever come back to name this message. It is
    * written down here, under an id of our own, or it would exist nowhere at all.

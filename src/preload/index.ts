@@ -112,6 +112,13 @@ const api: TwichatAPI = {
   whisperContext: () => invoke('whispers:context'),
   globalEmotes: () => invoke('emotes:global'),
   sendWhisper: text => invoke('whispers:send', text),
+  openWhisper: login => invoke('whispers:open', login),
+  openChannel: channel => invoke('app:open-channel', channel),
+  onChannelOpen: callback => {
+    const listener = (_event: unknown, channel: string) => callback(channel)
+    ipcRenderer.on('app:channel-open', listener)
+    return () => ipcRenderer.removeListener('app:channel-open', listener)
+  },
   onWhisper: callback => {
     const listener = (_event: unknown, whisper: Whisper) => callback(whisper)
     ipcRenderer.on('app:whisper', listener)

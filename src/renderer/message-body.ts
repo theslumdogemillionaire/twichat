@@ -1,6 +1,6 @@
 import type { ThirdPartyEmote } from '../shared/types'
 import { messageFragments } from './emotes'
-import { linkSegments } from './links'
+import { channelSegments, linkSegments } from './links'
 import { mentionSegments } from './mentions'
 
 export interface MessageBodyOptions {
@@ -12,6 +12,11 @@ export interface MessageBodyOptions {
   /** Names to images, for a body carrying no tag of its own: the only way left to match one. */
   twitchNames?: ReadonlyMap<string, string>
   links?: boolean
+  /**
+   * Whether `#a_channel` written in a body becomes a way in. On where a message names rooms one
+   * may not have joined; off in the room itself, where the sidebar already holds them.
+   */
+  channels?: boolean
   /** The account's own nickname, underlined where it appears. Absent where a mention means nothing. */
   mention?: { login: string | null; displayName?: string | null }
   /**
@@ -34,12 +39,24 @@ export interface MessageBodyOptions {
 export function paintMessageBody(target: HTMLElement, text: string, options: MessageBodyOptions = {}): void {
   const { mention } = options
   // A reply to one of your own messages is a mention with no nickname in the text: nothing to underline.
-  const appendText = (value: string) => {
+  const appendMentions = (value: string) => {
     if (!mention) { target.append(document.createTextNode(value)); return }
     for (const segment of mentionSegments(value, mention.login, mention.displayName)) {
       if (!segment.mention) { target.append(document.createTextNode(segment.text)); continue }
       const marked = document.createElement('b'); marked.className = 'message-mention'; marked.textContent = segment.text
       target.append(marked)
+    }
+  }
+  // The channels come out before the nicknames: a room named inside an underlined mention would
+  // be split in two, the same way a link would be.
+  const appendText = (value: string) => {
+    if (!options.channels) { appendMentions(value); return }
+    for (const segment of channelSegments(value)) {
+      if (!segment.channel) { appendMentions(segment.text); continue }
+      const room = document.createElement('button')
+      room.type = 'button'; room.className = 'message-channel'; room.dataset.channel = segment.channel
+      room.textContent = segment.text
+      target.append(room)
     }
   }
   for (const fragment of messageFragments(text, options.emoteTag ?? '', options.thirdParty, options.twitchNames, options.gifTag ?? '')) {

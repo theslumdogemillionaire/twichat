@@ -307,6 +307,7 @@ export const en = {
     messagesHere: (count: number): string => (count === 1 ? 'Message here' : 'Messages here'),
     onTwitch: 'On Twitch',
     mentionUser: 'Mention',
+    whisperUser: 'Whisper',
     channel: 'Channel',
     raidFollowed: (channel: string) => `Raid followed: welcome to ${channel}.`,
     connectMyAccount: 'Connect my account',

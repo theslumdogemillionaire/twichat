@@ -149,6 +149,25 @@ const CARD_EN = {
 }
 
 /** The chrome the capture sets itself: it has to speak the same language as the app. */
+/**
+ * A private conversation. Twitch delivers a whisper once, to whoever is connected at that
+ * second, so the window shows what passed through the app — which is exactly what is staged here.
+ */
+const WHISPERS = {
+  fr: [
+    { outgoing: false, text: 'hey ! le patch de tout à l’heure, tu le partages ?', at: '22:44' },
+    { outgoing: true, text: 'oui, je le poste sur #studio_nova dans deux minutes', at: '22:45' },
+    { outgoing: false, text: 'merci 🙏 et bravo pour la session, le passage au drum & bass était fou PogChamp', at: '22:46' },
+    { outgoing: true, text: 'c’est gentil ! on remet ça jeudi si tu veux Kappa', at: '22:47' }
+  ],
+  en: [
+    { outgoing: false, text: 'hey! that patch from earlier, are you sharing it?', at: '22:44' },
+    { outgoing: true, text: 'yes, posting it on #studio_nova in two minutes', at: '22:45' },
+    { outgoing: false, text: 'thanks 🙏 and great session, the drum & bass turn was wild PogChamp', at: '22:46' },
+    { outgoing: true, text: 'kind of you! we do it again on Thursday if you want Kappa', at: '22:47' }
+  ]
+}
+
 const CHROME = {
   fr: {
     accountDescription: 'Compte Twitch connecté',
@@ -159,7 +178,7 @@ const CHROME = {
     liveBadge: '● EN DIRECT',
     liveTag: 'EN DIRECT',
     modes: ['Lent 3 s', 'Followers'],
-    cardActions: [['chat', 'Mentionner'], ['hash', 'Chaîne'], ['external', 'Twitch']] as [string, string][],
+    cardActions: [['chat', 'Mentionner'], ['mail', 'Message privé'], ['hash', 'Chaîne'], ['external', 'Twitch']] as [string, string][],
     draft: '@cat_on_keyboard mrrrp aussi, je garde la boucle pour le prochain live :musical_note:',
     composerPlaceholder: 'Écrire dans #studio_nova',
     idle: ['radio_ancienne', 'kraken_du_dimanche'],
@@ -177,7 +196,7 @@ const CHROME = {
     liveBadge: '● LIVE',
     liveTag: 'LIVE',
     modes: ['Slow 3s', 'Followers'],
-    cardActions: [['chat', 'Mention'], ['hash', 'Channel'], ['external', 'Twitch']] as [string, string][],
+    cardActions: [['chat', 'Mention'], ['mail', 'Whisper'], ['hash', 'Channel'], ['external', 'Twitch']] as [string, string][],
     draft: '@cat_on_keyboard mrrrp too, keeping the loop for the next stream :musical_note:',
     composerPlaceholder: 'Write in #studio_nova',
     idle: ['radio_ancienne', 'kraken_du_dimanche'],
@@ -285,6 +304,7 @@ const VIEWS = {
 const MESSAGES = CONVERSATIONS[locale]!
 const CARD = locale === 'en' ? CARD_EN : CARD_FR
 const TEXT = CHROME[locale]
+const THREAD = WHISPERS[locale]!
 const STREAMS = DISCOVERY[locale]!
 const PICKER_TEXT = PICKER[locale]
 const VIEW_TEXT = VIEWS[locale]
@@ -357,6 +377,52 @@ try {
    * captured as usual, the video window on its own, and the second is laid over the first
    * where it actually floats: above the dock it just left.
    */
+  type Surface = Awaited<ReturnType<typeof app.firstWindow>>
+
+  /** Both windows on the same theme, and the room checked: a theme that fails to apply says nothing on its own. */
+  const wearTheme = async (theme: 'dark' | 'light', extra: Surface[] = []) => {
+    for (const surface of [page, ...extra]) await surface.evaluate(value => { document.documentElement.dataset.theme = value }, theme)
+    const shade = await page.evaluate(() => getComputedStyle(document.querySelector('.sidebar')!).backgroundColor)
+    const level = Number(shade.match(/\d+/)?.[0] ?? NaN)
+    if (theme === 'light' ? !(level > 200) : !(level < 60)) throw new Error(`Theme ${theme} not applied: the sidebar is ${shade}.`)
+  }
+
+  /** A second window laid over the room, where the system would have put it. */
+  const shootFloating = async (name: string, floating: Surface) => {
+    for (const theme of ['dark', 'light'] as const) {
+      const png = resolve(assets, `${name}${theme === 'light' ? '-light' : ''}.${locale}.png`)
+      await wearTheme(theme, [floating])
+      await freezeVideo()
+      const room = (await page.screenshot()).toString('base64')
+      const overlaid = (await floating.screenshot()).toString('base64')
+      const composed = await page.evaluate(async ({ room, overlaid }) => {
+        const load = async (data: string) => { const image = new Image(); image.src = `data:image/png;base64,${data}`; await image.decode(); return image }
+        const base = await load(room)
+        const overlay = await load(overlaid)
+        const canvas = document.createElement('canvas')
+        canvas.width = base.naturalWidth; canvas.height = base.naturalHeight
+        const paint = canvas.getContext('2d')!
+        paint.drawImage(base, 0, 0)
+        // Bottom right, over the dock: where the window opens, and where it hides no message.
+        paint.shadowColor = 'rgba(0, 0, 0, .55)'; paint.shadowBlur = 48; paint.shadowOffsetY = 16
+        paint.drawImage(overlay, canvas.width - overlay.naturalWidth - 46, canvas.height - overlay.naturalHeight - 52)
+        return canvas.toDataURL('image/png').split(',')[1]
+      }, { room, overlaid })
+      await writeFile(png, Buffer.from(composed, 'base64'))
+      await encode(png, png.replace(/\.png$/, '.webp'))
+    }
+  }
+
+  /** One window on its own, for the places that show it beside the room rather than over it. */
+  const shootWindow = async (name: string, target: Surface) => {
+    for (const theme of ['dark', 'light'] as const) {
+      const png = resolve(assets, `${name}${theme === 'light' ? '-light' : ''}.${locale}.png`)
+      await wearTheme(theme, [target])
+      await writeFile(png, await target.screenshot())
+      await encode(png, png.replace(/\.png$/, '.webp'))
+    }
+  }
+
   const shootDetached = async (name: string, player: Awaited<ReturnType<typeof app.firstWindow>>) => {
     for (const theme of ['dark', 'light'] as const) {
       const png = resolve(assets, `${name}${theme === 'light' ? '-light' : ''}.${locale}.png`)
@@ -715,9 +781,64 @@ try {
   if (emptyCells.length) throw new Error(`Picker emotes failed to load: ${emptyCells.join(', ')}`)
   await shoot('app-emotes')
 
+  await page.evaluate(() => { document.querySelector<HTMLElement>('#emote-picker')!.hidden = true })
+  // Fifth screen: a private message, in its own window. Twitch only opens this window when a
+  // whisper arrives, and never on demand, so the page is opened here and handed the same context
+  // the main process would give it: the rendering below is the application's own.
+  await app.context().addInitScript(staged => {
+    if (!location.pathname.endsWith('whisper.html')) return
+    const noop = () => () => {}
+    Object.defineProperty(window, 'twichat', {
+      value: {
+        whisperContext: async () => staged.context,
+        onWhisper: noop,
+        sendWhisper: async () => {},
+        globalEmotes: async () => ({
+          thirdParty: [],
+          twitch: [
+            { id: '25', name: 'Kappa', scope: 'global', type: 'global' },
+            { id: '305954156', name: 'PogChamp', scope: 'global', type: 'global' }
+          ]
+        }),
+        openLink: async () => {},
+        external: async () => {}
+      }
+    })
+  }, {
+    context: {
+      peer: 'xx_grenouille_xx', peerName: 'xX_Grenouille_Xx',
+      chat: { links: true, confirm: true, gifs: true }, theme: 'dark', locale,
+      thread: THREAD.map((line, index) => ({
+        id: `demo-${index}`, peer: 'xx_grenouille_xx', peerName: 'xX_Grenouille_Xx',
+        outgoing: line.outgoing, text: line.text,
+        at: Date.parse(`2026-01-15T${line.at}:00`)
+      }))
+    }
+  })
+  const whisperOpening = app.waitForEvent('window', { predicate: target => target.url().endsWith('whisper.html'), timeout: 20000 })
+  await app.evaluate(async ({ BrowserWindow }) => {
+    const conversation = new BrowserWindow({ width: 420, height: 540, show: false })
+    await conversation.loadURL('twichat://app/whisper.html')
+    conversation.showInactive()
+  })
+  const whisperWindow = await whisperOpening
+  await whisperWindow.waitForFunction(() => document.querySelectorAll('.whisper-line').length > 0, undefined, { timeout: 20000 })
+  await whisperWindow.evaluate(avatar => {
+    const style = document.createElement('style')
+    style.textContent = '*,*::before,*::after{transition-duration:0s!important;animation-duration:0s!important}'
+    document.head.append(style)
+    const face = document.querySelector<HTMLElement>('#whisper-avatar')!
+    face.textContent = ''; face.setAttribute('style', avatar)
+  }, avatarStyle(2))
+  const whisperImages = await whisperWindow.evaluate(() => [...document.querySelectorAll<HTMLImageElement>('.message-emote')].map(image => ({ src: image.src, ok: image.complete && image.naturalWidth > 0 })))
+  if (!whisperImages.length) throw new Error('The private conversation shows no emote: the global sets never reached the window.')
+  const mute = whisperImages.filter(image => !image.ok).map(image => image.src)
+  if (mute.length) throw new Error(`Whisper emotes failed to load: ${mute.join(', ')}`)
+  await shootFloating('app-whisper', whisperWindow)
+  await shootWindow('app-dm', whisperWindow)
+
   // Fourth screen: the video in its own window. It is taken here, while the room is still the
   // open view: the application only detaches from the room, and refuses from anywhere else.
-  await page.evaluate(() => { document.querySelector<HTMLElement>('#emote-picker')!.hidden = true })
   // The detach goes through the real button: the dock, the panel and the second window all
   // reach their state the way they do for someone clicking it, with nothing staged by hand.
   const opening = app.waitForEvent('window', { predicate: window => window.url().endsWith('player.html'), timeout: 20000 })

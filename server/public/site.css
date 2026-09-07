@@ -365,10 +365,32 @@ h1 span { color: var(--text-5); font-weight: 400; }
 .visual-index > span { font-size: 12px; font-weight: 800; }
 .visual-index > i { width: 46px; height: 1px; background: var(--hero-rule); }
 .visual-index > small { color: var(--text-13); font-size: 8px; line-height: 1.35; letter-spacing: .14em; }
+/* La fenêtre de message privé, posée au coin de la capture principale : elle dit qu'une
+   conversation vit à côté du salon, sans manger la capture qu'elle accompagne. */
+.hero-dm {
+  position: absolute;
+  z-index: 5;
+  /* Ancrée au bord de l'écran, pas à la capture : celle-ci déborde sur un écran étroit et
+     rentre sur un large, ce qui promènerait la fenêtre du bord vers le milieu. */
+  right: clamp(18px, 4vw, 72px);
+  bottom: 40px;
+  width: clamp(250px, 24vw, 340px);
+  margin: 0;
+  border: 1px solid var(--line-frame);
+  background: var(--frame);
+  box-shadow: 0 22px 54px var(--shadow-frame);
+  transform: rotate(1.2deg);
+  overflow: hidden;
+}
+.hero-dm img { display: block; width: 100%; height: auto; }
+/* Sous cette largeur, le badge de la capture et la fenêtre se disputent le même bas de cadre. */
+@media (max-width: 1180px) { .hero-dm { display: none; } }
+
 .visual-caption {
   position: absolute;
   z-index: 4;
-  right: 13%;
+  /* À gauche : le coin droit revient à la fenêtre de message privé. */
+  left: 3%;
   bottom: -36px;
   display: flex;
   align-items: center;
@@ -553,7 +575,8 @@ footer > span i { display: inline-block; width: 4px; height: 4px; margin: 0 8px;
   .hero-copy { max-width: 680px; padding: 0; }
   .hero-visual { width: calc(100% + 90px); min-width: 0; margin: 0 -90px 0 0; }
   .visual-index { top: -48px; left: 0; }
-  .visual-caption { right: 25px; }
+  
+.visual-caption { left: auto; right: 25px; }
   .section-heading { grid-template-columns: 1fr; }
   .section-heading h2 { margin-top: 14px; }
   .experience-grid, .principle-grid { grid-template-columns: 1fr; }
@@ -586,7 +609,8 @@ footer > span i { display: inline-block; width: 4px; height: 4px; margin: 0 8px;
   .hero-window img { width: 645px; max-width: none; }
   .window-bar b { display: none; }
   .visual-index { display: none; }
-  .visual-caption { right: 12px; bottom: -28px; padding: 10px 13px; }
+  
+.visual-caption { left: auto; right: 12px; bottom: -28px; padding: 10px 13px; }
   .visual-caption b { font-size: 19px; }
   .product, .why, .principles, .faq { padding: 72px 20px; }
   .section-heading { margin-bottom: 34px; }

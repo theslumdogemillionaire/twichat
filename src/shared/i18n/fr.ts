@@ -300,6 +300,7 @@ export const fr: Messages = {
     messagesHere: (count: number): string => (count > 1 ? 'Messages ici' : 'Message ici'),
     onTwitch: 'Sur Twitch',
     mentionUser: 'Mentionner',
+    whisperUser: 'Message privé',
     channel: 'Chaîne',
     raidFollowed: (channel: string) => `Raid suivi : bienvenue chez ${channel}.`,
     connectMyAccount: 'Connecter mon compte',

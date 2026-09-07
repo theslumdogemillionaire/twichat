@@ -81,3 +81,39 @@ export function linkSegments(text: string): LinkSegment[] {
   if (cursor < text.length) segments.push({ text: text.slice(cursor) })
   return segments.length ? segments : [{ text }]
 }
+
+/** A channel named in a message: `#studio_nova`, and only where it stands on its own. */
+export interface ChannelSegment {
+  text: string
+  /** The channel to open. Absent on ordinary text. */
+  channel?: string
+}
+
+// The lookbehind keeps `C#` and `n#1` from opening a channel, the lookahead keeps
+// `#studio_nova_bis` from being cut down to a shorter name that exists.
+const CHANNEL = /(?<![\p{L}\p{N}_#])#([a-z0-9_]{1,25})(?![\p{L}\p{N}_])/giu
+/**
+ * `#1` is a rank far more often than a channel, so digits alone name nothing here. What stays
+ * ambiguous is a hex colour: `#ff8800` is a perfectly ordinary Twitch login, and nothing in the
+ * text tells the two apart. It is left as a channel — the cost of being wrong is a room you did
+ * not mean to open, which closes.
+
+/**
+ * Cuts a body around the channels named in it. Twitch logins are lowercase, so `#Studio_Nova`
+ * and `#studio_nova` name the same room and both give the lowercase one; what is shown stays
+ * what was written.
+ */
+export function channelSegments(text: string): ChannelSegment[] {
+  if (!text.includes('#')) return [{ text }]
+  const segments: ChannelSegment[] = []
+  let cursor = 0
+  CHANNEL.lastIndex = 0
+  for (let match = CHANNEL.exec(text); match; match = CHANNEL.exec(text)) {
+    if (/^\d+$/.test(match[1])) continue
+    if (match.index > cursor) segments.push({ text: text.slice(cursor, match.index) })
+    segments.push({ text: match[0], channel: match[1].toLowerCase() })
+    cursor = match.index + match[0].length
+  }
+  if (cursor < text.length) segments.push({ text: text.slice(cursor) })
+  return segments.length ? segments : [{ text }]
+}
