@@ -112,6 +112,7 @@ const api: TwichatAPI = {
   whisperContext: () => invoke('whispers:context'),
   globalEmotes: () => invoke('emotes:global'),
   sendWhisper: text => invoke('whispers:send', text),
+  whisperProfile: () => invoke('whispers:profile'),
   openWhisper: login => invoke('whispers:open', login),
   openChannel: channel => invoke('app:open-channel', channel),
   onChannelOpen: callback => {

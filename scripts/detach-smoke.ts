@@ -9,9 +9,9 @@ const rendererErrors: string[] = []
 /**
  * Video pulled out of the room. We check what makes the feature: the window opens on the
  * right channel, the dock shrinks to an anchor that says where the picture went, all three
- * ways back bring it home, it follows the room like the dock did — next channel, stop on the
- * settings — it keeps no black margin around the picture, and the next launch reopens it on its
- * own, at the width, and pinned, the account left it.
+ * ways back bring it home, it follows the room like the dock did — next channel, and left alone
+ * by the pages that leave the dock alone — it keeps no black margin around the picture, and the
+ * next launch reopens it on its own, at the width, and pinned, the account left it.
  *
  * Nothing here needs a live channel: off air the player settles into a failure state, which
  * proves the same path. The margin check only has something to measure while playing, so it
@@ -99,8 +99,9 @@ try {
     if (Math.abs(content.height - expected) > 3) throw new Error(`The video window leaves a margin: ${JSON.stringify(content)} for a ${frame.ratio.toFixed(3)} ratio and a ${frame.bar}px bar.`)
   }
 
-  // Detaching moved the picture, not the player: the window has to follow the room the way
-  // the dock did — the next channel, and the stop the settings page imposes.
+  // Detaching moved the picture, not the player: the window has to follow the room the way the
+  // dock did — the next channel — and it has to be left alone by the pages that leave the dock
+  // alone. On the settings the dock shrinks into its corner and keeps playing: so does the window.
   await room.locator('#add-room').click()
   await room.getByLabel('Nom de la chaîne', { exact: true }).fill(other)
   await room.getByRole('button', { name: 'Rejoindre', exact: true }).click()
@@ -110,7 +111,9 @@ try {
   await room.waitForSelector('#settings:not([hidden])')
   await room.locator('#detached-video').scrollIntoViewIfNeeded()
   await room.screenshot({ path: resolve(artifacts, 'detach-setting.png') })
-  await detachedPage.waitForFunction(() => document.querySelector('#detached-status')?.textContent === 'À L’ARRÊT', undefined, { timeout: 15000 })
+  const onSettings = await detachedPage.locator('#detached-status').textContent()
+  if (onSettings === 'À L’ARRÊT') throw new Error('Opening the settings stopped the video the dock would have kept playing.')
+  if (!(await detachedPage.locator('#detached-channel').textContent())?.endsWith(`# ${other}`)) throw new Error('The settings page took the window off the room it was showing.')
   await room.locator(`.room-button[data-channel="${channel}"]`).click()
   await room.waitForSelector('#room-view:not([hidden])')
   await detachedPage.waitForFunction(name => document.querySelector('#detached-channel')?.textContent?.endsWith(`# ${name}`), channel, { timeout: 15000 })
@@ -135,17 +138,30 @@ try {
   await room.waitForSelector('#detached-panel', { state: 'hidden' })
   if (await room.locator('#detach-stream').isDisabled()) throw new Error('The detach button stays disabled after reattaching.')
 
-  // Second way back: the anchor left in the room, which stays reachable even in chat-only mode.
+  // Hiding the video takes the window with it, and shows it back: chat only means no picture
+  // anywhere, not a window left playing beside a room that no longer shows one. The account
+  // keeps its choice through the round trip — hiding is not giving up on the window.
   const anchored = await detach(first, room)
+  const hidden = anchored.waitForEvent('close')
   await room.keyboard.press('Meta+Shift+V')
   await room.waitForSelector('#room-body.chat-only')
-  if (!await room.locator('#attach-stream').isVisible()) throw new Error('Chat-only hides the anchor, leaving no way back to the video.')
+  await hidden
+  await room.waitForSelector('#detached-panel', { state: 'hidden' })
+  if (!await room.locator('#detached-video').isChecked()) throw new Error('Hiding the video switched the window setting off.')
+  const shownAgain = first.waitForEvent('window')
+  await room.keyboard.press('Meta+Shift+V')
+  const reopened = await shownAgain
+  await reopened.waitForLoadState('domcontentloaded')
+  await reopened.waitForFunction(name => document.querySelector('#detached-channel')?.textContent?.endsWith(`# ${name}`), channel, { timeout: 15000 })
+  await room.waitForSelector('#detached-panel:not([hidden])')
+  // Reopened, the window is the one the account had sized: the width outlives the round trip.
   const bounds = await playerBounds(first)
   if (bounds?.width !== wanted) throw new Error(`The video window did not take its width back within the session: ${JSON.stringify(bounds)}`)
-  const anchoredClosed = anchored.waitForEvent('close')
+
+  // Second way back: the anchor left in the room.
+  const anchoredClosed = reopened.waitForEvent('close')
   await room.locator('#attach-stream').click()
   await anchoredClosed
-  await room.keyboard.press('Meta+Shift+V')
 
   // Third way back: closing the window by hand means reattach — and puts the setting back with it.
   const again = await detach(first, room)
@@ -180,4 +196,4 @@ try {
   if (rendererErrors.length) throw new Error(`Renderer errors: ${rendererErrors.join(' | ')}`)
 } finally { await second.close() }
 
-console.log(`Detached video: window opened on #${channel}, dock reduced to its anchor, following the room from channel to channel and stopping on the settings, reattached from the window, from the anchor and by closing, ${live ? 'picture without margin, ' : ''}the account's choice reopening it on its own, pin and width ${wanted} kept from one session to the next.`)
+console.log(`Detached video: window opened on #${channel}, dock reduced to its anchor, following the room from channel to channel and left alone by the settings, reattached from the window, from the anchor and by closing, ${live ? 'picture without margin, ' : ''}the account's choice reopening it on its own, pin and width ${wanted} kept from one session to the next.`)

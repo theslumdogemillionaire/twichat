@@ -1,13 +1,12 @@
 import { ComposerMemory } from './composer-memory'
 import { composing, sends } from './keys'
 import type { ChatMessage, ReplyReference, ThirdPartyEmote, TwitchEmote } from '../shared/types'
-import { inlineEmoteNodes, twitchEmoteUrl } from './emotes'
-import { EMOJIS, EMOJI_GROUPS, searchEmojis, type Emoji } from './emoji'
+import { inlineEmoteNodes } from './emotes'
+import { EMOJIS, searchEmojis } from './emoji'
+import { createEmotePicker, everyEmote as allEmotes } from './emote-picker'
 import { m } from '../shared/i18n'
 import { AppError } from '../shared/errors'
 
-/** The label of a picker tab: its identifier does not change language, its name does. */
-const tabLabel = (id: string) => id === 'recent' ? m.composer.recent : id === 'channel' ? m.composer.channel : id === 'twitch' ? 'Twitch' : (m.emoji.groups as Record<string, string>)[id] ?? id
 import {
   MESSAGE_BYTE_LIMIT, applyCompletion, byteLength, completionQuery, rankByTerm,
   replaceRange, sanitizeOutgoing, tokenizeMessage, type CompletionQuery
@@ -31,19 +30,7 @@ interface Suggestion {
   char?: string
   login?: string
 }
-interface PickerEntry {
-  kind: 'emote' | 'emoji'
-  value: string
-  label: string
-  url?: string
-  source: string
-}
-
-const RECENT_KEY = 'twichat.recent-emotes'
-const RECENT_LIMIT = 30
-const SOURCE_LABELS: Record<string, string> = { '7tv': '7TV', bttv: 'BetterTTV', ffz: 'FrankerFaceZ', twitch: 'Twitch' }
 const EMOJI_NAMES = new Set(EMOJIS.map(emoji => emoji.name))
-const EMOJI_BY_CHAR = new Map(EMOJIS.map(emoji => [emoji.char, emoji]))
 
 const $ = <T extends HTMLElement>(selector: string) => {
   const element = document.querySelector<T>(selector)
@@ -59,11 +46,17 @@ export function createComposer(hooks: ComposerHooks) {
   const counter = $('#composer-counter')
   const sendButton = $<HTMLButtonElement>('#send-message')
   const emoteButton = $<HTMLButtonElement>('#emote-button')
-  const picker = $('#emote-picker')
-  const pickerSearch = $<HTMLInputElement>('#emote-search')
-  const pickerTabs = $('#picker-tabs')
-  const pickerResults = $('#emote-results')
-  const pickerPreview = $('#emote-preview')
+  // The panel builds itself into the composer: the room and the conversation windows run the
+  // same one, so what is added to it is added to both.
+  const picker = createEmotePicker({
+    host: form, trigger: emoteButton, scope: 'channel',
+    insert: value => insert(value),
+    blocked: () => input.disabled,
+    refocus: () => input.focus(),
+    emotes: () => hooks.emotes(),
+    twitch: () => hooks.twitch(),
+    reload: () => hooks.reload()
+  })
   const suggestList = $('#composer-suggest')
   const replyBar = $('#composer-reply')
   const replyUser = $('#composer-reply-user')
@@ -78,18 +71,6 @@ export function createComposer(hooks: ComposerHooks) {
   let suggestIndex = 0
   let historyIndex = -1
   let historyDraft = ''
-  let pickerTab = 'channel'
-  let recents: string[] = readRecents()
-
-  function readRecents(): string[] {
-    try { return (JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]') as unknown[]).filter((item): item is string => typeof item === 'string').slice(0, RECENT_LIMIT) }
-    catch { return [] }
-  }
-  function rememberRecent(entry: PickerEntry) {
-    const key = `${entry.kind}:${entry.value}`
-    recents = [key, ...recents.filter(item => item !== key)].slice(0, RECENT_LIMIT)
-    try { localStorage.setItem(RECENT_KEY, JSON.stringify(recents)) } catch { /* private mode keeps the session-only list */ }
-  }
 
   function emoteCodes(): ReadonlySet<string> {
     const codes = new Set<string>(hooks.emotes()?.keys() ?? [])
@@ -171,7 +152,7 @@ export function createComposer(hooks: ComposerHooks) {
   }
 
   function emoteSuggestions(term: string): Suggestion[] {
-    return rankByTerm(everyEmote(), term, entry => [entry.label], 8).map(entry => ({
+    return rankByTerm(allEmotes(hooks.emotes(), hooks.twitch()), term, entry => [entry.label], 8).map(entry => ({
       value: entry.value, label: entry.label, detail: entry.source, url: entry.url
     }))
   }
@@ -262,174 +243,6 @@ export function createComposer(hooks: ComposerHooks) {
     renderSuggestions()
   }
 
-  /* ----- picker ----- */
-
-  function twitchLabel(emote: TwitchEmote): string {
-    if (emote.type === 'subscriptions') return m.composer.twitchSubscribers
-    if (emote.type === 'follower') return m.composer.twitchFollowers
-    if (emote.type === 'bitstier') return m.composer.twitchBits
-    return 'Twitch'
-  }
-  function twitchEntries(scope: TwitchEmote['scope']): PickerEntry[] {
-    const entries: PickerEntry[] = []
-    for (const emote of hooks.twitch() ?? []) {
-      if (emote.scope !== scope) continue
-      const url = twitchEmoteUrl(emote.id)
-      if (url) entries.push({ kind: 'emote', value: emote.name, label: emote.name, url, source: twitchLabel(emote) })
-    }
-    return entries
-  }
-  function everyEmote(): PickerEntry[] {
-    return [...twitchEntries('channel'), ...roomEntries(), ...twitchEntries('global')]
-  }
-  function roomEntries(): PickerEntry[] {
-    return [...(hooks.emotes()?.values() ?? [])].map(emote => ({
-      kind: 'emote' as const, value: emote.code, label: emote.code, url: emote.url, source: SOURCE_LABELS[emote.source] ?? emote.source
-    }))
-  }
-  function emojiEntry(emoji: Emoji): PickerEntry {
-    return { kind: 'emoji', value: emoji.char, label: `:${emoji.name}:`, source: emoji.group }
-  }
-  function recentEntries(): PickerEntry[] {
-    const emotes = hooks.emotes()
-    const known = everyEmote()
-    const entries: PickerEntry[] = []
-    for (const key of recents) {
-      const separator = key.indexOf(':')
-      const kind = key.slice(0, separator)
-      const value = key.slice(separator + 1)
-      if (kind === 'emoji') {
-        const emoji = EMOJI_BY_CHAR.get(value)
-        entries.push(emoji ? emojiEntry(emoji) : { kind: 'emoji', value, label: value, source: m.composer.emoji })
-        continue
-      }
-      const emote = emotes?.get(value)
-      if (emote) { entries.push({ kind: 'emote', value, label: value, url: emote.url, source: SOURCE_LABELS[emote.source] ?? emote.source }); continue }
-      const fromTwitch = known.find(entry => entry.value === value)
-      if (fromTwitch) entries.push(fromTwitch)
-    }
-    return entries
-  }
-
-  function renderTabs() {
-    pickerTabs.replaceChildren()
-    for (const name of ['recent', 'channel', 'twitch', ...EMOJI_GROUPS]) {
-      if (name === 'recent' && !recents.length) continue
-      const tab = document.createElement('button')
-      tab.type = 'button'
-      tab.className = 'picker-tab'
-      tab.setAttribute('role', 'tab')
-      tab.setAttribute('aria-selected', String(name === pickerTab))
-      tab.textContent = tabLabel(name)
-      tab.addEventListener('click', () => { pickerTab = name; pickerSearch.value = ''; renderTabs(); renderPicker() })
-      pickerTabs.append(tab)
-    }
-  }
-
-  function section(title: string, entries: PickerEntry[]) {
-    const heading = document.createElement('span')
-    heading.className = 'picker-group'
-    heading.textContent = title
-    const grid = document.createElement('div')
-    grid.className = 'picker-grid'
-    for (const entry of entries) {
-      const button = document.createElement('button')
-      button.type = 'button'
-      button.className = 'picker-item'
-      button.tabIndex = -1
-      button.title = entry.label
-      button.setAttribute('role', 'option')
-      button.setAttribute('aria-label', entry.label)
-      if (entry.url) {
-        const image = document.createElement('img')
-        image.src = entry.url; image.alt = entry.label; image.loading = 'lazy'; image.decoding = 'async'
-        // A broken CDN image would leave an unlabelled 38px cell: the code takes its place.
-        image.addEventListener('error', () => { image.remove(); button.classList.add('picker-item-text'); button.textContent = entry.label }, { once: true })
-        button.append(image)
-      } else button.textContent = entry.value
-      button.addEventListener('mouseenter', () => showPreview(entry))
-      button.addEventListener('focus', () => showPreview(entry))
-      button.addEventListener('click', () => {
-        rememberRecent(entry)
-        insert(entry.value)
-        renderTabs()
-      })
-      grid.append(button)
-    }
-    pickerResults.append(heading, grid)
-  }
-
-  function showPreview(entry: PickerEntry) {
-    pickerPreview.replaceChildren()
-    if (entry.url) {
-      const image = document.createElement('img')
-      image.src = entry.url; image.alt = ''
-      pickerPreview.append(image)
-    } else pickerPreview.append(document.createTextNode(`${entry.value} `))
-    const name = document.createElement('b')
-    name.textContent = entry.label
-    pickerPreview.append(name, document.createTextNode(` · ${entry.source}`))
-  }
-
-  function emptyState(message: string) {
-    const empty = document.createElement('p')
-    empty.className = 'picker-empty'
-    empty.textContent = message
-    const retry = document.createElement('button')
-    retry.type = 'button'
-    retry.className = 'picker-retry'
-    retry.textContent = m.app.retry
-    retry.addEventListener('click', () => { void hooks.reload().then(() => renderPicker()) })
-    pickerResults.append(empty, retry)
-  }
-
-  function renderPicker() {
-    pickerResults.replaceChildren()
-    const term = pickerSearch.value.trim()
-    if (term) {
-      const emotes = rankByTerm(everyEmote(), term, entry => [entry.label], 120)
-      const emojis = searchEmojis(term, 80).map(emojiEntry)
-      if (emotes.length) section(m.composer.emotes, emotes)
-      if (emojis.length) section(m.composer.emojis, emojis)
-      if (!emotes.length && !emojis.length) emptyState(m.composer.noResult)
-      return
-    }
-    if (pickerTab === 'recent') { section(m.composer.recentlyUsed, recentEntries()); return }
-    if (pickerTab === 'channel') {
-      const fromChannel = twitchEntries('channel')
-      const entries = roomEntries()
-      if (fromChannel.length) section(m.composer.channelEmotes(fromChannel.length), fromChannel)
-      const grouped = new Map<string, PickerEntry[]>()
-      for (const entry of entries) grouped.set(entry.source, [...(grouped.get(entry.source) ?? []), entry])
-      for (const [source, list] of grouped) section(`${source} · ${list.length}`, list.slice(0, 300))
-      if (!fromChannel.length && !entries.length) emptyState(m.composer.noChannelEmotes)
-      return
-    }
-    if (pickerTab === 'twitch') {
-      const entries = twitchEntries('global')
-      if (entries.length) section(m.composer.twitchEmotes(entries.length), entries)
-      else emptyState(m.composer.twitchEmotesUnavailable)
-      return
-    }
-    section(tabLabel(pickerTab), EMOJIS.filter(emoji => emoji.group === pickerTab).map(emojiEntry))
-  }
-
-  function openPicker() {
-    if (input.disabled) return
-    if (pickerTab === 'recent' && !recents.length) pickerTab = 'channel'
-    picker.hidden = false
-    emoteButton.setAttribute('aria-expanded', 'true')
-    pickerSearch.value = ''
-    renderTabs(); renderPicker()
-    pickerSearch.focus()
-  }
-  function closePicker(refocus = false) {
-    if (picker.hidden) return
-    picker.hidden = true
-    emoteButton.setAttribute('aria-expanded', 'false')
-    if (refocus) input.focus()
-  }
-
   /* ----- history and drafts ----- */
 
   function history(): string[] {
@@ -493,7 +306,7 @@ export function createComposer(hooks: ComposerHooks) {
       if (room !== channel) return
       historyIndex = -1
       renderReply()
-      closeSuggestions(); closePicker()
+      closeSuggestions(); picker.close()
       setValue('')
     } catch (failure) {
       hooks.error(failure)
@@ -524,7 +337,7 @@ export function createComposer(hooks: ComposerHooks) {
     const open = !suggestList.hidden
     if (event.key === 'Escape') {
       if (open) { event.preventDefault(); closeSuggestions(); return }
-      if (!picker.hidden) { event.preventDefault(); closePicker(true); return }
+      if (picker.isOpen()) { event.preventDefault(); picker.close(true); return }
       if (memory.reply(channel)) { event.preventDefault(); setReply(null) }
       return
     }
@@ -550,16 +363,6 @@ export function createComposer(hooks: ComposerHooks) {
 
   $('#composer-reply-cancel').addEventListener('click', () => { setReply(null); input.focus() })
 
-  emoteButton.addEventListener('click', () => { if (picker.hidden) openPicker(); else closePicker(true) })
-  $('#emote-close').addEventListener('click', () => closePicker(true))
-  pickerSearch.addEventListener('input', renderPicker)
-  pickerSearch.addEventListener('keydown', event => { if (event.key === 'Escape' && !composing(event)) { event.preventDefault(); closePicker(true) } })
-  picker.addEventListener('mousedown', event => { if (event.target !== pickerSearch) event.preventDefault() })
-  document.addEventListener('pointerdown', event => {
-    const target = event.target as Element | null
-    if (!target?.closest('#emote-picker') && !target?.closest('#emote-button')) closePicker()
-  }, true)
-
   return {
     focus() { input.focus() },
     /** Used by the message menu: targets a message and shows what will be quoted. */
@@ -583,11 +386,11 @@ export function createComposer(hooks: ComposerHooks) {
       memory.keepDraft(channel, input.value)
       channel = next
       historyIndex = -1
-      closeSuggestions(); closePicker()
+      closeSuggestions(); picker.close()
       renderReply()
       setValue(memory.draft(next))
       if (account) input.placeholder = m.composer.writeIn(next || m.composer.channelWord)
-      renderTabs(); if (!picker.hidden) renderPicker()
+      picker.refresh()
     },
     setAccount(login: string | null) {
       account = login
@@ -598,7 +401,7 @@ export function createComposer(hooks: ComposerHooks) {
       // not the drafts, not the histories, not the reply being composed, not the line in the
       // box. The rooms are named the same for everybody; the memory of them is not shared.
       if (memory.setAccount(login)) {
-        closeSuggestions(); closePicker()
+        closeSuggestions(); picker.close()
         historyIndex = -1; historyDraft = ''
         setValue('')
         renderReply()
@@ -607,7 +410,7 @@ export function createComposer(hooks: ComposerHooks) {
     },
     refresh() {
       paint()
-      if (!picker.hidden) renderPicker()
+      picker.refresh()
     }
   }
 }

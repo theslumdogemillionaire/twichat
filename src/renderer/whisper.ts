@@ -1,8 +1,10 @@
 import '@fontsource-variable/atkinson-hyperlegible-next'
 import './style.css'
-import type { ChatPreferences, ThirdPartyEmote, Whisper } from '../shared/types'
+import type { ChatPreferences, ThirdPartyEmote, TwitchEmote, Whisper } from '../shared/types'
 import { hydrateIcons } from './icons'
 import { hydrate } from './hydrate'
+import { createEmotePicker } from './emote-picker'
+import { replaceRange } from './composer-text'
 import { paintMessageBody } from './message-body'
 import { applyTheme } from './theme'
 import { errorText } from '../shared/errors'
@@ -38,30 +40,81 @@ const pending: Whisper[] = []
 let ready = false
 let chat: ChatPreferences = { links: true, confirm: true, gifs: true }
 let thirdParty: ReadonlyMap<string, ThirdPartyEmote> | undefined
+let twitchEmotes: readonly TwitchEmote[] | undefined
 let twitchNames: ReadonlyMap<string, string> | undefined
 let pendingLink = ''
 
 /** Pinned to the bottom unless the reader has scrolled up to look at something. */
 const atBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < 40
+let pinned = true
+log.addEventListener('scroll', () => { pinned = atBottom() })
+const pinToBottom = () => { log.scrollTop = log.scrollHeight }
 
-function paint(line: Whisper) {
+/** Two whispers of the same day, by the clock of whoever is reading. */
+const sameDay = (a: number, b: number) => new Date(a).toDateString() === new Date(b).toDateString()
+/** Past this, two messages from the same person stop reading as one breath. */
+const GROUPING = 5 * 60_000
+
+function dayLabel(at: number) {
+  const day = new Date(at)
+  const today = new Date()
+  if (sameDay(at, today.getTime())) return m.whisperWindow.today
+  const yesterday = new Date(today)
+  yesterday.setDate(today.getDate() - 1)
+  if (sameDay(at, yesterday.getTime())) return m.whisperWindow.yesterday
+  const format = new Intl.DateTimeFormat(locale, day.getFullYear() === today.getFullYear()
+    ? { weekday: 'long', day: 'numeric', month: 'long' }
+    : { day: 'numeric', month: 'long', year: 'numeric' })
+  return format.format(day)
+}
+
+/**
+ * One whisper. `previous` is what it follows, and it decides two things a conversation needs to
+ * read as one: a rule when the day turns — a thread here spans sessions, so a bare clock would
+ * lie — and the name dropped when the same person carries on within a few minutes.
+ */
+function paint(line: Whisper, previous?: Whisper) {
+  if (!previous || !sameDay(previous.at, line.at)) {
+    const day = document.createElement('div')
+    day.className = 'whisper-day'
+    const label = document.createElement('span')
+    label.textContent = dayLabel(line.at)
+    day.append(label)
+    log.append(day)
+  }
+  const continued = !!previous && previous.outgoing === line.outgoing
+    && sameDay(previous.at, line.at) && line.at - previous.at < GROUPING
   const item = document.createElement('article')
-  item.className = `whisper-line${line.outgoing ? ' own' : ''}`
-  const who = document.createElement('span')
-  who.className = 'whisper-who'
-  who.textContent = line.outgoing ? m.whisperWindow.you : line.peerName || line.peer
+  item.className = `whisper-line${line.outgoing ? ' own' : ''}${continued ? ' continued' : ''}`
   const at = document.createElement('time')
   at.className = 'whisper-time'
   const date = new Date(line.at)
   at.dateTime = date.toISOString()
   at.textContent = clock.format(date)
+  if (continued) {
+    // Nothing above it to hang a clock on: the hour waits in the margin until the pointer asks.
+    item.append(at)
+  } else {
+    const meta = document.createElement('div')
+    meta.className = 'whisper-meta'
+    const who = document.createElement('span')
+    who.className = 'whisper-who'
+    who.textContent = line.outgoing ? m.whisperWindow.you : line.peerName || line.peer
+    meta.append(who, at)
+    item.append(meta)
+  }
   const body = document.createElement('p')
   body.className = 'whisper-text'
   // No mention to underline: a whisper is already addressed to you, and the whole of it would
   // light up on your own name.
   paintMessageBody(body, line.text, { thirdParty, twitchNames, links: chat.links, channels: true, focusableLinks: true })
-  item.append(who, at, body)
+  item.append(body)
   log.append(item)
+  // An emote lands after the line is measured and makes it taller: without this, a message that
+  // carries one leaves the reader a few pixels short of the bottom they were pinned to.
+  for (const image of item.querySelectorAll('img')) {
+    image.addEventListener('load', () => { if (pinned) pinToBottom() }, { once: true })
+  }
 }
 
 function append(line: Whisper, keepPlace = false) {
@@ -70,18 +123,20 @@ function append(line: Whisper, keepPlace = false) {
   if (seen.has(line.id)) return
   seen.add(line.id)
   const follow = keepPlace || atBottom()
+  const previous = lines[lines.length - 1]
   lines.push(line)
   empty.hidden = true
-  paint(line)
-  if (follow) log.scrollTop = log.scrollHeight
+  paint(line, previous)
+  if (follow) { pinned = true; pinToBottom() }
 }
 
 /** The emote sets landing after the thread was drawn: the same lines, read again. */
 function repaint() {
   const follow = atBottom()
-  for (const item of [...log.querySelectorAll('.whisper-line')]) item.remove()
-  for (const line of lines) paint(line)
-  if (follow) log.scrollTop = log.scrollHeight
+  // The day rules go too: grouping is decided in sequence, so the thread is drawn again whole.
+  for (const item of [...log.querySelectorAll('.whisper-line, .whisper-day')]) item.remove()
+  lines.forEach((line, index) => paint(line, lines[index - 1]))
+  if (follow) { pinned = true; pinToBottom() }
 }
 
 function openLink(href: string) {
@@ -120,6 +175,27 @@ let sending = false
 function refreshComposer() {
   sendButton.disabled = sending || !input.value.trim()
 }
+
+/**
+ * The room's own panel, in this window. A conversation is said nowhere, so what it offers is the
+ * sets that belong to no channel — the same panel, on a narrower shelf.
+ */
+const picker = createEmotePicker({
+  host: form, trigger: $<HTMLButtonElement>('#emote-button'), scope: 'global',
+  insert: value => {
+    const start = input.selectionStart ?? input.value.length
+    const next = replaceRange(input.value, start, input.selectionEnd ?? start, value)
+    input.value = next.text
+    input.focus()
+    input.setSelectionRange(next.caret, next.caret)
+    refreshComposer(); autosize()
+  },
+  blocked: () => sending,
+  refocus: () => input.focus(),
+  emotes: () => thirdParty,
+  twitch: () => twitchEmotes,
+  reload: loadEmotes
+})
 input.addEventListener('input', () => { refreshComposer(); autosize() })
 // A whisper is one line as far as Twitch is concerned: Enter sends it rather than breaking it.
 input.addEventListener('keydown', event => {
@@ -129,7 +205,8 @@ input.addEventListener('keydown', event => {
 })
 function autosize() {
   input.style.height = 'auto'
-  input.style.height = `${Math.min(110, input.scrollHeight)}px`
+  // The same ceiling as the room's composer, and the one its own `max-height` sets.
+  input.style.height = `${Math.min(104, input.scrollHeight)}px`
 }
 form.addEventListener('submit', async event => {
   event.preventDefault()
@@ -154,11 +231,35 @@ form.addEventListener('submit', async event => {
   }
 })
 
+/**
+ * The peer's picture, once the conversation is on screen. Asked for apart from the context so a
+ * Helix call is never what a thread waits on; the initial holds the place until it lands, and
+ * keeps it if it never does.
+ */
+async function loadProfile() {
+  try {
+    const profile = await api.whisperProfile()
+    if (profile.displayName) {
+      $('#whisper-name').textContent = profile.displayName
+      document.title = m.whisperWindow.title(profile.displayName)
+    }
+    if (!profile.avatarUrl) return
+    const avatar = $('#whisper-avatar')
+    const image = document.createElement('img')
+    image.src = profile.avatarUrl; image.alt = ''; image.width = 34; image.height = 34
+    // The initial is already there, underneath: a picture that fails simply uncovers it.
+    image.addEventListener('error', () => image.remove(), { once: true })
+    avatar.append(image)
+  } catch { /* An avatar is not worth a line of error in a conversation. */ }
+}
+
 async function loadEmotes() {
   try {
     const sets = await api.globalEmotes()
     thirdParty = new Map(sets.thirdParty.map(item => [item.code, item]))
+    twitchEmotes = sets.twitch
     twitchNames = new Map(sets.twitch.map(emote => [emote.name, emote.id]))
+    picker.refresh()
     if (lines.length) repaint()
   } catch { /* A conversation reads without its emotes; it does not read without its words. */ }
 }
@@ -186,6 +287,7 @@ async function start() {
   for (const line of pending.splice(0)) append(line)
   empty.hidden = lines.length > 0
   void loadEmotes()
+  void loadProfile()
 }
 
 // Registered before the context is asked for: a whisper landing during that round trip is held

@@ -368,6 +368,8 @@ export interface TwichatAPI {
   globalEmotes(): Promise<GlobalEmotes>
   /** Sends into the conversation this window holds. The recipient is never named by the page. */
   sendWhisper(text: string): Promise<Whisper>
+  /** The peer's picture and the name Twitch shows them under, asked for after the thread is drawn. */
+  whisperProfile(): Promise<{ avatarUrl: string; displayName: string }>
   /** Opens the conversation with someone, from the room: their window, brought to the front. */
   openWhisper(login: string): Promise<void>
   /** A channel named inside a whisper: the room comes forward and goes there. */

@@ -892,6 +892,20 @@ app.whenReady().then(async () => {
     } catch (error) { return serializeError(error) ?? Promise.reject(error) }
   })
   /**
+   * The peer's picture, asked for on its own rather than folded into the context: the window
+   * draws the conversation first, and a Helix call must never be what a thread waits on.
+   */
+  ipcMain.handle('whispers:profile', async event => {
+    trustedFrom(event, ['whisper'])
+    try {
+      const peer = whisperPeerOf(event.sender)
+      if (!peer) fail('originForbidden')
+      const { token, clientId } = accountAuth('needAccountForAvatars')
+      const [profile] = await getHelixProfiles([peer], token, clientId)
+      return { avatarUrl: profile?.avatarUrl ?? '', displayName: profile?.displayName ?? '' }
+    } catch (error) { return serializeError(error) ?? Promise.reject(error) }
+  })
+  /**
    * The conversation with someone, opened from the room. Asked for by a person, so it comes to
    * the front — and it is refused out loud when the account cannot carry whispers at all, rather
    * than opening a window that could only ever stay empty.

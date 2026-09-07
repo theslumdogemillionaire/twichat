@@ -20,10 +20,15 @@
     <div id="whisper-log" class="whisper-log" role="log" aria-live="polite" aria-label="Conversation privée" data-i18n-attr="aria-label=whisperWindow.label.conversation" tabindex="0">
       <p id="whisper-empty" class="whisper-empty" data-i18n="whisperWindow.empty">Rien reçu ici pour l’instant. Ce qui a été dit avant est dans votre boîte sur twitch.tv.</p>
     </div>
-    <form id="whisper-form" class="whisper-composer">
+    <form id="whisper-form" class="composer-wrap whisper-composer">
       <label id="whisper-label" for="whisper-input" class="sr-only" data-i18n="whisperWindow.inputLabel">Votre message</label>
       <div class="composer-box">
-        <textarea id="whisper-input" rows="1" maxlength="500" autocomplete="off" spellcheck="true" placeholder="Répondre en privé" data-i18n-attr="placeholder=whisperWindow.placeholder"></textarea>
+        <button id="emote-button" class="composer-tool" type="button" aria-haspopup="dialog" aria-expanded="false"><span data-icon="smile"></span></button>
+        <!-- The room's own wrapper, and the reason it is here: `.composer-field textarea` is what
+             strips the border and sets the type inside the pill. Without it the box draws twice. -->
+        <div class="composer-field">
+          <textarea id="whisper-input" rows="1" maxlength="500" autocomplete="off" spellcheck="true" placeholder="Répondre en privé" data-i18n-attr="placeholder=whisperWindow.placeholder"></textarea>
+        </div>
         <button id="whisper-send" class="send-button" type="submit" disabled aria-label="Envoyer le message" data-i18n-attr="aria-label=whisperWindow.label.send"><span data-icon="arrow"></span></button>
       </div>
       <p id="whisper-error" class="form-error" role="status"></p>

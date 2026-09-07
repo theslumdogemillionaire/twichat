@@ -243,6 +243,12 @@ let detachedChannel = ''
 let detachedWanted = false
 // A session going away closes the window without the account changing its mind.
 let closingSession = false
+// Hiding the video closes that window too, and for the same reason: the account still wants the
+// picture on the side, it just wants the room's whole width for the chat right now.
+let hidingVideo = false
+// Whether showing the video back has a picture to pick up: what was running when it was hidden.
+// A player the account had stopped itself stays stopped, wherever it sits.
+let resumeOnShow = false
 // Whether the addresses in a message read as links. Held here rather than read from the checkbox:
 // every row painted asks the question, and the virtualised log paints them by the hundred.
 let chatLinks = true
@@ -1046,11 +1052,16 @@ async function leaveRoom(channel: string) {
   renderPageNav()
   if (!wasActive) { renderRooms(); save(); return }
   const next = state.preferences.channels[0] ?? ''
-  active = next; state.preferences.active = next
+  // The next room is not named in `active` before `activate` takes it: that is what tells a change
+  // of channel from a return to the room already on screen, and pre-set it would read as the
+  // second — the room would open with its video never started.
+  active = ''
+  state.preferences.active = next
+  if (currentView === 'room' && next) { activate(next); return }
+  active = next
   composer.setRoom(next)
   if (currentView !== 'room') { applyPlayerMode(); updateDockPresence(); renderRooms(); save(); return }
-  if (next) activate(next)
-  else { virtualLog.setVisible(false); showView('welcome'); renderRooms(); save() }
+  virtualLog.setVisible(false); showView('welcome'); renderRooms(); save()
 }
 
 // The cap Twitch imposes on a client is announced here, before the room list grows past it.
@@ -2122,6 +2133,7 @@ function setDetached(channel: string | null) {
   paintDetachedAnchor()
   if (detachedChannel || !previous) return
   if (closingSession) closingSession = false
+  else if (hidingVideo) hidingVideo = false
   else if (detachedWanted) { detachedWanted = false; $<HTMLInputElement>('#detached-video').checked = false; save() }
   updatePlayer('stopped')
   // Coming back picks the picture up where the window left it, in the room now open.
@@ -2147,7 +2159,8 @@ async function detachVideo(play: boolean) {
 }
 /** Brings what is open in line with what the account chose, wherever the choice was made. */
 function applyDetachedChoice(play = currentPlayerState !== 'stopped') {
-  if (detachedWanted && !detachedChannel && active) void detachVideo(play)
+  // A hidden video has no window: the choice waits there for the video to be shown again.
+  if (detachedWanted && !detachedChannel && active && !$('#room-body').classList.contains('chat-only')) void detachVideo(play)
   else if (!detachedWanted && detachedChannel) void window.twichat.attachPlayer().catch(error => toast(displayError(error)))
 }
 /** The buttons and the settings switch set the same preference; only the way in differs. */
@@ -2206,10 +2219,31 @@ function finishAuthentication(login: string) {
   else if (currentView === 'discover') void loadDiscovery(true)
   toast(m.app.connectedAsDot(login))
 }
+/**
+ * Chat only: the video goes away wherever it is, and comes back as it was. Detached, hiding it
+ * closes its window rather than leaving a picture playing beside a room that no longer shows
+ * one, and showing it opens the window again, on the room now open, playing what it played.
+ * The class is toggled before that: `setDetached` reads it to know whether the dock has to pick
+ * the picture up, and a video going away must not come back in the dock it was just hidden from.
+ */
 function setChatOnly(value: boolean) {
+  const running = currentPlayerState !== 'stopped'
   $('#room-body').classList.toggle('chat-only', value)
   updatePlayerToggleLabel()
-  if (value) player.stop()
+  if (value) {
+    resumeOnShow = running
+    player.stop()
+    if (detachedChannel) {
+      hidingVideo = true
+      void window.twichat.attachPlayer().catch(error => { hidingVideo = false; toast(displayError(error)) })
+    }
+    return
+  }
+  const resume = resumeOnShow
+  resumeOnShow = false
+  // The window reopens whether or not it plays: the picture is what was hidden, not the frame.
+  if (detachedWanted && !detachedChannel && active) void detachVideo(resume)
+  else if (resume && active && !running) void player.play(active, $<HTMLSelectElement>('#quality').value, playback().buffer)
 }
 
 $('#add-room').addEventListener('click', () => addRoom())
