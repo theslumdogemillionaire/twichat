@@ -792,17 +792,6 @@ try {
       const thumb = document.createElement('img'); thumb.className = 'stream-thumb'
       thumb.alt = ''; thumb.width = 440; thumb.height = 248; thumb.decoding = 'async'
       thumb.src = stream.art === 'photo' ? frame : thumbs[stream.art]!
-      const framing = [
-        { scale: 1, origin: '50% 50%', hue: 0 },
-        { scale: 2.4, origin: '78% 72%', hue: 52 },
-        { scale: 3.1, origin: '22% 38%', hue: 128 },
-        { scale: 1.9, origin: '64% 24%', hue: 196 },
-        { scale: 2.8, origin: '12% 78%', hue: 268 },
-        { scale: 2.2, origin: '88% 30%', hue: 310 }
-      ][index % 6]!
-      thumb.style.transform = `scale(${framing.scale})`
-      thumb.style.transformOrigin = framing.origin
-      thumb.style.filter = `hue-rotate(${framing.hue}deg) saturate(1.08)`
       preview.append(thumb)
       const badge = document.createElement('span'); badge.className = 'stream-live'; badge.innerHTML = '<i></i>'; badge.append(view.liveTag)
       const since = document.createElement('span'); since.className = 'stream-uptime'; since.innerHTML = icons.clock; since.append(` ${stream.uptime}`)
