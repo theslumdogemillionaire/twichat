@@ -167,7 +167,6 @@ html.theme-switching *:not(.switch-knob):not(.switch-knob *) {
   align-items: center;
   gap: clamp(30px, 4vw, 70px);
   padding: 64px clamp(24px, 7vw, 112px) 72px;
-  overflow: hidden;
   border-bottom: 1px solid var(--line-soft);
   background:
     radial-gradient(circle at 76% 38%, rgba(185, 245, 104, .11), transparent 31%),
@@ -1027,3 +1026,20 @@ html.lightbox-open { overflow: hidden; scrollbar-gutter: stable; }
 .donate-status { margin: 16px auto 0; min-height: 1.2em; color: var(--acid-ink); font-size: 12px; }
 @media (max-width: 900px) { .donate-list { grid-template-columns: 1fr; max-width: 360px; } }
 @media (max-width: 560px) { .donate { padding: 64px 22px 72px; } }
+
+/* The hero screenshot bleeds past the hero's right edge on purpose, and the hero clipped it
+   itself. That clip also cut any menu opened near its bottom edge, so it moves up to the page:
+   the bleed still stops at the viewport, and nothing inside the hero is cropped any more. */
+html { overflow-x: hidden; }
+
+/* Six Linux packages read as six choices when they are two machines, each in three formats. */
+/* Padding, weight and alignment are copied from the single rows above, so a group reads as one
+   more row and not as a different kind of thing. The format links carry their own padding for a
+   comfortable target, and cancel it in margin so it never lengthens the row. */
+.download-group { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 9px 12px; }
+.download-group-label { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; }
+.download-group-formats { display: flex; gap: 2px; margin-right: -7px; }
+.download-split-menu .download-group-formats a {
+  padding: 3px 7px; margin: -3px 0; border-radius: 3px; font-size: 11px; font-weight: 500; color: var(--text-3);
+}
+.download-split-menu .download-group-formats a:hover { background: var(--card-alt); color: var(--text); }
