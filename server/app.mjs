@@ -23,17 +23,17 @@ const mimeTypes = new Map([
 ])
 // The keys are what `?platform=` accepts and what names the override variable, so they stay
 // shaped like an environment variable: `deb_arm64` reads `TWICHAT_DOWNLOAD_DEB_ARM64_URL`.
+// `{version}` is filled in at request time: the packages carry the version in their name, so a
+// file sitting in a downloads folder still says which one it is.
 const downloadFiles = {
-  mac: { name: 'Twichat-mac.dmg', type: 'application/x-apple-diskimage' },
-  windows: { name: 'Twichat-windows.exe', type: 'application/vnd.microsoft.portable-executable' },
-  // electron-builder fills `${arch}` with each packager's own vocabulary, not its own: deb says
-  // amd64 and arm64, rpm says x86_64 and aarch64. These are the names the release really carries.
-  appimage: { name: 'Twichat-linux-x86_64.AppImage', type: 'application/x-executable' },
-  appimage_arm64: { name: 'Twichat-linux-arm64.AppImage', type: 'application/x-executable' },
-  deb: { name: 'Twichat-linux-amd64.deb', type: 'application/vnd.debian.binary-package' },
-  rpm: { name: 'Twichat-linux-x86_64.rpm', type: 'application/x-rpm' },
-  deb_arm64: { name: 'Twichat-linux-arm64.deb', type: 'application/vnd.debian.binary-package' },
-  rpm_arm64: { name: 'Twichat-linux-aarch64.rpm', type: 'application/x-rpm' }
+  mac: { name: 'Twichat-{version}-mac.dmg', type: 'application/x-apple-diskimage' },
+  windows: { name: 'Twichat-{version}-windows.exe', type: 'application/vnd.microsoft.portable-executable' },
+  appimage: { name: 'Twichat-{version}-linux-x86_64.AppImage', type: 'application/x-executable' },
+  appimage_arm64: { name: 'Twichat-{version}-linux-arm64.AppImage', type: 'application/x-executable' },
+  deb: { name: 'Twichat-{version}-linux-amd64.deb', type: 'application/vnd.debian.binary-package' },
+  rpm: { name: 'Twichat-{version}-linux-x86_64.rpm', type: 'application/x-rpm' },
+  deb_arm64: { name: 'Twichat-{version}-linux-arm64.deb', type: 'application/vnd.debian.binary-package' },
+  rpm_arm64: { name: 'Twichat-{version}-linux-aarch64.rpm', type: 'application/x-rpm' }
 }
 
 /**
@@ -134,6 +134,25 @@ export function createTwichatServer(overrides = {}) {
   // bounds what a flood holds at once. A full table refuses the newcomer rather than evicting an
   // older entry: evicting would hand an attacker a way to cancel other people's sign-ins.
   const maxSessions = Number(overrides.maxSessions ?? env.TWICHAT_MAX_SESSIONS ?? 2000)
+  // Where the published packages live. Their names carry the version, so the address of the one
+  // to serve is not known until the current version is: `latest.yml` sits at a fixed address in
+  // that same folder and names it, which is one plain file to read rather than an API to query.
+  const releaseBase = String(overrides.releaseBase ?? env.TWICHAT_RELEASE_BASE ?? '').replace(/\/$/, '')
+  let knownVersion = null
+  let versionRead = 0
+  async function releaseVersion() {
+    // An hour: a release is not frequent, and a download must not wait on the network twice.
+    if (knownVersion && Date.now() - versionRead < 3_600_000) return knownVersion
+    try {
+      const response = await fetch(`${releaseBase}/latest.yml`, { signal: AbortSignal.timeout(5000) })
+      if (!response.ok) return knownVersion
+      const found = /^version:\s*(\S+)/m.exec(await response.text())
+      if (!found) return knownVersion
+      knownVersion = found[1]
+      versionRead = Date.now()
+    } catch { /* the version already in hand outlives a network that is not answering */ }
+    return knownVersion
+  }
   const pending = new Map()
   const tickets = new Map()
   const attempts = new Map()
@@ -326,13 +345,25 @@ export function createTwichatServer(overrides = {}) {
       if (readMethod && url.pathname === '/download') {
         const platform = Object.hasOwn(downloadFiles, url.searchParams.get('platform')) ? url.searchParams.get('platform') : 'mac'
         const file = downloadFiles[platform]
+        // An explicit address per platform still wins, for anyone hosting the packages elsewhere.
         const external = env[`TWICHAT_DOWNLOAD_${platform.toUpperCase()}_URL`]
         if (external) { response.writeHead(302, { Location: new URL(external).href }); return response.end() }
-        const path = join(publicDirectory, 'downloads', file.name)
+        const version = releaseBase ? await releaseVersion() : null
+        if (releaseBase) {
+          // No version means the release could not be read at all. Its page always resolves, and
+          // says more to a visitor than a download that fails.
+          const target = version
+            ? `${releaseBase}/${file.name.replace('{version}', version)}`
+            : releaseBase.replace(/\/download$/, '')
+          response.writeHead(302, { Location: new URL(target).href })
+          return response.end()
+        }
+        const name = file.name.replace('{version}', version ?? '')
+        const path = join(publicDirectory, 'downloads', name)
         try {
           await access(path)
           const information = await stat(path)
-          response.writeHead(200, { 'Content-Type': file.type, 'Content-Length': information.size, 'Content-Disposition': `attachment; filename="${file.name}"`, 'Cache-Control': 'no-store' })
+          response.writeHead(200, { 'Content-Type': file.type, 'Content-Length': information.size, 'Content-Disposition': `attachment; filename="${name}"`, 'Cache-Control': 'no-store' })
           const stream = createReadStream(path)
           stream.on('error', () => response.destroy())
           return stream.pipe(response)

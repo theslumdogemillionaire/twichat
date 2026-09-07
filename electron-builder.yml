@@ -40,7 +40,7 @@ npmRebuild: false
 # reads, names the installer by its file name and carries its checksum. Renaming an installer once
 # it is built leaves that metadata pointing at a file the release no longer holds.
 mac:
-  artifactName: Twichat-mac.${ext}
+  artifactName: Twichat-${version}-mac.${ext}
   target:
     # One disk image for both processors. `--mac` on a runner means whatever architecture that
     # runner has — arm64 today — which shipped no Intel build at all without ever saying so.
@@ -58,14 +58,14 @@ mac:
     NSBluetoothAlwaysUsageDescription: null
     NSBluetoothPeripheralUsageDescription: null
 win:
-  artifactName: Twichat-windows.${ext}
+  artifactName: Twichat-${version}-windows.${ext}
   target:
     - target: nsis
       arch: [x64]
 linux:
   # The architecture belongs in the name: two builds of the same package cannot share one, and
   # a Linux user is the one person here who knows which machine they are on.
-  artifactName: Twichat-linux-${arch}.${ext}
+  artifactName: Twichat-${version}-linux-${arch}.${ext}
   target:
     # AppImage first: it runs on any distribution without a package manager, and it is the only
     # Linux format electron-updater can replace in place. deb and rpm belong to the system.

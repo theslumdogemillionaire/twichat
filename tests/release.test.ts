@@ -60,11 +60,11 @@ test('the site serves the names the packages are built under', () => {
     // packager's own vocabulary rather than electron-builder's, so the names the release really
     // carries are spelled out here: a template that looked right shipped three names that did
     // not exist, and the site sent every Linux download to a file nobody had built.
-    const template = name.replace(/\.[^.]+$/, '.${ext}').replace(/-(?:amd64|x86_64|arm64|aarch64)\./, '-${arch}.')
+    const template = name.replace(/\.[^.]+$/, '.${ext}').replace(/-(?:amd64|x86_64|arm64|aarch64)\./, '-${arch}.').replace('{version}', '${version}')
     assert.ok(built.has(template), `the site serves ${name} but nothing is built as ${template}`)
   }
   // The four Linux packages, by the names deb and rpm each give an architecture.
-  for (const expected of ['Twichat-linux-x86_64.AppImage', 'Twichat-linux-arm64.AppImage', 'Twichat-linux-amd64.deb', 'Twichat-linux-arm64.deb', 'Twichat-linux-x86_64.rpm', 'Twichat-linux-aarch64.rpm']) {
+  for (const expected of ['Twichat-{version}-linux-x86_64.AppImage', 'Twichat-{version}-linux-arm64.AppImage', 'Twichat-{version}-linux-amd64.deb', 'Twichat-{version}-linux-arm64.deb', 'Twichat-{version}-linux-x86_64.rpm', 'Twichat-{version}-linux-aarch64.rpm']) {
     assert.ok(promised.has(expected), `the release carries ${expected} and the site does not serve it`)
   }
 })

@@ -56,21 +56,29 @@ compares against the release. `scripts/release-gate.mjs` enforces it — it runs
 installed, so a tag ahead of the file costs seconds instead of three packaging jobs and a release
 whose installers announce a version that was never cut.
 
-The installers are built under fixed names rather than the versioned ones electron-builder writes by
-default: `Twichat-mac.dmg`, `Twichat-windows.exe`, and six Linux packages carrying their architecture,
-`Twichat-linux-x86_64.AppImage`, `Twichat-linux-arm64.AppImage`, `Twichat-linux-amd64.deb`,
-`Twichat-linux-arm64.deb`, `Twichat-linux-x86_64.rpm` and `Twichat-linux-aarch64.rpm`. That spelling
-is not ours: `${arch}` is filled with each packager's own vocabulary, so deb says `amd64` where rpm
-says `x86_64`. Two things depend on that. The site serves those exact names from `/download`, and
-GitHub keeps a permanent address per name:
+The installers carry the version in their name, so a file that has been sitting in a downloads
+folder still says which one it is: `Twichat-0.5.4-mac.dmg`, `Twichat-0.5.4-windows.exe`, and six
+Linux packages that add their architecture, `Twichat-0.5.4-linux-x86_64.AppImage`,
+`Twichat-0.5.4-linux-arm64.AppImage`, `Twichat-0.5.4-linux-amd64.deb`,
+`Twichat-0.5.4-linux-arm64.deb`, `Twichat-0.5.4-linux-x86_64.rpm` and
+`Twichat-0.5.4-linux-aarch64.rpm`. That spelling of the architecture is not ours: `${arch}` is
+filled with each packager's own vocabulary, so deb says `amd64` where rpm says `x86_64`.
 
-    https://github.com/theslumdogemillionaire/twichat/releases/latest/download/Twichat-mac.dmg
+A versioned name has no permanent address, so `/download` resolves one. `latest.yml` does sit at a
+fixed address in the release, and it names the current version:
 
-And `latest*.yml`, the file the in-app check reads, names the installer by its file name and
-carries its checksum — so the name has to come from the build rather than from a rename after it,
-or that metadata points at a file the release does not hold. A test compares the names the site
-promises against the ones the release really carries, spelled out: comparing against the template
-alone once passed while three of the four Linux names did not exist.
+    https://github.com/theslumdogemillionaire/twichat/releases/latest/download/latest.yml
+
+The site reads it, holds the answer for an hour, and redirects to the package for that version.
+That is one plain file to read rather than an API to query, so nothing is rate limited. When it
+cannot be read at all, the redirect goes to the release page, which always resolves and tells a
+visitor more than a download that fails.
+
+`latest*.yml` is also what the in-app check reads: it names the installer by its file name and
+carries its checksum, so the name has to come from the build rather than from a rename after it.
+A test compares the names the site promises against the ones the release really carries, spelled
+out: comparing against the template alone once passed while three of the four Linux names did not
+exist.
 
 Each release also carries `SHA256SUMS.txt`, listing the eight installers under those same names.
 
