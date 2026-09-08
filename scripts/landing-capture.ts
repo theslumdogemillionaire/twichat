@@ -60,7 +60,20 @@ const VERIFIED = '<path d="M12 3l7 3v5.5c0 4.3-2.9 7.7-7 9-4.1-1.3-7-4.7-7-9V6Z"
  */
 const GLYPHS: Record<string, string> = {
   people: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 1 0 7.8"/>',
-  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  heartFull: '<path fill="currentColor" d="M12 20s-7-4.4-9-8.5A5 5 0 0 1 12 6a5 5 0 0 1 9 5.5C19 15.6 12 20 12 20Z"/>'
+}
+
+/**
+ * The chat badges, as images. The application asks Twitch for the room's sets and only falls back
+ * to the name when a set is missing — a capture staged on that fallback would show the older look.
+ * The addresses are Twitch's global ones, and their titles its own wording.
+ */
+const BADGES: Record<string, { url: string; title: string }> = {
+  MOD: { url: 'https://static-cdn.jtvnw.net/badges/v1/3267646d-33f0-4b17-b3df-f923a41db1d0/3', title: 'Moderator' },
+  VIP: { url: 'https://static-cdn.jtvnw.net/badges/v1/b817aba4-fad8-49e2-b88a-7cc744dfa6ec/3', title: 'VIP' },
+  SUB: { url: 'https://static-cdn.jtvnw.net/badges/v1/5d9f2208-5dd8-11e7-8513-2ff4adfae661/3', title: 'Subscriber' },
+  PRIME: { url: 'https://static-cdn.jtvnw.net/badges/v1/bbbe0db0-a598-423e-86d0-f9fb98ca1933/3', title: 'Prime Gaming' }
 }
 const glyph = (name: string) =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${GLYPHS[name]}</svg>`
@@ -172,7 +185,13 @@ const CHROME = {
   fr: {
     accountDescription: 'Compte Twitch connecté',
     connection: 'Chat connecté',
-    channelSubtitle: '42 781 PERSONNES · MUSIQUE & CRÉATION',
+    streamTitle: 'Session modulaire : on construit un patch en direct',
+    viewers: '42 781',
+    uptime: '3 h 12',
+    followers: '128 k followers',
+    channelTags: ['Musique', 'Français', 'Chill'],
+    railAudience: '8 421 spectateurs',
+    railHint: 'Clic droit pour quitter cette chaîne',
     messageCount: '327 messages',
     technicalStatus: 'IRC / TLS <i></i> VIDÉO HLS',
     liveBadge: '● EN DIRECT',
@@ -190,7 +209,13 @@ const CHROME = {
   en: {
     accountDescription: 'Twitch account connected',
     connection: 'Chat connected',
-    channelSubtitle: '42,781 PEOPLE · MUSIC & CREATION',
+    streamTitle: 'Modular session: building a patch live',
+    viewers: '42,781',
+    uptime: '3h 12',
+    followers: '128K followers',
+    channelTags: ['Music', 'English', 'Chill'],
+    railAudience: '8,421 viewers',
+    railHint: 'Right-click to leave this channel',
     messageCount: '327 messages',
     technicalStatus: 'IRC / TLS <i></i> HLS VIDEO',
     liveBadge: '● LIVE',
@@ -503,7 +528,7 @@ try {
   await page.waitForTimeout(1200)
   await page.evaluate(() => window.twichat.stopStream())
 
-  await page.evaluate(({ stream, emotes, messages, rooms, idle, card, verified, account, chrome }) => {
+  await page.evaluate(({ stream, emotes, badges, messages, rooms, idle, card, verified, account, chrome, icons }) => {
     const one = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!
     // The renderer icons are already hydrated in the page: copy them rather than duplicate their paths.
     const iconOf = (name: string) => {
@@ -514,7 +539,25 @@ try {
     }
 
     one('#channel-title').textContent = 'studio_nova'
-    one('#channel-subtitle').textContent = chrome.channelSubtitle
+    // Connecté, le sous-titre est vide : ce qu'il portait vit maintenant dans ses propres champs.
+    one('#channel-subtitle').textContent = ''
+    const streamTitle = one('#channel-stream-title')
+    streamTitle.textContent = chrome.streamTitle; streamTitle.title = chrome.streamTitle; streamTitle.hidden = false
+    const liveStats = one('#channel-live'); liveStats.replaceChildren(); liveStats.hidden = false
+    for (const [glyph, value] of [[icons.people, chrome.viewers], [icons.clock, chrome.uptime]] as [string, string][]) {
+      const stat = document.createElement('span'); stat.className = 'channel-live-stat'
+      stat.innerHTML = glyph; stat.append(` ${value}`)
+      liveStats.append(stat)
+    }
+    // Le cœur plein et lime : le compte connecté suit la chaîne.
+    const followers = one('#channel-followers'); followers.hidden = false
+    followers.classList.add('is-following')
+    followers.innerHTML = icons.heartFull; followers.append(` ${chrome.followers}`)
+    const tags = one('#channel-tags'); tags.replaceChildren(); tags.hidden = false
+    for (const label of chrome.channelTags) {
+      const tag = document.createElement('button'); tag.type = 'button'; tag.className = 'channel-tag'; tag.textContent = label
+      tags.append(tag)
+    }
     one('#message-count').textContent = chrome.messageCount
     one('#chat-empty').hidden = true
     one('#technical-status').innerHTML = chrome.technicalStatus
@@ -604,7 +647,15 @@ try {
         const meta = document.createElement('div'); meta.className = 'message-meta'
         const user = document.createElement('span'); user.className = 'message-user'; user.textContent = message.user; user.style.color = message.color
         meta.append(user)
-        for (const badgeName of message.badges) { const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = badgeName; meta.append(badge) }
+        for (const badgeName of message.badges) {
+          const badge = badges[badgeName]
+          if (!badge) { const label = document.createElement('span'); label.className = 'badge'; label.textContent = badgeName; meta.append(label); continue }
+          const image = document.createElement('img'); image.className = 'badge-image'
+          image.alt = badge.title; image.title = badge.title
+          image.width = 18; image.height = 18; image.decoding = 'async'
+          image.src = badge.url
+          meta.append(image)
+        }
         const time = document.createElement('time'); time.className = 'message-time'; time.textContent = message.time; meta.append(time)
         main.append(meta, text); row.append(avatar, main)
       }
@@ -677,7 +728,8 @@ try {
     one('#composer-login').hidden = true
     one('#composer-hint').hidden = false
   }, {
-    stream, emotes: EMOTES, verified: VERIFIED, card: CARD, chrome: TEXT,
+    stream, emotes: EMOTES, badges: BADGES, verified: VERIFIED, card: CARD, chrome: TEXT,
+    icons: { people: glyph('people'), clock: glyph('clock'), heartFull: glyph('heartFull') },
     account: { login: ACCOUNT.login, avatar: avatarStyle(ACCOUNT.avatar) },
     messages: MESSAGES.map(message => ({ ...message, avatar: avatarStyle(message.avatar) })),
     rooms: ROOMS.map(room => ({ ...room, avatar: avatarStyle(room.avatar) })),
@@ -962,6 +1014,31 @@ try {
   }, undefined, { timeout: 20000 })
   // The grid keeps whatever scroll the view had: from the top, the categories row stays whole.
   await page.evaluate(() => { document.querySelector('#discover-content')!.scrollTop = 0 })
+  // The sidebar preview: hovering a live row shows the frame Twitch keeps of the stream, the
+  // channel's name and its audience. Staged here rather than on the chat screen, where the
+  // profile card already floats.
+  await page.evaluate(({ preview, chrome }) => {
+    const row = document.querySelector<HTMLButtonElement>('.room-button[data-channel="lofi_garden"]')
+    if (!row) throw new Error('The sidebar row the preview hangs on is missing.')
+    const tip = document.querySelector<HTMLElement>('#rail-tip')!
+    tip.replaceChildren()
+    tip.className = 'has-preview'
+    const image = document.createElement('img'); image.alt = ''; image.width = 440; image.height = 248; image.src = preview
+    const name = document.createElement('strong'); name.textContent = 'lofi_garden'
+    const audience = document.createElement('span'); audience.textContent = chrome.railAudience
+    const hint = document.createElement('span'); hint.className = 'rail-hint'; hint.textContent = chrome.railHint
+    tip.append(image, name, audience, hint)
+    tip.hidden = false
+    // Placed the way the application places it: against the row, centred on it.
+    const bounds = row.getBoundingClientRect()
+    tip.style.left = `${Math.round(bounds.right + 8)}px`
+    tip.style.top = `${Math.round(bounds.top + bounds.height / 2 - tip.getBoundingClientRect().height / 2)}px`
+  }, { preview: thumbs.lofi!, chrome: TEXT })
+  await page.waitForFunction(() => {
+    const image = document.querySelector<HTMLImageElement>('#rail-tip img')
+    return Boolean(image?.complete && image.naturalWidth > 0)
+  }, undefined, { timeout: 15000 })
+
   await shoot('app-discover')
 
 
