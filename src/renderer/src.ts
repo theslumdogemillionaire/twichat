@@ -1,6 +1,6 @@
 import '@fontsource-variable/atkinson-hyperlegible-next'
 import './style.css'
-import type { BufferMode, ChannelInfo, ChatEvent, ChatMessage, ChatPreferences, Connection, FollowStatus, LayoutPreferences, NotificationPreferences, PlaybackPreferences, Preferences, RoomProfile, ScopedPreferences, Snapshot, StreamSummary, ThirdPartyEmote, TwitchEmote, UpdateNotice, UserCard } from '../shared/types'
+import type { BufferMode, ChannelInfo, ChatBadge, ChatEvent, ChatMessage, ChatPreferences, Connection, FollowStatus, LayoutPreferences, NotificationPreferences, PlaybackPreferences, Preferences, RoomProfile, ScopedPreferences, Snapshot, StreamSummary, ThirdPartyEmote, TwitchEmote, UpdateNotice, UserCard } from '../shared/types'
 import { bufferMode, idleChannelHours } from '../shared/validation'
 import { hydrateIcons, icon } from './icons'
 import { ChatStore } from './chat-store'
@@ -59,6 +59,9 @@ const thirdPartyEmotes = new Map<string, Map<string, ThirdPartyEmote>>()
 const thirdPartyRoomKeys = new Map<string, string>()
 const twitchEmotes = new Map<string, TwitchEmote[]>()
 const twitchEmoteIds = new Map<string, Map<string, string>>()
+/** The badge images of each room, keyed as the `badges` tag names them: `moderator/1`. */
+const twitchBadges = new Map<string, Map<string, ChatBadge>>()
+const badgeRoomKeys = new Map<string, string>()
 const twitchRoomKeys = new Map<string, string>()
 const roomIds = new Map<string, string>()
 // The account badges, room by room: a moderator, a VIP or a subscriber writes despite followers-only mode.
@@ -483,6 +486,7 @@ function adoptScope({ scope, preferences: next, locale }: ScopedPreferences) {
   followStatuses.clear(); followChecks.clear(); followRetryAt.clear()
   channelInfos.clear(); channelInfoChecks.clear()
   twitchEmotes.clear(); twitchEmoteIds.clear(); twitchRoomKeys.clear()
+  twitchBadges.clear(); badgeRoomKeys.clear()
   thirdPartyEmotes.clear(); thirdPartyRoomKeys.clear()
   discoveredStreams = []; resetFollowed(); selectedTags.clear()
   joined.clear()
@@ -604,6 +608,8 @@ function collapsedSidebar() { return appRoot.classList.contains('sidebar-collaps
 function roomAudience(profile: RoomProfile | undefined) {
   return profile?.live && profile.viewers !== undefined ? m.app.viewerCount(numbers.format(profile.viewers), profile.viewers) : ''
 }
+/** The frame Twitch keeps of the running stream. Empty off air, and empty without Helix. */
+function roomPreview(profile: RoomProfile | undefined) { return profile?.live ? profile.thumbnailUrl ?? '' : '' }
 
 // Avatar, name and live dot are painted the same way on a room row and on the own-channel shortcut.
 function paintRoomButton(button: HTMLButtonElement, channel: string, hint: string, fallbackName = `# ${channel}`) {
@@ -612,10 +618,12 @@ function paintRoomButton(button: HTMLButtonElement, channel: string, hint: strin
   const status = profile ? (profile.live ? profile.viewers ? m.app.liveWithViewers(numbers.format(profile.viewers), profile.viewers) : m.app.live : m.app.offline) : ''
   const displayName = profile?.displayName || fallbackName
   // Expanded, the tooltip is where a name too long for the column can still be read whole.
-  // Collapsed, the row hands that job to `#rail-tip`, which draws itself: keeping the attribute
-  // as well would have the two bubbles stacked on the same hover.
-  const title = collapsedSidebar() ? '' : [displayName, status, hint].filter(Boolean).join(' · ')
+  // Collapsed, or on a live row carrying a preview, the row hands that job to `#rail-tip`, which
+  // draws itself: keeping the attribute as well would have the two bubbles stacked on one hover.
+  const title = collapsedSidebar() || roomPreview(profile) || button === railTipRow ? '' : [displayName, status, hint].filter(Boolean).join(' · ')
   if (button.title !== title) button.title = title
+  // Read back by the bubble, which is the only thing left saying it on a row without a tooltip.
+  if (button.dataset.hint !== hint) button.dataset.hint = hint
   button.classList.toggle('is-live', live === 'true')
   button.classList.toggle('is-offline', live === 'false')
   button.setAttribute('aria-current', String(channel === active && currentView === 'room'))
@@ -1046,7 +1054,8 @@ async function leaveRoom(channel: string) {
   store.remove(channel); state.preferences.channels = state.preferences.channels.filter(item => item !== channel)
   unread.delete(channel); mentions.delete(channel); joined.delete(channel); roomModes.delete(channel)
   thirdPartyEmotes.delete(channel); thirdPartyRoomKeys.delete(channel)
-  twitchEmotes.delete(channel); twitchEmoteIds.delete(channel); twitchRoomKeys.delete(channel); roomIds.delete(channel)
+  twitchEmotes.delete(channel); twitchEmoteIds.delete(channel); twitchRoomKeys.delete(channel)
+  twitchBadges.delete(channel); badgeRoomKeys.delete(channel); roomIds.delete(channel)
   // A room nothing can go back to is not a page any more; the rest of the trail stands.
   pageHistory.prune(page => page.view !== 'room' || page.channel !== channel)
   renderPageNav()
@@ -1126,26 +1135,71 @@ let railTipRow: HTMLButtonElement | null = null
  * would vanish from under a pointer still resting on the avatar it names.
  */
 let railHovered = false
+/** What the bubble is showing right now, so a repaint that changes nothing leaves it alone. */
+let railTipKey = ''
+/** The preview is fetched from Twitch: a pointer sweeping the list must not pull twenty frames. */
+let railTipImageTimer = 0
+const PREVIEW_DELAY = 350
+/** Which rows draw a bubble: every one when the rail is collapsed, a live one for its preview. */
+function railTipWanted(button: HTMLButtonElement) {
+  return collapsedSidebar() || Boolean(roomPreview(roomProfiles.get(button.dataset.channel ?? state.account ?? '')))
+}
 /**
  * What the collapsed rail cannot write on the row itself: the name of the channel, and how many
  * are watching it. Drawn rather than left to the `title` attribute — the native tooltip does not
- * come up over these rows, and this one carries the audience spelled out, without the delay.
+ * come up over these rows, and this one carries the audience spelled out, without the delay. A
+ * channel on air adds the frame Twitch keeps of it, which no tooltip could have carried at all.
  */
 function showRailTip(button: HTMLButtonElement) {
   const channel = button.dataset.channel ?? state.account ?? ''
   if (!channel) return
-  railTipRow = button
   const profile = roomProfiles.get(channel)
-  const name = document.createElement('strong')
-  name.textContent = profile?.displayName || (button === ownChannelButton ? channel : `# ${channel}`)
-  railTip.replaceChildren(name)
+  const displayName = profile?.displayName || (button === ownChannelButton ? channel : `# ${channel}`)
   const status = roomAudience(profile) || (profile ? profile.live ? m.app.live : m.app.offline : '')
+  const preview = roomPreview(profile)
+  // The list repaints on its own — a room opened, a poll landing. Redrawing an unchanged bubble
+  // would restart the wait below and never get round to asking for the picture.
+  const key = [channel, displayName, status, preview, preview ? button.dataset.hint ?? '' : ''].join('\n')
+  if (railTipRow === button && railTipKey === key && !railTip.hidden) return placeRailTip(button)
+  railTipRow = button
+  railTipKey = key
+  clearTimeout(railTipImageTimer)
+  const name = document.createElement('strong')
+  name.textContent = displayName
+  railTip.replaceChildren(name)
   if (status) { const line = document.createElement('span'); line.textContent = status; railTip.append(line) }
+  // Only a preview row lost a tooltip — collapsed, there never was one — so only that row is
+  // owed what it said beyond the name.
+  const hint = preview ? button.dataset.hint ?? '' : ''
+  if (hint) { const line = document.createElement('span'); line.className = 'rail-hint'; line.textContent = hint; railTip.append(line) }
+  // The slot is held by the stylesheet whether or not the picture ever lands: the bubble is
+  // placed against the row by its height, and one that grew afterwards would sit off-centre.
+  railTip.classList.toggle('has-preview', Boolean(preview))
+  if (preview) railTip.prepend(previewImage(preview))
+  placeRailTip(button)
+}
+/**
+ * The frame, asked for only once the pointer has settled. Twitch rewrites it every few minutes
+ * behind one unchanging address, so the bucket asks for a fresh one at that pace and lets the
+ * browser answer the hovers in between from its own cache.
+ */
+function previewImage(url: string) {
+  const image = document.createElement('img')
+  image.alt = ''; image.width = 440; image.height = 248
+  image.addEventListener('error', () => {
+    image.remove(); railTip.classList.remove('has-preview')
+    if (railTipRow) placeRailTip(railTipRow)
+  })
+  const source = `${url}?t=${Math.floor(Date.now() / 300_000)}`
+  railTipImageTimer = window.setTimeout(() => { image.src = source }, PREVIEW_DELAY)
+  return image
+}
+function placeRailTip(button: HTMLButtonElement) {
   railTip.hidden = false
   const row = button.getBoundingClientRect()
   placeFloating(railTip, row.right + 8, row.top + row.height / 2 - railTip.getBoundingClientRect().height / 2)
 }
-function hideRailTip() { railTipRow = null; railTip.hidden = true }
+function hideRailTip() { railTipRow = null; railTipKey = ''; clearTimeout(railTipImageTimer); railTip.hidden = true }
 /**
  * The rows move under the bubble: a channel going live grows the one above it by a line, and a
  * room falling dormant leaves the list altogether. Left alone, the bubble would keep pointing at
@@ -1153,7 +1207,9 @@ function hideRailTip() { railTipRow = null; railTip.hidden = true }
  */
 function followRailTip() {
   if (!railTipRow) return
-  if (collapsedSidebar() && railTipRow.isConnected) showRailTip(railTipRow)
+  // A stream ending under a pointer that never moved takes its picture away, not the bubble
+  // itself: what is left is the two lines, where a hand pointing at nothing would otherwise be.
+  if (railTipRow.isConnected && (railTipWanted(railTipRow) || railHovered)) showRailTip(railTipRow)
   else hideRailTip()
 }
 
@@ -1393,40 +1449,112 @@ function renderFollowedOffline(query: string): number {
   return matches.length
 }
 
+/**
+ * The query box searches Twitch, it does not only sift the grid. `discover` loads the hundred
+ * largest audiences, so a name typed here used to be compared against those alone — a channel of
+ * middling size was never in the list to be found. `searchChannels` matches it against every live
+ * channel name Twitch has. Titles and tags stay a local matter: Twitch searches neither.
+ */
+const SEARCH_MINIMUM = 3
+/** The query the stored hits answer, lowercased as the grid's own filter is. */
+let discoverySearchQuery = ''
+let discoverySearchResults: StreamSummary[] = []
+/**
+ * The hits Twitch found under this name that are not on air. They are never carded: the explorer
+ * is a grid of live channels, and joining a channel by name is what the join dialog is for. They
+ * are kept so the empty state can say the name exists and is off air, rather than let a channel
+ * that was found read as a channel that was not.
+ */
+let discoverySearchOffline: RoomProfile[] = []
+let discoverySearching = false
+/** What Twitch answered instead of a list. A refused search must not read as an empty one. */
+let discoverySearchError: unknown = null
+let discoverySearchTimer = 0
+/** Bumped by every search and every reset: a late answer to a query since edited is dropped. */
+let discoverySearchGeneration = 0
+
+function resetDiscoverySearch() {
+  clearTimeout(discoverySearchTimer)
+  discoverySearchQuery = ''; discoverySearchResults = []; discoverySearchOffline = []; discoverySearching = false; discoverySearchError = null
+  discoverySearchGeneration++
+}
+
+async function runDiscoverySearch(raw: string) {
+  const query = raw.toLocaleLowerCase(locale)
+  if (discoveryScope !== 'top' || raw.length < SEARCH_MINIMUM || query === discoverySearchQuery) return
+  const generation = ++discoverySearchGeneration
+  discoverySearching = true; discoverySearchError = null
+  renderDiscoveryResults()
+  try {
+    const found = await window.twichat.searchChannels(raw)
+    if (generation !== discoverySearchGeneration) return
+    discoverySearchQuery = query; discoverySearchResults = found.live; discoverySearchOffline = found.offline; discoverySearchError = null
+  } catch (error) {
+    // A search Twitch turned down leaves the catalog filter standing, and the query it was asked
+    // for is not recorded as answered: an empty grid must not claim Twitch looked and found none.
+    if (generation === discoverySearchGeneration) { discoverySearchQuery = ''; discoverySearchResults = []; discoverySearchOffline = []; discoverySearchError = error }
+  } finally {
+    if (generation === discoverySearchGeneration) { discoverySearching = false; renderDiscoveryResults() }
+  }
+}
+
 function renderDiscoveryResults() {
   const streams = scopeStreams()
   const query = $<HTMLInputElement>('#discover-query').value.trim().toLocaleLowerCase(locale)
-  if (!streams.length && !(discoveryScope === 'followed' && followedOffline.length)) {
+  const matchesFilters = (stream: StreamSummary) =>
+    (!selectedCategories.size || selectedCategories.has(stream.game))
+    && (!selectedTags.size || stream.tags.some(tag => selectedTags.has(tagKey(tag))))
+  const filtered = streams.filter(stream => {
+    const haystack = [stream.displayName, stream.channel, stream.title, stream.game, ...stream.tags].join(' ').toLocaleLowerCase(locale)
+    return (!query || haystack.includes(query)) && matchesFilters(stream)
+  })
+  // The hits keep their place while the query is being extended or cut back — dropping them on
+  // every keystroke emptied the grid for as long as the next search took, which is the flicker
+  // this whole search was meant to end. They are held to the name they were found by.
+  const related = Boolean(query && discoverySearchQuery) && (query.startsWith(discoverySearchQuery) || discoverySearchQuery.startsWith(query))
+  const known = new Set(filtered.map(stream => stream.channel))
+  const found = discoveryScope === 'top' && related
+    ? discoverySearchResults.filter(stream => !known.has(stream.channel) && matchesFilters(stream)
+      && `${stream.displayName} ${stream.channel}`.toLocaleLowerCase(locale).includes(query))
+    : []
+  const results = [...filtered, ...found]
+  // A search under way answers for the empty grid below: the catalog being cold is not the story.
+  if (!results.length && !discoverySearching && !streams.length && !(discoveryScope === 'followed' && followedOffline.length)) {
     if (discoveryScope === 'followed') discoveryStatus(m.app.noFollowedChannels, m.app.noFollowedHint, 'retry')
     else discoveryStatus(m.app.noLiveChannel, m.app.noChannelForLanguage, 'retry')
     return
   }
-  const filtered = streams.filter(stream => {
-    const haystack = [stream.displayName, stream.channel, stream.title, stream.game, ...stream.tags].join(' ').toLocaleLowerCase(locale)
-    const matchesQuery = !query || haystack.includes(query)
-    const matchesCategory = !selectedCategories.size || selectedCategories.has(stream.game)
-    const matchesTag = !selectedTags.size || stream.tags.some(tag => selectedTags.has(tagKey(tag)))
-    return matchesQuery && matchesCategory && matchesTag
-  })
   const mode = $<HTMLSelectElement>('#discover-sort').value
-  filtered.sort((a, b) => mode === 'viewers-asc' ? a.viewers - b.viewers
+  results.sort((a, b) => mode === 'viewers-asc' ? a.viewers - b.viewers
     : mode === 'name' ? collator.compare(a.displayName, b.displayName)
     : mode === 'recent' ? (Date.parse(b.startedAt) || 0) - (Date.parse(a.startedAt) || 0)
     : b.viewers - a.viewers)
-  const root = $('#discover-results'); root.replaceChildren(...filtered.map(discoveryCard))
-  root.hidden = !filtered.length; $('#discover-status').hidden = true; $('#discover-skeleton').hidden = true
+  const root = $('#discover-results'); root.replaceChildren(...results.map(discoveryCard))
+  root.hidden = !results.length; $('#discover-status').hidden = true; $('#discover-skeleton').hidden = true
   const offline = renderFollowedOffline(query)
-  const total = filtered.reduce((sum, stream) => sum + stream.viewers, 0)
-  const live = m.app.liveChannels(filtered.length)
+  const total = results.reduce((sum, stream) => sum + stream.viewers, 0)
+  const live = m.app.liveChannels(results.length)
   if (discoveryScope === 'followed') {
-    $('#discover-summary').textContent = filtered.length || offline
-      ? `${live}${offline ? m.app.offlineSuffix(offline) : ''}${filtered.length ? m.app.viewersTotal(compactNumbers.format(total)) : ''}`
+    $('#discover-summary').textContent = results.length || offline
+      ? `${live}${offline ? m.app.offlineSuffix(offline) : ''}${results.length ? m.app.viewersTotal(compactNumbers.format(total)) : ''}`
       : m.app.noFollowedMatch
   } else {
-    $('#discover-summary').textContent = filtered.length ? m.app.liveAndViewers(live, compactNumbers.format(total)) : m.app.noChannelMatchFilters
+    $('#discover-summary').textContent = results.length ? m.app.liveAndViewers(live, compactNumbers.format(total)) : m.app.noChannelMatchFilters
   }
+  if (results.length || offline) return
+  // Six ways to come up empty, and they are not the same story: a search still out, one Twitch
+  // refused, a tag it cannot search on, a name too short to send, a name found but off air, and a
+  // name Twitch knows nothing of.
   const tag = [...selectedTags.values()][0]
-  if (!filtered.length && !offline) discoveryStatus(tag ? m.app.noChannelForTag(tag) : m.app.noChannelMatch, tag ? m.app.noChannelForTagHint : m.app.noChannelMatchHint, tag ? 'retry' : null)
+  const searchable = discoveryScope === 'top' && Boolean(query)
+  if (discoverySearching) discoveryStatus(m.app.searchingChannels, m.app.searchingChannelsHint)
+  else if (discoverySearchError) discoveryStatus(m.app.searchFailed, displayError(discoverySearchError), 'retry')
+  else if (tag) discoveryStatus(m.app.noChannelForTag(tag), m.app.noChannelForTagHint, 'retry')
+  else if (searchable && query.length < SEARCH_MINIMUM) discoveryStatus(m.app.noChannelMatch, m.app.searchTooShort)
+  else if (searchable && query === discoverySearchQuery && discoverySearchOffline.length)
+    discoveryStatus(m.app.noLiveMatch, m.app.foundOffAir(discoverySearchOffline.slice(0, 3).map(profile => profile.displayName).join(', ')))
+  else if (searchable && query === discoverySearchQuery) discoveryStatus(m.app.noChannelMatch, m.app.noChannelSearchHint)
+  else discoveryStatus(m.app.noChannelMatch, m.app.noChannelMatchHint)
 }
 
 function updateDiscoveryFreshness() {
@@ -1472,6 +1600,13 @@ function setDiscoveryScope(scope: 'top' | 'followed') {
   if (discoveryScope === scope) return
   discoveryScope = scope
   selectedCategories.clear(); selectedTags.clear()
+  // The followed tab loads the whole list: a global search there would answer with channels the
+  // account does not follow. The hits leave with the tab that asked for them.
+  resetDiscoverySearch()
+  // A query left in the box crossed the tabs and only the catalog answered it: coming back to the
+  // general listing asks Twitch again for what it had found there.
+  const pending = $<HTMLInputElement>('#discover-query').value.trim()
+  if (scope === 'top' && pending.length >= SEARCH_MINIMUM) void runDiscoverySearch(pending)
   $('#scope-top').setAttribute('aria-pressed', String(scope === 'top'))
   $('#scope-followed').setAttribute('aria-pressed', String(scope === 'followed'))
   // The language only filters the public catalog: Twitch returns followed channels as they are.
@@ -1618,11 +1753,58 @@ async function loadTwitchEmotes(channel: string, roomId: string) {
   }
 }
 
+/**
+ * The badge images of a room. Nothing is said to the reader when this fails: the log falls back
+ * to the set names it drew before, which is a chat missing its decoration rather than a broken one.
+ */
+async function loadTwitchBadges(channel: string, roomId: string) {
+  if (!state.account) return
+  const key = `${channel}:${roomId}`
+  if (badgeRoomKeys.get(channel) === key) return
+  badgeRoomKeys.set(channel, key)
+  try {
+    const badges = await window.twichat.twitchBadges(roomId)
+    if (badgeRoomKeys.get(channel) !== key) return
+    twitchBadges.set(channel, new Map(badges.map(badge => [badge.id, badge])))
+    if (channel === active && currentView === 'room') virtualLog.refresh()
+  } catch (error) {
+    if (badgeRoomKeys.get(channel) === key) badgeRoomKeys.delete(channel)
+    console.warn('Unable to load the Twitch chat badges:', displayError(error))
+  }
+}
+
 async function reloadEmotes(channel: string) {
   const roomId = roomIds.get(channel)
   if (!channel || !roomId) return
-  thirdPartyRoomKeys.delete(channel); twitchRoomKeys.delete(channel)
-  await Promise.allSettled([loadThirdPartyEmotes(channel, roomId), loadTwitchEmotes(channel, roomId)])
+  thirdPartyRoomKeys.delete(channel); twitchRoomKeys.delete(channel); badgeRoomKeys.delete(channel)
+  await Promise.allSettled([loadThirdPartyEmotes(channel, roomId), loadTwitchEmotes(channel, roomId), loadTwitchBadges(channel, roomId)])
+}
+
+/** The name a badge is keyed by: what the log showed before Twitch's own images were asked for. */
+function badgeLabel(id: string) {
+  const label = document.createElement('span'); label.className = 'badge'; label.textContent = id.split('/')[0]
+  return label
+}
+
+/**
+ * A badge of a message. The room's sets are asked for by the pair the tag carries — `subscriber/12`
+ * and `subscriber/0` are two different images — and the name stands in for anything they do not
+ * hold: a set Twitch has added since, or a room whose badges never arrived.
+ */
+function badgeNode(channel: string, id: string) {
+  const badge = twitchBadges.get(channel)?.get(id)
+  if (!badge) return badgeLabel(id)
+  const image = document.createElement('img')
+  image.className = 'badge-image'
+  // The title is Twitch's own wording — "1-Month Subscriber", "cheer 1000" — and it is the whole
+  // meaning of the picture, so it is the alternative text as much as the tooltip.
+  image.alt = badge.title; image.title = badge.title
+  image.width = 18; image.height = 18
+  image.loading = 'lazy'; image.decoding = 'async'
+  // Same fallback as the emotes: the name takes the image's place rather than a broken frame.
+  image.addEventListener('error', () => image.replaceWith(badgeLabel(id)), { once: true })
+  image.src = badge.url
+  return image
 }
 
 function createMessage(message: ChatMessage) {
@@ -1669,7 +1851,7 @@ function createMessage(message: ChatMessage) {
   // The Twitch color goes through a variable: the light theme pulls it back to a readable lightness.
   if (message.color && /^#[0-9a-f]{6}$/i.test(message.color)) user.style.setProperty('--chatter', message.color)
   meta.append(user)
-  for (const badgeName of message.badges.slice(0, 2)) { const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = badgeName; meta.append(badge) }
+  for (const id of message.badges.slice(0, 2)) meta.append(badgeNode(message.channel, id))
   const time = document.createElement('time'); time.className = 'message-time'; time.dateTime = new Date(message.time).toISOString(); time.textContent = clock.format(message.time); meta.append(time)
   const text = document.createElement('p'); text.className = 'message-text'
   // The `gifs` tag is only handed over when the setting allows it: withheld, the title Twitch
@@ -1681,6 +1863,8 @@ function createMessage(message: ChatMessage) {
     // Only a message of ours carries no tag: everyone else's arrives with its positions.
     twitchNames: message.own ? twitchEmoteIds.get(message.channel) : undefined,
     links: chatLinks,
+    // A viewer named with an `@` opens the same card their author handle does.
+    handles: true,
     mention: mention ? { login: state.account, displayName: accountDisplayName } : undefined
   })
   main.append(meta, text); row.append(avatar, main)
@@ -1753,6 +1937,15 @@ function updateRoomLive() {
   element.replaceChildren()
   const profile = currentView === 'room' && active ? roomProfiles.get(active) : undefined
   const uptime = profile?.live ? liveUptime(profile.startedAt) : ''
+  // What the channel is streaming, on a line of its own above the numbers: the meta row below is
+  // set in small uppercase, which a title of up to 140 characters would read badly in. It goes out
+  // with the stream rather than lingering — an old title says less than no title at all.
+  const streamTitle = $('#channel-stream-title')
+  const headline = profile?.live ? profile.title ?? '' : ''
+  streamTitle.textContent = headline
+  // Cut off by the column, the whole sentence is still one hover away.
+  if (headline) streamTitle.title = headline; else streamTitle.removeAttribute('title')
+  streamTitle.hidden = !headline
   // The public page carries no start time and not always an audience: each measure stands alone.
   if (!profile?.live || (profile.viewers === undefined && !uptime)) { element.hidden = true; return }
   if (profile.viewers !== undefined) {
@@ -1860,7 +2053,7 @@ function handleEvents(events: ChatEvent[]) {
     if (event.type === 'roomstate') {
       roomModes.set(event.channel, event.tags)
       const roomId = event.tags['room-id']
-      if (roomId) { roomIds.set(event.channel, roomId); void loadThirdPartyEmotes(event.channel, roomId); void loadTwitchEmotes(event.channel, roomId) }
+      if (roomId) { roomIds.set(event.channel, roomId); void loadThirdPartyEmotes(event.channel, roomId); void loadTwitchEmotes(event.channel, roomId); void loadTwitchBadges(event.channel, roomId) }
       if (event.channel === active) { updateModes(); updateFollowGate() }
     }
     if (event.type === 'userstate') {
@@ -1960,7 +2153,7 @@ function updateAccount(login: string | null) {
   // Signing in takes your channel out of the room list for the block above it; signing out gives
   // it back, so the whole sidebar is repainted rather than that one row.
   renderRooms()
-  if (login) { void refreshOwnProfile(); chatterAvatarRetryAt.clear(); queueRecentChatterAvatars(); for (const [room, roomId] of roomIds) void loadTwitchEmotes(room, roomId) }
+  if (login) { void refreshOwnProfile(); chatterAvatarRetryAt.clear(); queueRecentChatterAvatars(); for (const [room, roomId] of roomIds) { void loadTwitchEmotes(room, roomId); void loadTwitchBadges(room, roomId) } }
 }
 
 /**
@@ -2254,6 +2447,11 @@ $('#refresh-discover').addEventListener('click', () => void loadDiscovery(true))
 $('#discover-query').addEventListener('input', () => {
   clearTimeout(discoveryQueryTimer)
   discoveryQueryTimer = window.setTimeout(() => { if (scopeStreams().length || followedOffline.length) renderDiscoveryResults() }, 150)
+  // The catalog answers as fast as it is typed; Twitch waits for the typing to stop, since each
+  // pause is a request.
+  clearTimeout(discoverySearchTimer)
+  const raw = $<HTMLInputElement>('#discover-query').value.trim()
+  if (discoveryScope === 'top' && raw.length >= SEARCH_MINIMUM) discoverySearchTimer = window.setTimeout(() => void runDiscoverySearch(raw), 400)
 })
 $('#scope-top').addEventListener('click', () => setDiscoveryScope('top'))
 $('#scope-followed').addEventListener('click', () => setDiscoveryScope('followed'))
@@ -2268,7 +2466,14 @@ $('#discover-language').addEventListener('change', event => {
   selectedCategories.clear(); selectedTags.clear(); discoveredStreams = []; discoveryUpdatedAt = 0; updateDiscoveryFreshness()
   void loadDiscovery()
 })
-$('#discover-login').addEventListener('click', () => { if ($<HTMLButtonElement>('#discover-login').dataset.action === 'retry') void loadDiscovery(true); else openAccount() })
+$('#discover-login').addEventListener('click', () => {
+  if ($<HTMLButtonElement>('#discover-login').dataset.action !== 'retry') { openAccount(); return }
+  // A refused search is retried as a search: reloading the catalog answers a different question
+  // from the one on screen, and would leave the name typed unanswered a second time.
+  const pending = $<HTMLInputElement>('#discover-query').value.trim()
+  if (discoverySearchError && pending.length >= SEARCH_MINIMUM) void runDiscoverySearch(pending)
+  else void loadDiscovery(true)
+})
 $('#welcome-add').addEventListener('click', () => addRoom())
 document.querySelectorAll<HTMLButtonElement>('[data-suggest]').forEach(button => button.addEventListener('click', () => addRoom(button.dataset.suggest)))
 $('#join-form').addEventListener('submit', event => { event.preventDefault(); $('#join-error').textContent = ''; void addRoom($<HTMLInputElement>('#channel-input').value) })
@@ -2382,6 +2587,7 @@ function openSettings() {
   closeFloatingLayers(); virtualLog.setVisible(false); showView('settings'); renderRooms()
 }
 $('#open-settings').addEventListener('click', openSettings)
+$('#cue-buffer').addEventListener('click', () => { openSettings(); $('#buffer').focus() })
 // A release the user may want: the notice stays until it is acted on, and says what a click does.
 window.twichat.onUpdate(notice => { updateNotice = notice; renderUpdateNotice() })
 $('#update-notice').addEventListener('click', () => void window.twichat.applyUpdate())
@@ -2474,7 +2680,10 @@ $('#toggle-sidebar').addEventListener('click', () => setSidebarCollapsed(!appRoo
 // The bubble follows the pointer from one row to the next, and goes as soon as the pointer leaves
 // the rail or the list scrolls under it. Focus gets it too: collapsed, the keyboard is as blind
 // to which room it is on as the pointer.
-const railRow = (event: Event) => collapsedSidebar() ? (event.target as HTMLElement).closest<HTMLButtonElement>('.room-button') : null
+const railRow = (event: Event) => {
+  const row = (event.target as HTMLElement).closest<HTMLButtonElement>('.room-button')
+  return row && railTipWanted(row) ? row : null
+}
 $('#sidebar').addEventListener('pointerover', event => {
   const row = railRow(event)
   railHovered = Boolean(row)
@@ -2618,7 +2827,7 @@ window.twichat.init().then(snapshot => {
   for (const [room, tags] of Object.entries(snapshot.roomStates)) {
     roomModes.set(room, tags)
     const roomId = tags['room-id']
-    if (roomId) { roomIds.set(room, roomId); void loadThirdPartyEmotes(room, roomId); void loadTwitchEmotes(room, roomId) }
+    if (roomId) { roomIds.set(room, roomId); void loadThirdPartyEmotes(room, roomId); void loadTwitchEmotes(room, roomId); void loadTwitchBadges(room, roomId) }
   }
   // Same for USERSTATE: without those badges, a moderator would see the "follow this channel" banner.
   for (const [room, badges] of Object.entries(snapshot.userBadges)) roomBadges.set(room, badges)

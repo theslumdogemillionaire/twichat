@@ -73,7 +73,6 @@ function paintVolume(report: boolean) {
 
 function paintChannel() {
   $('#detached-channel').textContent = audioOnly() ? `AUDIO · # ${channel}` : `# ${channel}`
-  document.title = `#${channel} — Twichat`
 }
 
 function play() {

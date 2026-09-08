@@ -1,14 +1,14 @@
 import { net } from 'electron'
 import { ExpiringCache } from './cache'
 import { channelName } from '../shared/validation'
-import type { ChannelInfo, FollowStatus, FollowedChannels, RoomProfile, StreamSummary, UserCard } from '../shared/types'
-import { channelTags, combineHelix, followerTotal, helixUsersToProfiles, helixUserToCard, offlineFollowed, parseFollowedAt, parseFollowedChannels, parsePublicProfile, type FollowedChannel, type HelixStream, type HelixUser } from './twitch-data-parse'
+import type { ChannelInfo, ChannelSearch, FollowStatus, FollowedChannels, RoomProfile, StreamSummary, UserCard } from '../shared/types'
+import { channelTags, combineHelix, followerTotal, helixUsersToProfiles, helixUserToCard, offlineFollowed, parseChannelSearch, parseFollowedAt, parseFollowedChannels, parsePublicProfile, type FollowedChannel, type HelixStream, type HelixUser } from './twitch-data-parse'
 import { fail, type ErrorKey } from '../shared/errors'
 import { locale } from '../shared/i18n'
 
 export interface HelixAuth { token: string; clientId: string }
 interface Identity { displayName: string; avatarUrl: string }
-interface LiveState { live: boolean; viewers?: number; title?: string; startedAt?: string }
+interface LiveState { live: boolean; viewers?: number; title?: string; startedAt?: string; thumbnailUrl?: string }
 
 /**
  * Identity (name, avatar) barely moves; live status must stay fresh; a bio and a follower count sit
@@ -43,6 +43,15 @@ function rememberLive(channel: string, value: LiveState) {
 }
 function knownIdentity(channel: string): Identity | null { return identities.get(channel) }
 function knownLive(channel: string): LiveState | null { return liveStates.get(channel) }
+/**
+ * What the channel is streaming, as the last refresh left it. Read from the cache and never
+ * fetched: this answers the video window's title, which is worth no Twitch call and no waiting.
+ * Empty off air — an old title outlives nothing.
+ */
+export function knownStreamTitle(channelInput: string): string {
+  const live = knownLive(channelName(channelInput))
+  return live?.live ? live.title ?? '' : ''
+}
 function profileOf(channel: string): RoomProfile {
   const identity = knownIdentity(channel)
   const live = knownLive(channel) ?? { live: false }
@@ -81,7 +90,7 @@ async function refreshLiveWithHelix(channels: string[], { token, clientId }: Hel
   for (const channel of channels) {
     const stream = live.get(channel)
     // Helix only returns live streams, so an absent login is an answer, not a gap.
-    rememberLive(channel, stream ? { live: true, viewers: stream.viewers, title: stream.title || undefined, startedAt: stream.startedAt || undefined } : { live: false })
+    rememberLive(channel, stream ? { live: true, viewers: stream.viewers, title: stream.title || undefined, startedAt: stream.startedAt || undefined, thumbnailUrl: stream.thumbnailUrl || undefined } : { live: false })
   }
 }
 
@@ -145,6 +154,55 @@ export async function getHelixStreams(token: string, clientId: string, language 
   }
   return streams
 }
+
+/**
+ * A search that reaches past the catalog. `getHelixStreams` loads the hundred largest audiences,
+ * so the explorer's filter could only ever sift those — a mid-sized channel was never in the list
+ * to be found. `search/channels` matches a name against every channel that has streamed in the
+ * last six months, whatever its audience.
+ *
+ * Two calls, because the search answers identities: `streams` is what carries an audience, a
+ * preview and a category, and it is also the only honest word on who is on air — the search's own
+ * `is_live` and its `live_only` filter both let offline rows through.
+ *
+ * Off air is an answer, not a miss. Asking for live channels only was how a search that had found
+ * the name still came back with nothing: a stream ends, and the chat it leaves behind is still
+ * worth joining. Twitch's relevance order is kept, since nothing else ranks an offline channel.
+ */
+export async function searchHelixChannels(query: string, { token, clientId }: HelixAuth): Promise<ChannelSearch> {
+  const headers = { Authorization: `Bearer ${token}`, 'Client-Id': clientId }
+  const searchQuery = new URLSearchParams({ query, first: '40' })
+  const response = await net.fetch(`https://api.twitch.tv/helix/search/channels?${searchQuery}`, { headers, signal: AbortSignal.timeout(12000) })
+  if (response.status === 401) fail('twitchSessionExpired')
+  if (!response.ok) fail('twitchSearchUnavailable')
+  const payload = await response.json() as { data?: unknown }
+  const found = parseChannelSearch(payload.data)
+  if (!found.length) return { live: [], offline: [] }
+  const streamsQuery = new URLSearchParams()
+  for (const row of found) streamsQuery.append('user_id', row.id)
+  const streamsResponse = await net.fetch(`https://api.twitch.tv/helix/streams?${streamsQuery}`, { headers, signal: AbortSignal.timeout(12000) })
+  if (!streamsResponse.ok) fail('twitchSearchUnavailable')
+  const streamsPayload = await streamsResponse.json() as { data?: HelixStream[] }
+  // The avatars come from the search, which already read them: `combineHelix` would send a third
+  // call to `users` for what is in hand.
+  const avatars = new Map(found.map(row => [row.channel, row.avatarUrl]))
+  const live = combineHelix(streamsPayload.data, []).map(stream => ({ ...stream, avatarUrl: avatars.get(stream.channel) ?? '' }))
+  const streaming = new Set(live.map(stream => stream.channel))
+  const offline = found.filter(row => !streaming.has(row.channel)).slice(0, OFFLINE_SEARCH_RESULTS)
+    .map(row => ({ channel: row.channel, displayName: row.displayName, avatarUrl: row.avatarUrl, live: false }))
+  for (const stream of live) {
+    rememberIdentity(stream.channel, { displayName: stream.displayName, avatarUrl: stream.avatarUrl })
+    rememberLive(stream.channel, { live: true, viewers: stream.viewers, title: stream.title || undefined, startedAt: stream.startedAt || undefined })
+  }
+  for (const row of offline) rememberIdentity(row.channel, { displayName: row.displayName, avatarUrl: row.avatarUrl })
+  return { live, offline }
+}
+
+/**
+ * The offline half of a search, capped. Forty rows come back and a broad word like "chill" leaves
+ * most of them off air: the list under the grid is a way to reach a name, not a second catalog.
+ */
+const OFFLINE_SEARCH_RESULTS = 12
 
 // Twitch pages followed channels a hundred at a time: three pages cover real lists
 // without letting an outsized collection stall the explorer.

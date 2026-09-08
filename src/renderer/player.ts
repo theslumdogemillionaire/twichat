@@ -1,6 +1,6 @@
 import type Hls from 'hls.js'
 import type { BufferMode, TwichatAPI } from '../shared/types'
-import { bufferProfile, STREAM_STALL_TIMEOUT, streamRetryPlan, type StreamPlayerState } from './stream-lifecycle'
+import { bufferProfile, CATCH_UP_CUE_DELAY, isCatchingUp, isRecurringCatchUp, STREAM_STALL_TIMEOUT, streamRetryPlan, type StreamPlayerState } from './stream-lifecycle'
 import { AppError, errorText, fail } from '../shared/errors'
 import { m } from '../shared/i18n'
 
@@ -19,8 +19,18 @@ export class StreamPlayer {
   private lastMediaTime = 0
   private lastProgressAt = 0
   private remoteStop: Promise<void> = Promise.resolve()
+  private cueOverlay?: HTMLElement
+  private cueLink?: HTMLElement
+  private cueTimer?: ReturnType<typeof setTimeout>
+  private catchUpRuns = 0
 
   constructor(private video: HTMLVideoElement, private api: TwichatAPI, private status: (state: StreamPlayerState, message?: string) => void) {
+    this.cueOverlay = video.parentElement?.querySelector<HTMLElement>('[data-latency-cue]') ?? undefined
+    // Only the window that holds the settings carries the link.
+    this.cueLink = this.cueOverlay?.querySelector<HTMLElement>('[data-cue-hint]') ?? undefined
+    // Only hls.js touches the rate here, and only while it is attached: a rate change after the
+    // teardown is our own reset, not a catch-up.
+    video.addEventListener('ratechange', () => { if (this.hls) this.showCue(isCatchingUp(video.playbackRate)) })
     video.addEventListener('timeupdate', () => this.noteProgress())
     video.addEventListener('playing', () => this.noteProgress())
     video.addEventListener('ended', () => this.failCurrent(new AppError('streamEnded')))
@@ -106,6 +116,29 @@ export class StreamPlayer {
     this.retryTimer = setTimeout(() => { if (this.desired) void this.attempt(false) }, plan.delay)
   }
 
+  /**
+   * Two triangles and a word of explanation, for as long as hls.js runs ahead of the delay. The link
+   * to the buffering setting comes later: a catch-up that holds past CATCH_UP_CUE_DELAY, or one of a
+   * series over the same stream. hls.js steps the rate down by .05 all the way through a catch-up,
+   * so a run is opened once and left running: reacting to each step would restart the wait forever.
+   */
+  private showCue(catchingUp: boolean) {
+    const overlay = this.cueOverlay
+    if (!overlay) return
+    if (!catchingUp) {
+      clearTimeout(this.cueTimer); this.cueTimer = undefined
+      overlay.hidden = true
+      if (this.cueLink) this.cueLink.hidden = true
+      return
+    }
+    if (!overlay.hidden) return
+    overlay.hidden = false
+    if (isRecurringCatchUp(++this.catchUpRuns)) this.offerBufferHint()
+    else this.cueTimer = setTimeout(() => { this.cueTimer = undefined; this.offerBufferHint() }, CATCH_UP_CUE_DELAY)
+  }
+
+  private offerBufferHint() { if (this.cueLink) this.cueLink.hidden = false }
+
   private noteProgress() {
     const current = this.video.currentTime
     if (current > this.lastMediaTime + .05) { this.lastMediaTime = current; this.lastProgressAt = Date.now() }
@@ -123,7 +156,10 @@ export class StreamPlayer {
 
   private destroyLocal() {
     this.hls?.destroy(); this.hls = undefined
+    this.showCue(false)
+    this.catchUpRuns = 0
     this.video.pause(); this.video.removeAttribute('src'); this.video.load(); this.video.hidden = true
+    this.video.playbackRate = 1
     this.lastMediaTime = 0
     this.lastProgressAt = 0
   }

@@ -22,6 +22,7 @@ export interface ChatMessage {
   login: string
   text: string
   color: string
+  /** `set/version` pairs, as the tag spells them: the version is what picks the badge image. */
   badges: string[]
   time: number
   action: boolean
@@ -156,6 +157,11 @@ export interface RoomProfile {
   title?: string
   /** Start of the live stream, as Helix dates it in ISO 8601. Absent outside Helix: the public page does not carry it. */
   startedAt?: string
+  /**
+   * The frame Twitch keeps of the running stream, for the sidebar preview. Helix only: the public
+   * page carries an 80x45 version, too small to show, and the size is not ours to rewrite.
+   */
+  thumbnailUrl?: string
 }
 /**
  * What the room header knows about the channel apart from its stream: the size of its audience
@@ -191,6 +197,14 @@ export interface FollowedChannels {
    */
   truncated: boolean
 }
+/**
+ * What a name search found. Off air is not a miss: a channel that is not streaming is still a chat
+ * to join, and dropping it is how a search comes back empty on a name it did find.
+ */
+export interface ChannelSearch {
+  live: StreamSummary[]
+  offline: RoomProfile[]
+}
 export interface UserCard {
   login: string
   displayName: string
@@ -221,6 +235,15 @@ export interface TwitchEmote {
   name: string
   scope: 'global' | 'channel'
   type: string
+}
+/**
+ * A chat badge, keyed the way the `badges` tag names it — `moderator/1`, `subscriber/0` — so a
+ * message carries the key and nothing else. `title` is Twitch's own wording, shown on hover.
+ */
+export interface ChatBadge {
+  id: string
+  url: string
+  title: string
 }
 export type EmoteSource = '7tv' | 'bttv' | 'ffz'
 export interface ThirdPartyEmote {
@@ -297,8 +320,15 @@ export interface TwichatAPI {
   followStatus(channel: string, roomId?: string): Promise<FollowStatus>
   thirdPartyEmotes(channel: string, roomId: string): Promise<ThirdPartyEmote[]>
   twitchEmotes(roomId: string): Promise<TwitchEmote[]>
+  /** The badge images of a room: Twitch's own sets, with the channel's over them. */
+  twitchBadges(roomId: string): Promise<ChatBadge[]>
   discover(language: string, refresh?: boolean): Promise<StreamSummary[]>
   followed(refresh?: boolean): Promise<FollowedChannels>
+  /**
+   * Searches Twitch by channel name — logins and display names — rather than filtering the
+   * catalog `discover` loaded.
+   */
+  searchChannels(query: string): Promise<ChannelSearch>
   resolveStream(channel: string, quality: string): Promise<string>
   stopStream(): Promise<void>
   /** Moves the video out of the room into its own window. The dock player stops: one stream at a time. */

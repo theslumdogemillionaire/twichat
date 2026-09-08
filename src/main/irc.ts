@@ -6,7 +6,13 @@ import type { ChatEvent, ChatMessage, Connection, ReplyReference } from '../shar
 import { fail } from '../shared/errors'
 import { m } from '../shared/i18n'
 
-const badgeNames = (value = '') => value.split(',').filter(Boolean).map(badge => badge.split('/')[0])
+/**
+ * The tag as Twitch wrote it — `moderator/1`, `subscriber/0` — because the version is what picks
+ * the badge image. Only USERSTATE reduces it to names: there, the name alone says who writes
+ * despite followers-only mode.
+ */
+const badgePairs = (value = '') => value.split(',').filter(Boolean).slice(0, 20)
+const badgeNames = (value = '') => badgePairs(value).map(badge => badge.split('/')[0])
 
 export class TwitchIrc extends EventEmitter {
   readonly channels = new Set<string>()
@@ -113,7 +119,7 @@ export class TwitchIrc extends EventEmitter {
         : { text: body, emotes: tags.emotes || '', gifs: tags.gifs || '' }
       this.publish({ type: 'message', message: {
         id: tags.id || randomUUID(), channel, login: prefix.split('!')[0], user: tags['display-name'] || prefix.split('!')[0],
-        text, action, color: tags.color || '', badges: badgeNames(tags.badges),
+        text, action, color: tags.color || '', badges: badgePairs(tags.badges),
         time: Number(tags['tmi-sent-ts']) || Date.now(), emotes, ...(gifs ? { gifs } : {}), ...(reply ? { reply } : {})
       } })
     }
@@ -131,7 +137,7 @@ export class TwitchIrc extends EventEmitter {
       } })
       if (text) this.publish({ type: 'message', message: {
         id, channel, login: tags.login || '', user: tags['display-name'] || tags.login || '', text,
-        time, color: tags.color || '', badges: badgeNames(tags.badges), action: false, emotes: tags.emotes || ''
+        time, color: tags.color || '', badges: badgePairs(tags.badges), action: false, emotes: tags.emotes || ''
       } })
     }
     if (command === 'NOTICE') {

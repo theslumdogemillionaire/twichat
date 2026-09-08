@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { channelTags, combineHelix, followerTotal, helixUsersToProfiles, helixUserToCard, offlineFollowed, parseFollowedChannels, parsePublicProfile, safeThumbnail } from '../src/main/twitch-data-parse'
+import { channelTags, combineHelix, followerTotal, helixUsersToProfiles, helixUserToCard, offlineFollowed, parseChannelSearch, parseFollowedChannels, parsePublicProfile, safeThumbnail } from '../src/main/twitch-data-parse'
 
 // Pages saved from www.twitch.tv on 2026-09-06, trimmed to the tags the parser reads.
 const page = (name: string) => readFileSync(join(import.meta.dirname, 'fixtures', name), 'utf8')
@@ -22,6 +22,14 @@ test('reads a live channel off its public page, the audience excepted', () => {
   assert.equal(parsePublicProfile('ponce', '<script>{"publication":{"startDate":"hier","isLiveBroadcast":true}}</script>').startedAt, undefined)
   assert.equal(parsePublicProfile('ponce', '<meta property="og:type" content="video.other"><meta property="og:image" content="https://example.com/tracker.png">').avatarUrl, '')
   assert.equal(parsePublicProfile('anyme023', '<meta property="og:type" content="video.other"><meta property="og:title" content="Anyme023 - Live sur Twitch">').displayName, 'Anyme023')
+  // Served in French, the same page ends the title with `| Stream de <game> pour N viewers.`
+  // instead of `| Streaming <game> for N viewers.`: the room header shows the title itself, so
+  // neither tail may survive.
+  const french = '<meta property="og:type" content="video.other"><meta name="description" content="Le chapitre des ZANIMALS se termine ! | Stream de grand theft auto v pour 16311 viewers.">'
+  assert.equal(parsePublicProfile('jltomy', french).title, 'Le chapitre des ZANIMALS se termine !')
+  // A title that merely starts a word with `stream` keeps it: only Twitch's own tail is cut.
+  const kept = '<meta property="og:type" content="video.other"><meta name="description" content="On code | Stream design et refonte du site">'
+  assert.equal(parsePublicProfile('ponce', kept).title, 'On code | Stream design et refonte du site')
 })
 
 test('tells an offline channel from a live one by its broadcast, not by its page type', () => {
@@ -149,4 +157,27 @@ test('reads the tags of a channel, whether or not it is on air', () => {
   assert.deepEqual(channelTags({ data: [{ tags: ['Chill\u0007', '', 42, 'Chill', null] }] }), ['Chill'])
   assert.equal(channelTags({ data: [{ tags: Array.from({ length: 30 }, (_, index) => `tag${index}`) }] }).length, 8)
   assert.equal(channelTags({ data: [{ tags: ['x'.repeat(80)] }] })[0].length, 40)
+})
+
+test('reads a channel search, keeping the ids the streams call is made with', () => {
+  const rows = parseChannelSearch([
+    // `thumbnail_url` is the profile picture here, not a stream preview: no {width} to substitute.
+    { id: '4242', broadcaster_login: 'Ponce', display_name: 'Ponce', is_live: true, thumbnail_url: 'https://static-cdn.jtvnw.net/jtv_user_pictures/ponce-profile_image-300x300.png' },
+    { id: '77', broadcaster_login: 'ponce', display_name: 'Ponce again', is_live: true, thumbnail_url: '' },
+    // Measured against `streams`, two rows in forty of a `live_only=true` page were not live. The
+    // flag is not read here at all: an offline channel is a chat to join, and `streams` decides.
+    { id: '99', broadcaster_login: 'jo_en_bas', display_name: 'jo_en_bas', is_live: false, thumbnail_url: '' },
+    { id: 'not-a-number', broadcaster_login: 'nameless', display_name: 'Nameless', is_live: true },
+    { id: '5', broadcaster_login: 'no display name', display_name: '', is_live: true },
+    { id: '6', broadcaster_login: 'plain', display_name: '', is_live: true },
+    { id: '7', broadcaster_login: 'javascript:alert(1)', display_name: 'Bad', is_live: true }
+  ])
+  assert.deepEqual(rows, [
+    { id: '4242', channel: 'ponce', displayName: 'Ponce', avatarUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/ponce-profile_image-300x300.png' },
+    { id: '99', channel: 'jo_en_bas', displayName: 'jo_en_bas', avatarUrl: '' },
+    // A login with no display name falls back to the login, as the rest of the catalog does.
+    { id: '6', channel: 'plain', displayName: 'plain', avatarUrl: '' }
+  ])
+  assert.deepEqual(parseChannelSearch(null), [])
+  assert.deepEqual(parseChannelSearch({ data: [] }), [])
 })

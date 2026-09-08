@@ -1,6 +1,6 @@
 import type { ThirdPartyEmote } from '../shared/types'
 import { messageFragments } from './emotes'
-import { channelSegments, linkSegments } from './links'
+import { channelSegments, handleSegments, linkSegments } from './links'
 import { mentionSegments } from './mentions'
 
 export interface MessageBodyOptions {
@@ -17,6 +17,12 @@ export interface MessageBodyOptions {
    * may not have joined; off in the room itself, where the sidebar already holds them.
    */
   channels?: boolean
+  /**
+   * Whether `@someone` written in a body opens that viewer's card. On in the room, where the card
+   * hangs off `data-card`; off in the conversation windows, which have no card to open — a button
+   * there would answer a click with nothing.
+   */
+  handles?: boolean
   /** The account's own nickname, underlined where it appears. Absent where a mention means nothing. */
   mention?: { login: string | null; displayName?: string | null }
   /**
@@ -47,12 +53,28 @@ export function paintMessageBody(target: HTMLElement, text: string, options: Mes
       target.append(marked)
     }
   }
+  // Where the message addresses you, your own nickname stays the mention chip rather than turning
+  // into a handle: the chip is what makes the line findable in a log going past.
+  const own = mention?.login?.toLowerCase() ?? ''
+  const appendHandles = (value: string) => {
+    if (!options.handles) { appendMentions(value); return }
+    for (const segment of handleSegments(value)) {
+      if (!segment.login || segment.login === own) { appendMentions(segment.text); continue }
+      const handle = document.createElement('button')
+      handle.type = 'button'; handle.className = 'message-handle'; handle.dataset.card = segment.login
+      handle.textContent = segment.text
+      // Not a tab stop in the room: the virtualised log would put hundreds of them between the
+      // reader and the composer.
+      if (!options.focusableLinks) handle.tabIndex = -1
+      target.append(handle)
+    }
+  }
   // The channels come out before the nicknames: a room named inside an underlined mention would
   // be split in two, the same way a link would be.
   const appendText = (value: string) => {
-    if (!options.channels) { appendMentions(value); return }
+    if (!options.channels) { appendHandles(value); return }
     for (const segment of channelSegments(value)) {
-      if (!segment.channel) { appendMentions(segment.text); continue }
+      if (!segment.channel) { appendHandles(segment.text); continue }
       const room = document.createElement('button')
       room.type = 'button'; room.className = 'message-channel'; room.dataset.channel = segment.channel
       room.textContent = segment.text

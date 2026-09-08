@@ -13,10 +13,11 @@ import { AccountStore } from './accounts'
 import { createAccountSession } from './account-session'
 import { AvatarStore } from './avatars'
 import { StreamResolver, withoutAds } from './streams'
-import { getChannelInfo, getFollowStatus, getFollowedChannels, getHelixProfiles, getHelixStreams, getRoomProfiles, getUserCard } from './twitch-data'
+import { getChannelInfo, getFollowStatus, getFollowedChannels, getHelixProfiles, getHelixStreams, getRoomProfiles, getUserCard, knownStreamTitle, searchHelixChannels } from './twitch-data'
 import { getGlobalThirdPartyEmotes, getThirdPartyEmotes } from './third-party-emotes'
 import { sendWhisper, whisperRecipientId } from './whisper-send'
 import { getGlobalTwitchEmotes, getTwitchEmotes } from './twitch-emotes'
+import { getTwitchBadges } from './twitch-badges'
 import { applyUpdate, watchUpdates } from './updates'
 import { bufferMode, channelName, chatReply, mediaUrl, PLAYER_WINDOW_MIN_HEIGHT, PLAYER_WINDOW_MIN_WIDTH, qualityName, whisperText, WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH } from '../shared/validation'
 import type { ChatEvent, CommandKey, DetachedContext, MentionNotice, Preferences, Whisper, WhisperContext } from '../shared/types'
@@ -213,6 +214,17 @@ function pageUrl(page: 'index.html' | 'player.html' | 'whisper.html') {
 type WindowKind = 'room' | 'player' | 'whisper'
 const WINDOW_PAGES = { room: 'index.html', player: 'player.html', whisper: 'whisper.html' } as const
 
+/**
+ * What the video window is called. Pulled out of the room, it is often the only thing on screen
+ * from that channel: the OS title bar then says what is being watched, not only whose channel it
+ * is. The title is whatever the last room refresh read — off air, or before the first answer,
+ * the name alone stands, as it always did.
+ */
+function playerWindowTitle(channel: string) {
+  const headline = knownStreamTitle(channel)
+  return headline ? `#${channel} · ${headline} · Twichat` : `#${channel} · Twichat`
+}
+
 /** Alive, or nobody: a window being torn down must not still answer for its page. */
 const living = (target: BrowserWindow | null | undefined) => target && !target.isDestroyed() ? target : null
 
@@ -390,7 +402,7 @@ function commandKey(): CommandKey {
 }
 
 /** The keys Helix answers a dead token with, whichever section made the call. */
-const SESSION_EXPIRED = new Set<ErrorKey>(['twitchSessionExpired', 'emotesSessionExpired'])
+const SESSION_EXPIRED = new Set<ErrorKey>(['twitchSessionExpired', 'emotesSessionExpired', 'badgesSessionExpired'])
 
 // The avatar is cached on disk so the session chooser can show it before any Twitch call.
 async function rememberAvatar(login: string, auth: { token: string; clientId: string }) {
@@ -561,7 +573,8 @@ app.whenReady().then(async () => {
     forgetAvatar: login => avatarStore.forget(login),
     forgetPreferences: login => store.forget(scopeName(login)),
     streams: (token, clientId, language) => getHelixStreams(token, clientId, language),
-    followed: (userId, auth) => getFollowedChannels(userId, auth)
+    followed: (userId, auth) => getFollowedChannels(userId, auth),
+    search: (query, auth) => searchHelixChannels(query, auth)
   })
   accountSession = account
   // The previous version knew nothing of accounts: its file is taken over by the account that
@@ -684,6 +697,11 @@ app.whenReady().then(async () => {
   handle('rooms:profiles', async (channels: string[]) => {
     const { token, clientId } = account.credentials()
     const profiles = await getRoomProfiles(channels, token && clientId ? { token, clientId } : null)
+    // A stream retitled mid-broadcast, or a title Twitch had not answered yet when the video was
+    // pulled out: the window is renamed on the room's own refresh rather than polling for itself.
+    const shown = living(playerWindow)
+    const watched = detached?.channel
+    if (shown && watched && profiles.some(profile => profile.channel === watched)) shown.setTitle(playerWindowTitle(watched))
     for (const profile of profiles) {
       if (!profile.avatarUrl) continue
       // Cheap while the picture is both unchanged and under a day old, and a download the moment
@@ -730,6 +748,10 @@ app.whenReady().then(async () => {
     if (typeof roomId !== 'string' || !/^\d{1,30}$/.test(roomId)) fail('roomIdInvalid')
     return getTwitchEmotes(roomId, accountAuth('needAccountForEmotes'))
   })
+  handle('badges:twitch', (roomId: unknown) => {
+    if (typeof roomId !== 'string' || !/^\d{1,30}$/.test(roomId)) fail('roomIdInvalid')
+    return getTwitchBadges(roomId, accountAuth('needAccountForBadges'))
+  })
   handle('discover:streams', async (language: unknown = '', refresh = false) => {
     if (typeof language !== 'string' || (language && !/^[a-z]{2}$/.test(language))) fail('languageInvalid')
     if (typeof refresh !== 'boolean') fail('refreshRequestInvalid')
@@ -738,6 +760,14 @@ app.whenReady().then(async () => {
   handle('discover:followed', async (refresh = false) => {
     if (typeof refresh !== 'boolean') fail('refreshRequestInvalid')
     return account.data.followed(refresh)
+  })
+  // The explorer's search box, past the catalog: `discover:streams` loads the hundred largest
+  // audiences, and a name typed there was only ever compared against those.
+  handle('discover:search', async (query: unknown) => {
+    if (typeof query !== 'string') fail('searchQueryInvalid')
+    const trimmed = query.trim().slice(0, 100)
+    if (trimmed.length < 3) fail('searchQueryInvalid')
+    return account.data.search(trimmed)
   })
   // Twichat reads the follow, it never sets it: Twitch closed its "follow" endpoints on 27 July 2021.
   // What this answer allows is to say why a room refuses a message, and when it will accept one.
@@ -784,7 +814,7 @@ app.whenReady().then(async () => {
     // A stop without a channel leaves the room where it was: only a move renames the window.
     const room = action === 'play' || channel ? channelName(channel) : detached.channel
     detached = { channel: room, quality: action === 'play' ? qualityName(quality) : detached.quality, play: action === 'play' }
-    playerWindow.setTitle(`#${room} · Twichat`)
+    playerWindow.setTitle(playerWindowTitle(room))
     playerWindow.webContents.send('app:player-command', action, room, detached.quality, bufferMode(buffer))
     // The room's anchor names what plays on the side, so it follows the channel too.
     toRoom('app:player-detached', room)
@@ -1093,7 +1123,7 @@ app.whenReady().then(async () => {
   function openPlayerWindow(channel: string, quality: string, play: boolean) {
     detached = { channel, quality, play }
     if (playerWindow && !playerWindow.isDestroyed()) {
-      playerWindow.setTitle(`#${channel} · Twichat`)
+      playerWindow.setTitle(playerWindowTitle(channel))
       playerWindow.webContents.reload()
       playerWindow.focus()
       toRoom('app:player-detached', channel)
@@ -1102,12 +1132,16 @@ app.whenReady().then(async () => {
     const target = playerWindow = new BrowserWindow({
       width: 720, height: 440, ...savedPlayerBounds(),
       minWidth: PLAYER_WINDOW_MIN_WIDTH, minHeight: PLAYER_WINDOW_MIN_HEIGHT,
-      title: `#${channel} · Twichat`, backgroundColor: '#050606', show: false,
+      title: playerWindowTitle(channel), backgroundColor: '#050606', show: false,
       alwaysOnTop: preferences.playerWindow?.pinned === true,
       webPreferences: { preload: join(here, '../preload/index.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, spellcheck: false }
     })
     target.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     target.webContents.on('will-navigate', event => event.preventDefault())
+    // The window is named here and nowhere else. Left alone, the native title follows the page's
+    // own `<title>`, which knows the channel but not what it is streaming: only this process holds
+    // the profile the room last refreshed.
+    target.on('page-title-updated', event => event.preventDefault())
     void target.webContents.setVisualZoomLevelLimits(1, 1)
     target.webContents.on('zoom-changed', () => target.webContents.setZoomFactor(1))
     target.webContents.on('context-menu', (_event, params) => { if (!target.isDestroyed()) popupContextMenu(target, params) })
@@ -1184,4 +1218,7 @@ app.whenReady().then(async () => {
 })
 // The last preferences write must land before the process goes away.
 app.on('window-all-closed', () => { void (store ? store.settled() : Promise.resolve()).then(() => app.quit()) })
-app.on('before-quit', () => { clearInterval(flush); accountSession?.stop(); stopMedia(); irc.disconnect(); eventSub.stop() })
+// Quitting is not the account asking for its video back. macOS closes the windows in reverse
+// order, the video window first, so the room's own `close` — which raised the flag until now —
+// came too late to keep the window's departure from reading as a choice.
+app.on('before-quit', () => { shuttingDown = true; clearInterval(flush); accountSession?.stop(); stopMedia(); irc.disconnect(); eventSub.stop() })

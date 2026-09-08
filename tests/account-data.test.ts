@@ -19,6 +19,7 @@ function harness(overrides: Partial<AccountDataParts> = {}) {
     session: () => session,
     streams: async (_token, _clientId, language) => { calls.push(`streams:${language}`); return [stream(`live-in-${language}`)] },
     followed: async userId => { calls.push(`followed:${userId}`); return followed(`followed-by-${userId}`) },
+    search: async query => { calls.push(`search:${query}`); return { live: [stream(`found-for-${query}`)], offline: [] } },
     now: () => time,
     ...overrides
   })

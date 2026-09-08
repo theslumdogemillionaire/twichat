@@ -96,7 +96,9 @@ export function completionQuery(text: string, caret: number, forced = false): Co
   if (!prefix && !forced) return null
   if (start === 0 && prefix.startsWith('/')) return null
   if (prefix.startsWith('@')) return { kind: 'mention', term: prefix.slice(1), start, end }
-  if (prefix.startsWith(':') && prefix.length >= 2 && !prefix.endsWith(':')) return { kind: 'emoji', term: prefix.slice(1), start, end }
+  // A lone `:` is enough to open the shelf, as the hint under the box promises; a closed
+  // shortcode like `:joy:` is a finished word and completes nothing.
+  if (prefix === ':' || (prefix.startsWith(':') && prefix.length >= 2 && !prefix.endsWith(':'))) return { kind: 'emoji', term: prefix.slice(1), start, end }
   if (forced && prefix.length >= 1 && !prefix.startsWith(':')) return { kind: 'emote', term: prefix, start, end }
   return null
 }
@@ -116,6 +118,20 @@ export function applyCompletion(text: string, query: CompletionQuery, value: str
 /** Twitch refuses line breaks, so the composer normalises them instead of failing at send time. */
 export function sanitizeOutgoing(text: string): string {
   return text.replace(/[\r\n\t\0]+/gu, ' ').replace(/ {2,}/gu, ' ').trim()
+}
+
+/**
+ * Two ranked lists onto one shelf. Each keeps half the rows and takes whatever the other leaves,
+ * so neither source can be pushed out of sight by the other; an exact hit is then promoted,
+ * because a name typed in full is the one that was meant.
+ */
+export function mergeCompletions<T>(first: readonly T[], second: readonly T[], limit: number, exact?: (item: T) => boolean): T[] {
+  const half = Math.floor(limit / 2)
+  const merged = [
+    ...first.slice(0, Math.max(half, limit - second.length)),
+    ...second.slice(0, Math.max(half, limit - first.length))
+  ].slice(0, limit)
+  return exact ? merged.sort((left, right) => Number(exact(right)) - Number(exact(left))) : merged
 }
 
 export interface Ranked<T> { item: T; score: number }

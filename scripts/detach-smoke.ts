@@ -32,6 +32,10 @@ const launch = () => electron.launch({ args: ['.'], env: { ...process.env, TWICH
 const playerPinned = (app: ElectronApplication) => app.evaluate(({ BrowserWindow }) =>
   BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('player.html'))?.isAlwaysOnTop() ?? null)
 
+/** What the OS title bar of the video window reads. Only the main process writes it. */
+const playerTitle = (app: ElectronApplication) => app.evaluate(({ BrowserWindow }) =>
+  BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('player.html'))?.getTitle() ?? null)
+
 /** The video window geometry, as the main process sees it: the renderer never measures it. */
 const playerBounds = (app: ElectronApplication) => app.evaluate(({ BrowserWindow }) => {
   const target = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('player.html'))
@@ -85,6 +89,15 @@ try {
   await detachedPage.waitForFunction(() => document.querySelector('#detached-status')?.textContent !== 'CHARGEMENT', undefined, { timeout: 60000 })
   const playback = await detachedPage.locator('#detached-status').textContent()
   live = playback === 'EN DIRECT'
+  // Pulled out, the window is often the only thing on screen from that channel, so its title bar
+  // carries the stream title too. Off air Twitch answers none, and the name then has to stand
+  // alone rather than leave a separator around an empty middle — which is the case this run
+  // actually pins down. On air the check only holds the shape: a stream may be titled with
+  // nothing at all, and the profile the title is read from may not have landed yet.
+  const title = await playerTitle(first)
+  const nameOnly = `#${channel} · Twichat`
+  if (title !== nameOnly && !title?.startsWith(`#${channel} · `)) throw new Error(`The video window is misnamed: ${JSON.stringify(title)}`)
+  if (!live && title !== nameOnly) throw new Error(`An offline channel names more than itself: ${JSON.stringify(title)}`)
   await detachedPage.screenshot({ path: resolve(artifacts, 'detach-window.png') })
   console.log(`Detached player on #${channel}: ${playback} — ${await detachedPage.locator('#detached-error').textContent() || 'no error'}.`)
 

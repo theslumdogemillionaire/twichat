@@ -8,7 +8,8 @@ import { tmpdir } from 'node:os'
 // have. What is checked here is everything else: the header no longer repeats the signed-in
 // account, the two elements exist and stay collapsed without an account, the follower line reads
 // the same in either state of the heart, and four tags plus a live audience still fit in the
-// header at the width where the window stops shrinking.
+// header at the width where the window stops shrinking. The stream title, which only a live
+// channel has, takes the line under the name without pushing the header out of its 72 pixels.
 const channel = process.argv[2] ?? 'twitch'
 const artifacts = resolve('artifacts')
 await mkdir(artifacts, { recursive: true })
@@ -28,10 +29,11 @@ try {
   await page.waitForFunction(() => document.querySelector('#connection-dot')?.classList.contains('connected'))
 
   const wiring = await page.evaluate(() => {
-    const ids = ['channel-subtitle', 'channel-live', 'channel-followers', 'channel-tags']
+    const ids = ['channel-subtitle', 'channel-live', 'channel-stream-title', 'channel-followers', 'channel-tags']
     return {
       missing: ids.filter(id => !document.getElementById(id)),
       subtitle: document.getElementById('channel-subtitle')!.textContent,
+      streamTitle: (document.getElementById('channel-stream-title') as HTMLElement).hidden,
       followers: (document.getElementById('channel-followers') as HTMLElement).hidden,
       tags: (document.getElementById('channel-tags') as HTMLElement).hidden
     }
@@ -41,11 +43,18 @@ try {
   // nothing to say on this line.
   if (wiring.subtitle) throw new Error(`The header repeats the connection: ${JSON.stringify(wiring.subtitle)}`)
   if (!wiring.followers || !wiring.tags) throw new Error('Followers and tags show with no signed-in account.')
+  // Off air, there is no title to show: the line is not an empty one, it is absent.
+  if (!wiring.streamTitle) throw new Error('The stream title shows on a channel that is not live.')
 
   // What Helix would answer for a followed channel, painted as the renderer paints it.
   await page.evaluate(() => {
     // The filled heart of `icons.ts`, written out: a page evaluated by Playwright has no bundle.
     const heart = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path fill="currentColor" d="M12 20s-7-4.4-9-8.5A5 5 0 0 1 12 6a5 5 0 0 1 9 5.5C19 15.6 12 20 12 20Z"/></svg>'
+    const streamTitle = document.getElementById('channel-stream-title') as HTMLElement
+    // 140 characters: the ceiling `cleanText` leaves a title, and the length the header line
+    // has to hold on one line rather than wrap the room heading past its 72 pixels.
+    streamTitle.textContent = 'Marathon caritatif : 24 h de speedrun, de blind test et de lectures de vos messages, avec toute la communauté et quelques belles surprises !'
+    streamTitle.hidden = false
     const live = document.getElementById('channel-live') as HTMLElement
     live.innerHTML = '<span class="channel-live-stat">12 043</span><span class="channel-live-stat">3 h 12</span>'
     live.hidden = false
@@ -70,9 +79,9 @@ try {
     const header = document.querySelector('.room-header') as HTMLElement
     const actions = document.querySelector('.header-actions') as HTMLElement
     const title = document.getElementById('channel-title') as HTMLElement
-    return { overflow: header.scrollWidth > header.clientWidth, actions: actions.getBoundingClientRect().right <= innerWidth, title: title.getBoundingClientRect().width > 0 }
+    return { overflow: header.scrollWidth > header.clientWidth, tall: header.scrollHeight > header.clientHeight, actions: actions.getBoundingClientRect().right <= innerWidth, title: title.getBoundingClientRect().width > 0 }
   })
-  if (fit.overflow || !fit.actions || !fit.title) throw new Error(`The header overflows once filled: ${JSON.stringify(fit)}`)
+  if (fit.overflow || fit.tall || !fit.actions || !fit.title) throw new Error(`The header overflows once filled: ${JSON.stringify(fit)}`)
   await page.locator('.room-header').screenshot({ path: resolve(artifacts, 'header-channel-compact.png') })
 
   // Not followed: the same line, hollow heart, no lime.
@@ -86,5 +95,5 @@ try {
   await page.locator('.room-header').screenshot({ path: resolve(artifacts, 'header-channel-unfollowed.png') })
 
   if (errors.length) throw new Error(`Renderer errors: ${errors.join(' | ')}`)
-  console.log(`Room header on #${channel}: no connection line, followers and tags collapsed without an account, and the filled header holds at 960 px.`)
+  console.log(`Room header on #${channel}: no connection line, followers, tags and stream title collapsed without a live stream, and the filled header holds at 960 px in both directions.`)
 } finally { await app.close() }

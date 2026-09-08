@@ -51,6 +51,7 @@ export interface AccountSessionParts {
   forgetPreferences(login: string): void
   streams: AccountDataParts['streams']
   followed: AccountDataParts['followed']
+  search: AccountDataParts['search']
   now?: AccountDataParts['now']
   timers?: SessionTimers
 }
@@ -91,6 +92,7 @@ export function createAccountSession(parts: AccountSessionParts) {
     session: () => ({ token, clientId, userId, follows, generation }),
     streams: parts.streams,
     followed: parts.followed,
+    search: parts.search,
     now: parts.now
   })
 

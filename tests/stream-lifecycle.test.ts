@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { BUFFER_PROFILES, bufferProfile, STREAM_STALL_TIMEOUT, streamRetryPlan } from '../src/renderer/stream-lifecycle'
+import { BUFFER_PROFILES, bufferProfile, CATCH_UP_CUE_DELAY, CATCH_UP_HINT_RUNS, CATCH_UP_RATE, isCatchingUp, isRecurringCatchUp, STREAM_STALL_TIMEOUT, streamRetryPlan } from '../src/renderer/stream-lifecycle'
 import { AppError } from '../src/shared/errors'
 import { setLocale } from '../src/shared/i18n'
 
@@ -53,4 +53,24 @@ test('recovery does not depend on the language', () => {
   setLocale('fr')
   // An unknown error stays a reconnection, not an abandonment.
   assert.equal(streamRetryPlan(new Error('boom'), 0).state, 'reconnecting')
+})
+
+test('the catch-up cue follows the rate hls.js sets on the video', () => {
+  // hls.js quantises the rate to steps of .05 and clamps it at 1: a stream on pace sits at exactly 1.
+  assert.ok(CATCH_UP_RATE > 1 && CATCH_UP_RATE < 1.05)
+  assert.equal(isCatchingUp(1), false)
+  assert.equal(isCatchingUp(1.05), true)
+  assert.equal(isCatchingUp(1.5), true)
+  // A slowed-down playback is not a catch-up either.
+  assert.equal(isCatchingUp(0.5), false)
+})
+
+test('the buffering link waits for a delay that looks structural', () => {
+  // The first catch-ups earn the link by lasting; the player times them out at CATCH_UP_CUE_DELAY.
+  assert.ok(CATCH_UP_CUE_DELAY >= 1_000)
+  assert.equal(isRecurringCatchUp(1), false)
+  assert.equal(isRecurringCatchUp(CATCH_UP_HINT_RUNS - 1), false)
+  // Coming back a third time over one stream, the delay is the buffer, and the link shows at once.
+  assert.equal(isRecurringCatchUp(CATCH_UP_HINT_RUNS), true)
+  assert.equal(isRecurringCatchUp(12), true)
 })

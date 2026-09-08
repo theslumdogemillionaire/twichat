@@ -31,7 +31,7 @@ test('publishes the event line then the viewer message for a resub', () => {
   assert.equal(chat.text, 'Kappa toujours là')
   // The `emotes` offsets target the trailing alone: they stay valid because the two lines are distinct.
   assert.equal(chat.emotes, '25:0-4')
-  assert.deepEqual(chat.badges, ['subscriber'])
+  assert.deepEqual(chat.badges, ['subscriber/12'])
   assert.notEqual(event.id, chat.id)
 })
 

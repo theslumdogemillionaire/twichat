@@ -56,7 +56,10 @@ export function parsePublicProfile(channelInput: string, html: string): RoomProf
     // `video.other` is the type of every channel page, on air or not, so the JSON-LD broadcast is
     // the only thing that tells them apart. The public page carries no audience count at all.
     live: /"isLiveBroadcast"\s*:\s*true/i.test(html),
-    title: (known && cleanText(description.replace(/\s*\|\s*Streaming .*$/i, ''), 140)) || undefined,
+    // The page is served in the reader's language, and so is the tail Twitch appends to the
+    // title: `| Streaming <game> for N viewers.` in English, `| Stream de <game> pour N
+    // viewers.` in French. Both go; what is left is what the streamer actually wrote.
+    title: (known && cleanText(description.replace(/\s*\|\s*Stream(?:ing|\s+de)\s.*$/i, ''), 140)) || undefined,
     startedAt: liveStart(html)
   }
 }
@@ -79,6 +82,39 @@ export function combineHelix(streamsInput: unknown, usersInput: unknown): Stream
       }]
     } catch { return [] }
   }).sort((a, b) => b.viewers - a.viewers)
+}
+
+export interface HelixSearchChannel {
+  id?: unknown; broadcaster_login?: unknown; display_name?: unknown; thumbnail_url?: unknown
+}
+/** A channel found by name: its identity, before the streams call says what it is airing. */
+export interface SearchedChannel { id: string; channel: string; displayName: string; avatarUrl: string }
+
+/**
+ * `search/channels` matches a query against logins and display names — the one Twitch endpoint
+ * that reaches past the hundred streams the catalog holds.
+ *
+ * It answers identities, not streams: no audience, and `thumbnail_url` is the profile picture
+ * rather than the stream preview. The rows are kept for their ids, which is what the caller
+ * exchanges for a card's worth of stream.
+ *
+ * Its own `is_live` is not read, and `live_only` is not asked for: measured against `streams`,
+ * two rows in forty came back on the wrong side of it. Which channels are on air is settled by
+ * `streams` alone; the order here is Twitch's own relevance, and it is worth keeping.
+ */
+export function parseChannelSearch(input: unknown): SearchedChannel[] {
+  const rows = Array.isArray(input) ? input as HelixSearchChannel[] : []
+  const seen = new Set<string>()
+  return rows.flatMap(row => {
+    try {
+      const channel = channelName(row.broadcaster_login)
+      if (seen.has(channel)) return []
+      seen.add(channel)
+      const id = String(row.id ?? '')
+      if (!/^\d{1,30}$/.test(id)) return []
+      return [{ id, channel, displayName: cleanText(row.display_name, 50) || channel, avatarUrl: safeAvatar(row.thumbnail_url) }]
+    } catch { return [] }
+  })
 }
 
 export interface HelixFollowedChannel { broadcaster_id?: unknown; broadcaster_login?: unknown; broadcaster_name?: unknown }

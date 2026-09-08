@@ -1,8 +1,10 @@
 import { fail, type ErrorKey } from '../shared/errors'
-import type { FollowedChannels, StreamSummary } from '../shared/types'
+import type { ChannelSearch, FollowedChannels, StreamSummary } from '../shared/types'
 
 /** Both lists are cheap to redraw and expensive to fetch: a minute is the compromise. */
 const TTL = 60_000
+/** Enough queries to cover a hesitant search, few enough that the map cannot grow with the session. */
+const SEARCH_CAP = 40
 
 export interface AccountSession {
   token: string | null; clientId: string | null; userId: string | null
@@ -16,6 +18,7 @@ export interface AccountDataParts {
   session(): AccountSession
   streams(token: string, clientId: string, language: string): Promise<StreamSummary[]>
   followed(userId: string, auth: { token: string; clientId: string }): Promise<FollowedChannels>
+  search(query: string, auth: { token: string; clientId: string }): Promise<ChannelSearch>
   now?(): number
 }
 
@@ -33,6 +36,9 @@ export function createAccountData(parts: AccountDataParts) {
   const clock = parts.now ?? Date.now
   const streamsByLanguage = new Map<string, { expires: number; value: StreamSummary[] }>()
   let followedList: { expires: number; value: FollowedChannels } | null = null
+  // A query is typed letter by letter and each pause fires a call. Those calls repeat as soon as
+  // a letter is taken back, so the answers are kept — capped, because a session's queries are not.
+  const searches = new Map<string, { expires: number; value: ChannelSearch }>()
 
   function authenticated(missing: ErrorKey) {
     const { token, clientId, userId, follows, generation } = parts.session()
@@ -67,10 +73,25 @@ export function createAccountData(parts: AccountDataParts) {
       return value
     },
 
+    /** Searches Twitch by channel name, past the hundred streams the catalog holds. */
+    async search(query: string): Promise<ChannelSearch> {
+      const session = authenticated('needAccountForDiscover')
+      const key = query.toLowerCase()
+      const cached = searches.get(key)
+      if (cached && cached.expires > clock()) return cached.value
+      const value = await parts.search(query, { token: session.token, clientId: session.clientId })
+      if (parts.session().generation !== session.generation) fail('authCancelled')
+      // A Map iterates in insertion order: dropping the head drops the oldest query.
+      if (searches.size >= SEARCH_CAP) searches.delete(searches.keys().next().value!)
+      searches.set(key, { value, expires: clock() + TTL })
+      return value
+    },
+
     /** Everything the outgoing account owned: emptied on sign-in, sign-out and window teardown. */
     clear() {
       streamsByLanguage.clear()
       followedList = null
+      searches.clear()
     }
   }
 }

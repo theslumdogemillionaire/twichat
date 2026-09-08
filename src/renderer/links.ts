@@ -117,3 +117,36 @@ export function channelSegments(text: string): ChannelSegment[] {
   if (cursor < text.length) segments.push({ text: text.slice(cursor) })
   return segments.length ? segments : [{ text }]
 }
+
+/** A viewer named in a message: `@studio_nova`, the way a chat addresses someone. */
+export interface HandleSegment {
+  text: string
+  /** The Twitch login the handle names. Absent on ordinary text. */
+  login?: string
+}
+
+// The lookbehind keeps an address — `bonjour@studio_nova.fr` — from naming a viewer, and the
+// lookahead keeps `@studio_nova_bis` from being cut down to a shorter name that exists.
+// Digits alone stay a handle, unlike `#1`: `@123` is a login Twitch will hand a card for,
+// and nothing else is written that way.
+const HANDLE = /(?<![\p{L}\p{N}_@])@([a-z0-9_]{1,25})(?![\p{L}\p{N}_])/giu
+
+/**
+ * Cuts a body around the viewers named in it. Twitch logins are lowercase, so `@Studio_Nova`
+ * names the same person as `@studio_nova`; what is shown stays what was written. A nickname
+ * written in another script never matches — it is the login a card opens on, and Twitch keeps
+ * that one Latin.
+ */
+export function handleSegments(text: string): HandleSegment[] {
+  if (!text.includes('@')) return [{ text }]
+  const segments: HandleSegment[] = []
+  let cursor = 0
+  HANDLE.lastIndex = 0
+  for (let match = HANDLE.exec(text); match; match = HANDLE.exec(text)) {
+    if (match.index > cursor) segments.push({ text: text.slice(cursor, match.index) })
+    segments.push({ text: match[0], login: match[1].toLowerCase() })
+    cursor = match.index + match[0].length
+  }
+  if (cursor < text.length) segments.push({ text: text.slice(cursor) })
+  return segments.length ? segments : [{ text }]
+}

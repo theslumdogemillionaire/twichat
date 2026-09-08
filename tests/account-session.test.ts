@@ -56,6 +56,7 @@ function harness(options: { saved?: Record<string, AccountCredentials>; preferre
     forgetPreferences: login => { calls.push(`forget-preferences:${login}`) },
     streams: async () => [],
     followed: async () => ({ live: [], offline: [], truncated: false }),
+    search: async () => ({ live: [], offline: [] }),
     // No appointment fires on its own: a renewal in these tests is one the test asked for.
     timers: { set: () => 0, clear: () => {} }
   }

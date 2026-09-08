@@ -22,6 +22,8 @@ A desktop Twitch client where chat takes the window. Avatars, badges and emotes 
 - **Full-width chat**, with a floating video player you can show, hide or resize. It keeps playing while you browse the explorer or the settings.
 - **Detachable video**: move the player into its own window, resize it on the stream's own ratio, pin it above your other windows. It keeps following the room (same channel, same controls, same stops), and the choice is saved per account, in the settings or from the dock.
 - **Twitch, 7TV, BetterTTV and FFZ emotes** rendered natively in the chat, with the GIFs of Twitch's GIPHY keyboard. Links in a message open in your browser, after a confirmation you can turn off.
+- **The channel's own badges**, read from Twitch rather than drawn here: its subscriber tiers and bit levels beside the global ones.
+- A **name written with an at sign** opens that viewer's card, wherever it appears in a message.
 - Nested **reply threads** and highlighted **mentions**.
 - **Multiple accounts**: automatic reconnection to the last account used, or anonymous viewing.
 - **Live stats** (viewers, uptime) and an explorer: the top of the directory or the channels you follow, filtered by category or by tag.
@@ -57,11 +59,11 @@ installed, so a tag ahead of the file costs seconds instead of three packaging j
 whose installers announce a version that was never cut.
 
 The installers carry the version in their name, so a file that has been sitting in a downloads
-folder still says which one it is: `Twichat-0.5.4-mac.dmg`, `Twichat-0.5.4-windows.exe`, and six
-Linux packages that add their architecture, `Twichat-0.5.4-linux-x86_64.AppImage`,
-`Twichat-0.5.4-linux-arm64.AppImage`, `Twichat-0.5.4-linux-amd64.deb`,
-`Twichat-0.5.4-linux-arm64.deb`, `Twichat-0.5.4-linux-x86_64.rpm` and
-`Twichat-0.5.4-linux-aarch64.rpm`. That spelling of the architecture is not ours: `${arch}` is
+folder still says which one it is: `Twichat-<version>-mac.dmg`, `Twichat-<version>-windows.exe`,
+and six Linux packages that add their architecture, `Twichat-<version>-linux-x86_64.AppImage`,
+`Twichat-<version>-linux-arm64.AppImage`, `Twichat-<version>-linux-amd64.deb`,
+`Twichat-<version>-linux-arm64.deb`, `Twichat-<version>-linux-x86_64.rpm` and
+`Twichat-<version>-linux-aarch64.rpm`. That spelling of the architecture is not ours: `${arch}` is
 filled with each packager's own vocabulary, so deb says `amd64` where rpm says `x86_64`.
 
 A versioned name has no permanent address, so `/download` resolves one. `latest.yml` does sit at a

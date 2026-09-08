@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { MESSAGE_BYTE_LIMIT, applyCompletion, byteLength, completionQuery, rankByTerm, replaceRange, sanitizeOutgoing, tokenizeMessage } from '../src/renderer/composer-text'
+import { MESSAGE_BYTE_LIMIT, applyCompletion, byteLength, completionQuery, mergeCompletions, rankByTerm, replaceRange, sanitizeOutgoing, tokenizeMessage } from '../src/renderer/composer-text'
 import { emojiByName, searchEmojis } from '../src/renderer/emoji'
 import { setLocale } from '../src/shared/i18n'
 // English is the default language since `en.ts` became the source of truth. The assertions
@@ -48,6 +48,24 @@ test('detects the completion from the prefix under the caret', () => {
   assert.equal(completionQuery('bien mon', 8), null)
   assert.deepEqual(completionQuery('bien mon', 8, true), { kind: 'emote', term: 'mon', start: 5, end: 8 })
   assert.equal(completionQuery('/me danse', 3), null)
+})
+
+test('a lone colon opens the shelf, a closed shortcode does not', () => {
+  assert.deepEqual(completionQuery('bien :', 6), { kind: 'emoji', term: '', start: 5, end: 6 })
+  assert.equal(completionQuery('bien :joy:', 10), null)
+  assert.equal(completionQuery('bien ::', 7), null)
+})
+
+test('merges two ranked lists without letting either crowd the other out', () => {
+  const emotes = ['Kappa', 'KappaPride', 'KEKW', 'Kreygasm', 'KappaRoss', 'KappaHD']
+  const emojis = [':kiss:', ':key:', ':keyboard:', ':kimono:', ':koala:', ':knife:']
+  assert.deepEqual(mergeCompletions(emotes, emojis, 8), ['Kappa', 'KappaPride', 'KEKW', 'Kreygasm', ':kiss:', ':key:', ':keyboard:', ':kimono:'])
+  // One side empty: the other takes the whole shelf rather than leaving it half-full.
+  assert.deepEqual(mergeCompletions(emotes, [], 4), ['Kappa', 'KappaPride', 'KEKW', 'Kreygasm'])
+  assert.deepEqual(mergeCompletions([], emojis, 4), [':kiss:', ':key:', ':keyboard:', ':kimono:'])
+  // A name typed in full wins, wherever it came from.
+  const exact = mergeCompletions(emotes, emojis, 8, entry => entry.replace(/^:|:$/gu, '').toLowerCase() === 'key')
+  assert.equal(exact[0], ':key:')
 })
 
 test('replaces the whole word even when the caret sits in the middle', () => {

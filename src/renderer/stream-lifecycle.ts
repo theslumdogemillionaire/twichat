@@ -25,6 +25,28 @@ export function streamRetryPlan(reason: unknown, attempt: number): StreamRetryPl
   return { retry: true, state: 'reconnecting', delay: Math.min(30_000, 3_000 * 2 ** Math.min(3, Math.max(0, attempt))) }
 }
 
+/** hls.js quantises its catch-up to steps of .05 and clamps at 1: anything above this is a real catch-up. */
+export const CATCH_UP_RATE = 1.02
+
+/**
+ * The symbol shows the moment the rate goes up; the link under it waits. A catch-up shorter than
+ * this settles by itself, and pointing at a setting for it would send the viewer after a non-problem.
+ */
+export const CATCH_UP_CUE_DELAY = 2_000
+
+/** Catch-ups over one stream, past which the delay is the buffer being too small, not a hiccup. */
+export const CATCH_UP_HINT_RUNS = 3
+
+/** Whether this catch-up is one of a series: the link then comes with the symbol, without the wait. */
+export function isRecurringCatchUp(runs: number): boolean { return runs >= CATCH_UP_HINT_RUNS }
+
+/**
+ * hls.js raises video.playbackRate up to maxLiveSyncPlaybackRate once the delay passes
+ * liveMaxLatencyDuration, then drops it back to 1. That rate is the whole signal: while it is up,
+ * the picture says so; back on pace, it says nothing at all.
+ */
+export function isCatchingUp(rate: number): boolean { return rate >= CATCH_UP_RATE }
+
 
 /** What the buffering mode changes in hls.js. The seconds are the ones the viewer sees. */
 export interface BufferProfile {

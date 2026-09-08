@@ -8,7 +8,7 @@ import { m } from '../shared/i18n'
 import { AppError } from '../shared/errors'
 
 import {
-  MESSAGE_BYTE_LIMIT, applyCompletion, byteLength, completionQuery, rankByTerm,
+  MESSAGE_BYTE_LIMIT, applyCompletion, byteLength, completionQuery, mergeCompletions, rankByTerm,
   replaceRange, sanitizeOutgoing, tokenizeMessage, type CompletionQuery
 } from './composer-text'
 
@@ -31,6 +31,7 @@ interface Suggestion {
   login?: string
 }
 const EMOJI_NAMES = new Set(EMOJIS.map(emoji => emoji.name))
+const SUGGESTION_ROWS = 8
 
 const $ = <T extends HTMLElement>(selector: string) => {
   const element = document.querySelector<T>(selector)
@@ -148,18 +149,32 @@ export function createComposer(hooks: ComposerHooks) {
   }
 
   function emojiSuggestions(term: string): Suggestion[] {
-    return searchEmojis(term, 8).map(emoji => ({ value: emoji.char, label: `:${emoji.name}:`, detail: m.composer.emoji, char: emoji.char }))
+    return searchEmojis(term, SUGGESTION_ROWS).map(emoji => ({ value: emoji.char, label: `:${emoji.name}:`, detail: m.composer.emoji, char: emoji.char }))
   }
 
   function emoteSuggestions(term: string): Suggestion[] {
-    return rankByTerm(allEmotes(hooks.emotes(), hooks.twitch()), term, entry => [entry.label], 8).map(entry => ({
+    return rankByTerm(allEmotes(hooks.emotes(), hooks.twitch()), term, entry => [entry.label], SUGGESTION_ROWS).map(entry => ({
       value: entry.value, label: entry.label, detail: entry.source, url: entry.url
     }))
   }
 
+  /**
+   * A colon opens both shelves at once. An emote is written like a shortcode here, so `:kap` has to
+   * reach Kappa and `:joy` still has to reach 😂; the channel's emotes come first, because that is
+   * what a Twitch room is spoken in.
+   */
+  function shortcodeSuggestions(term: string): Suggestion[] {
+    const needle = term.trim().toLowerCase()
+    const named = (suggestion: Suggestion) => suggestion.label.toLowerCase().replace(/^:|:$/gu, '')
+    return mergeCompletions(
+      emoteSuggestions(term), emojiSuggestions(term), SUGGESTION_ROWS,
+      needle ? suggestion => named(suggestion) === needle : undefined
+    )
+  }
+
   function buildSuggestions(query: CompletionQuery): Suggestion[] {
     if (query.kind === 'mention') return chatters(query.term)
-    if (query.kind === 'emoji') return emojiSuggestions(query.term)
+    if (query.kind === 'emoji') return shortcodeSuggestions(query.term)
     return emoteSuggestions(query.term)
   }
 
