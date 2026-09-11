@@ -20,7 +20,7 @@ try {
       await page.goto(`${origin}/${locale}/`)
       await page.evaluate(() => document.fonts.ready)
       const shots = page.locator('[data-screenshot]')
-      assert.equal(await shots.count(), 6)
+      assert.equal(await shots.count(), 7)
       // One theme at a time: every card in the strip, and every image the dialog opens, shows
       // the theme being read — never the other one.
       const suffix = colorScheme === 'light' ? '-light.' : '.'
@@ -33,7 +33,7 @@ try {
       for (const value of showing) {
         assert.equal(value.includes('-light.'), colorScheme === 'light', `${value} does not follow the ${colorScheme} theme`)
       }
-      for (let index = 0; index < 6; index++) {
+      for (let index = 0; index < 7; index++) {
         const shot = shots.nth(index)
         await shot.scrollIntoViewIfNeeded()
         await shot.locator('img').evaluate(img => img.decode())
@@ -60,11 +60,11 @@ try {
       await shots.first().scrollIntoViewIfNeeded()
       await shots.first().click()
       await page.keyboard.press('ArrowLeft')
-      assert.equal(await page.locator('.lightbox-count').textContent(), '6 / 6')
+      assert.equal(await page.locator('.lightbox-count').textContent(), '7 / 7')
       await page.keyboard.press('ArrowRight')
-      assert.equal(await page.locator('.lightbox-count').textContent(), '1 / 6')
+      assert.equal(await page.locator('.lightbox-count').textContent(), '1 / 7')
       await page.locator('[data-lightbox-next]').click()
-      assert.equal(await page.locator('.lightbox-count').textContent(), '2 / 6')
+      assert.equal(await page.locator('.lightbox-count').textContent(), '2 / 7')
       await page.locator('[data-lightbox-prev]').click()
       await page.locator('.lightbox-zoom').click()
       assert.equal(await page.locator('.lightbox-zoom').getAttribute('aria-pressed'), 'true')
@@ -102,7 +102,7 @@ try {
       }
       assert.deepEqual(errors, [], `${locale}/${colorScheme}: browser errors`)
       await page.close()
-      console.log(`✓ ${locale}/${colorScheme}: six captures in the ${colorScheme} theme, keyboard, focus, zoom, backdrop, strip and five viewport widths`)
+      console.log(`✓ ${locale}/${colorScheme}: seven captures in the ${colorScheme} theme, keyboard, focus, zoom, backdrop, strip and five viewport widths`)
     }
   }
   const noJS = await browser.newPage({ javaScriptEnabled: false })

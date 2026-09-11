@@ -4,7 +4,7 @@
 
 # Twichat
 
-**A room with the TV on.**
+**Twitch, your way.**
 
 [![Checks](https://img.shields.io/github/actions/workflow/status/theslumdogemillionaire/twichat/checks.yml?branch=main&label=checks)](https://github.com/theslumdogemillionaire/twichat/actions/workflows/checks.yml)
 [![Latest release](https://img.shields.io/github/v/release/theslumdogemillionaire/twichat?label=release)](https://github.com/theslumdogemillionaire/twichat/releases/latest)
@@ -15,7 +15,7 @@
 
 </div>
 
-A desktop Twitch client where chat takes the window. Avatars, badges and emotes show in full, replies form threads, and the stream sits beside them in a player you resize. Up to a hundred channels open at once, without the noise of a browser.
+A free desktop Twitch client that lets you arrange chat and video your way. Make the video bigger, give messages more room or move the player to another screen. Emoji and Twitch, 7TV, BetterTTV and FrankerFaceZ emotes are built in, with no extensions to install. Keep up to a hundred channels open in the same application.
 
 ## Features
 
@@ -198,3 +198,15 @@ the directory resets the app completely.
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+The public site includes localized installation guides, project/contact and privacy pages, and a
+Twitch chat layout guide. Their content and routes live in `server/site-content.mjs`; the server
+includes every language pair in the sitemap. `npm run site:check` checks routing and metadata,
+and `npm run site:test:ui` checks both the landing page and the reading pages.
+
+To regenerate the responsive image derivatives after replacing original captures, run
+`node scripts/optimize-site-images.mjs` with ImageMagick and `cwebp` installed. The original PNGs
+remain available for the lightbox. Static resource URLs receive content hashes at server startup;
+matching hashes use a one-year immutable cache. Rebuild/restart the site after changing assets.
+The application's structured version is populated from the same release metadata used by the
+downloads; until that lookup succeeds, the version is omitted rather than guessed.

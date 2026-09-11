@@ -30,7 +30,7 @@ for (const item of document.querySelectorAll('[data-download-item]')) {
 if (mobile) {
   for (const split of document.querySelectorAll('[data-download-split]')) split.hidden = true
   for (const note of document.querySelectorAll('[data-download-mobile]')) note.hidden = false
-  for (const link of document.querySelectorAll('.nav-download')) link.href = '#download-title'
+  for (const link of document.querySelectorAll('.nav-download')) link.href = `/${current}/#download-title`
 }
 
 function closeDownloadMenus() {

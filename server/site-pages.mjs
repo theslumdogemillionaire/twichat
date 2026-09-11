@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DEFAULT_LOCALE, HEAD, LOCALES, MESSAGES, STRUCTURED, STRUCTURED_LANGUAGE } from './site-messages.mjs'
+import { CONTENT, PROJECT_URL, contentPath, contentMain, resourceLinks, learningSection, escapeHtml } from './site-content.mjs'
+import { versionAssets } from './site-assets.mjs'
 
 /**
  * The site is served as complete HTML, one URL per language.
@@ -136,7 +138,7 @@ function injectLanguageControls(html, locale) {
  */
 const VOCABULARY = new Set(['@context', '@type', '@id'])
 
-function translateStructuredData(html, locale, origin) {
+function translateStructuredData(html, locale, origin, version) {
   const englishToKey = new Map(Object.entries(MESSAGES.en).map(([key, value]) => [value, key]))
   const translate = value => {
     const key = englishToKey.get(value)
@@ -162,8 +164,24 @@ function translateStructuredData(html, locale, origin) {
     return typeof node === 'string' ? translate(node) : node
   }
   return html.replace(/(<script type="application\/ld\+json">)([\s\S]*?)(<\/script>)/, (all, open, body, close) => {
-    try { return `${open}${JSON.stringify(walk(JSON.parse(body)), null, 2)}${close}` }
-    catch { return all }
+    const data = walk(JSON.parse(body))
+    const fixOrigin = value => typeof value === 'string' ? value.replaceAll('https://twichat.theslumdogemillionaire.com', origin) : value
+    const graph = JSON.parse(JSON.stringify(data), (_key, value) => fixOrigin(value))
+    for (const entity of graph['@graph']) {
+      if (entity['@type'] === 'WebPage') entity['@id'] = `${origin}/${locale}/#webpage`
+      if (entity['@type'] === 'FAQPage') entity['@id'] = `${origin}/${locale}/#faq-schema`
+      if (entity['@type'] === 'WebSite') entity.url = `${origin}/`
+      if (entity['@type'] === 'SoftwareApplication') {
+        if (version) entity.softwareVersion = version
+        else delete entity.softwareVersion
+        entity.url = `${origin}/`
+        entity.downloadUrl = `${origin}/${locale}/#download-title`
+        entity.author = { '@type': 'Person', name: 'The Slumdoge Millionaire', url: `${PROJECT_URL.replace('/twichat', '')}` }
+        entity.license = `${PROJECT_URL}/blob/main/LICENSE`
+        entity.sameAs = [PROJECT_URL]
+      }
+    }
+    return `${open}${JSON.stringify(graph, null, 2)}${close}`
   })
 }
 
@@ -172,7 +190,7 @@ function translateStructuredData(html, locale, origin) {
  * The template names the file without a language, the build inserts its own.
  */
 function localiseAssets(html, locale) {
-  return html.replace(/\/assets\/(app-[a-z-]+)\.(png|webp)/g, (all, name, extension) => `/assets/${name}.${locale}.${extension}`)
+  return html.replace(/\/assets\/(app-[a-z-]+)\.(640\.)?(png|webp)/g, (all, name, size, extension) => `/assets/${name}.${locale}.${size ?? ''}${extension}`)
 }
 
 /** The document's internal links lead to the anchors of the same language, not to the root. */
@@ -181,37 +199,84 @@ function localiseLinks(html, locale) {
 }
 
 /** Builds the pages at startup: one file read, once, before listening. */
-export function buildPages(root, origin) {
+export function buildPages(root, origin, { version, assets = new Map() } = {}) {
   const template = readFileSync(join(root, 'index.html'), 'utf8')
   const pages = {}
   for (const locale of LOCALES) {
     let html = translate(template, MESSAGES[locale], locale)
     html = rewriteHead(html, locale, origin)
-    html = translateStructuredData(html, locale, origin)
+    html = translateStructuredData(html, locale, origin, version)
     html = injectLanguageControls(html, locale)
-    pages[locale] = localiseAssets(localiseLinks(html, locale), locale)
+    html = localiseAssets(localiseLinks(html, locale), locale)
+    html = html.replaceAll('https://twichat.theslumdogemillionaire.com', origin)
+    html = html.replace('</main>', `${learningSection(locale)}</main>`)
+    html = html.replace('<footer>', `<div class="site-resources"><p>${locale === 'fr' ? 'INSTALLATION, GUIDES ET PROJET' : 'INSTALLATION, GUIDES AND PROJECT'}</p>${resourceLinks(locale)}</div><footer>`)
+    pages[locale] = versionAssets(html, assets)
+    for (const entry of CONTENT) pages[contentPath(entry, locale)] = versionAssets(buildContentPage(html, entry, locale, origin), assets)
   }
   return pages
+}
+
+function buildContentPage(landing, entry, locale, origin) {
+  const text = entry[locale], canonical = `${origin}${contentPath(entry, locale)}`
+  const alternates = [...LOCALES, 'x-default'].map(lang => `<link rel="alternate" hreflang="${lang}" href="${origin}${contentPath(entry, lang === 'x-default' ? DEFAULT_LOCALE : lang)}">`).join('\n    ')
+  const data = {
+    '@context': 'https://schema.org', '@graph': [
+      {
+        '@type': 'WebPage', '@id': `${canonical}#page`, url: canonical,
+        name: text.title, description: text.description, inLanguage: STRUCTURED_LANGUAGE[locale],
+        isPartOf: { '@id': `${origin}/#website` }, breadcrumb: { '@id': `${canonical}#breadcrumb` },
+        ...(entry.article ? { mainEntity: { '@id': `${canonical}#article` } } : {})
+      },
+      { '@type': 'BreadcrumbList', '@id': `${canonical}#breadcrumb`, itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Twichat', item: `${origin}/${locale}/` }, { '@type': 'ListItem', position: 2, name: text.title, item: canonical }] }
+    ]
+  }
+  if (entry.article) data['@graph'].push({
+    '@type': 'Article', '@id': `${canonical}#article`, url: canonical,
+    headline: text.title, description: text.description, inLanguage: STRUCTURED_LANGUAGE[locale],
+    mainEntityOfPage: { '@id': `${canonical}#page` }, image: `${origin}/assets/app-detached.${locale}.webp`,
+    author: { '@type': 'Person', name: 'The Slumdoge Millionaire', url: `${origin}${contentPath(CONTENT.find(page => page.key === 'about'), locale)}` }
+  })
+  let html = landing
+    .replace(/<title>[^<]*<\/title>/, `<title>${escapeHtml(text.title)}${text.title.includes('Twichat') ? '' : ' | Twichat'}</title>`)
+    .replace(/(<meta (?:name|property)="(?:description|og:description|twitter:description)" content=")[^"]*"/g, `$1${escapeHtml(text.description)}"`)
+    .replace(/(<meta (?:name|property)="(?:og:title|twitter:title)" content=")[^"]*"/g, `$1${escapeHtml(text.title)}"`)
+    .replace(/(<meta property="og:url" content=")[^"]*"/, `$1${canonical}"`)
+    .replace(/(<meta property="og:type" content=")[^"]*"/, `$1${entry.article ? 'article' : 'website'}"`)
+    .replace(/<link rel="canonical"[^>]*>/, `<link rel="canonical" href="${canonical}">`)
+    .replace(/<link rel="alternate"[^>]*>\s*/g, '')
+    .replace('</head>', `    ${alternates}\n    <link rel="stylesheet" href="/content.css">\n  </head>`)
+    .replace(/<link rel="preload"[^>]*as="image"[^>]*>\s*/g, '')
+    .replace(/<script type="application\/ld\+json">[\s\S]*?<\/script>/, `<script type="application/ld+json">${JSON.stringify(data).replaceAll('<', '\\u003c')}</script>`)
+    .replace(/<main>[\s\S]*?<\/main>/, contentMain(entry, locale))
+    .replace(/<dialog[\s\S]*?<\/dialog>/, '')
+  // Keep links to the actual landing sections; language switches retain the current article.
+  html = html.replace(/href="#([\w-]+)"/g, (all, id) => entry[locale].sections.some(section => section[0] === id) ? all : `href="/${locale}/#${id}"`)
+    .replace(/(<a class="skip-link" href=")[^"]*"/, '$1#content"')
+    .replace(/(<a class="nav-download")[^>]*>/, `$1 href="/${locale}/#download-title">`)
+    .replace(/(<a[^>]*href=")\/(en|fr)\/("[^>]*hreflang="(?:en|fr)")/g, (_all, before, lang, after) => `${before}${contentPath(entry, lang)}${after}`)
+  return html
 }
 
 /**
  * The error page follows the same rule as the rest of the site: one version per language, chosen
  * from the requested URL's prefix. It stays `noindex`, so neither canonical nor alternates.
  */
-export function buildNotFound(root) {
+export function buildNotFound(root, assets = new Map()) {
   const template = readFileSync(join(root, '404.html'), 'utf8')
   const pages = {}
   for (const locale of LOCALES) {
     const html = translate(template, MESSAGES[locale], locale).replace(/<html lang="[^"]*"/, `<html lang="${locale}"`)
-    pages[locale] = localiseLinks(html, locale)
+    pages[locale] = versionAssets(localiseLinks(html, locale), assets)
   }
   return pages
 }
 
 export function sitemap(origin) {
-  const entries = LOCALES.map(locale => {
-    const alternates = LOCALES.map(other => `      <xhtml:link rel="alternate" hreflang="${other}" href="${origin}/${other}/"/>`).join('\n')
-    return `  <url>\n    <loc>${origin}/${locale}/</loc>\n${alternates}\n      <xhtml:link rel="alternate" hreflang="x-default" href="${origin}/${DEFAULT_LOCALE}/"/>\n  </url>`
-  }).join('\n')
+  const entries = [null, ...CONTENT].flatMap(entry => LOCALES.map(locale => {
+    const path = lang => entry ? contentPath(entry, lang) : `/${lang}/`
+    const alternates = LOCALES.map(other => `      <xhtml:link rel="alternate" hreflang="${other}" href="${origin}${path(other)}"/>`).join('\n')
+    return `  <url>\n    <loc>${origin}${path(locale)}</loc>\n${alternates}\n      <xhtml:link rel="alternate" hreflang="x-default" href="${origin}${path(DEFAULT_LOCALE)}"/>\n  </url>`
+  })).join('\n')
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n${entries}\n</urlset>\n`
 }

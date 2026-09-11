@@ -5,6 +5,7 @@ import { extname, join, normalize } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer } from 'node:http'
 import { buildNotFound, buildPages, sitemap } from './site-pages.mjs'
+import { buildAssetManifest } from './site-assets.mjs'
 import { AUTH, DEFAULT_LOCALE, LOCALES, pickLocale } from './site-messages.mjs'
 
 const directory = fileURLToPath(new URL('.', import.meta.url))
@@ -118,9 +119,10 @@ export function createTwichatServer(overrides = {}) {
   const clientSecret = overrides.clientSecret ?? env.TWITCH_CLIENT_SECRET ?? ''
   const publicDirectory = overrides.publicDirectory ?? defaultPublicDirectory
   // One page per language, built once and kept in memory: nothing to recompute per request.
-  const localisedPages = buildPages(publicDirectory, publicOrigin)
+  const assets = buildAssetManifest(publicDirectory)
+  let localisedPages = buildPages(publicDirectory, publicOrigin, { assets })
   const siteMap = sitemap(publicOrigin)
-  const notFoundPages = buildNotFound(publicDirectory)
+  const notFoundPages = buildNotFound(publicDirectory, assets)
   const fetcher = overrides.fetch ?? globalThis.fetch
   const authorizeUrl = overrides.authorizeUrl ?? 'https://id.twitch.tv/oauth2/authorize'
   const tokenUrl = overrides.tokenUrl ?? 'https://id.twitch.tv/oauth2/token'
@@ -140,18 +142,27 @@ export function createTwichatServer(overrides = {}) {
   const releaseBase = String(overrides.releaseBase ?? env.TWICHAT_RELEASE_BASE ?? '').replace(/\/$/, '')
   let knownVersion = null
   let versionRead = 0
+  let versionAttempt = 0
+  let versionRequest = null
   async function releaseVersion() {
     // An hour: a release is not frequent, and a download must not wait on the network twice.
     if (knownVersion && Date.now() - versionRead < 3_600_000) return knownVersion
-    try {
-      const response = await fetch(`${releaseBase}/latest.yml`, { signal: AbortSignal.timeout(5000) })
+    if (!releaseBase) return null
+    if (versionRequest) return versionRequest
+    if (Date.now() - versionAttempt < 60_000) return knownVersion
+    versionAttempt = Date.now()
+    versionRequest = (async () => { try {
+      const response = await fetcher(`${releaseBase}/latest.yml`, { signal: AbortSignal.timeout(5000) })
       if (!response.ok) return knownVersion
       const found = /^version:\s*(\S+)/m.exec(await response.text())
-      if (!found) return knownVersion
+      if (!found || !/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(found[1])) return knownVersion
       knownVersion = found[1]
       versionRead = Date.now()
+      localisedPages = buildPages(publicDirectory, publicOrigin, { assets, version: knownVersion })
     } catch { /* the version already in hand outlives a network that is not answering */ }
     return knownVersion
+    })()
+    try { return await versionRequest } finally { versionRequest = null }
   }
   const pending = new Map()
   const tickets = new Map()
@@ -200,7 +211,7 @@ export function createTwichatServer(overrides = {}) {
     }
   }
 
-  async function staticFile(response, pathname) {
+  async function staticFile(response, pathname, searchParams) {
     const requested = pathname === '/' ? '/index.html' : pathname
     try {
       // Decoding belongs inside the guard: `/%` is a path the decoder refuses, not a failure.
@@ -208,11 +219,15 @@ export function createTwichatServer(overrides = {}) {
       const path = join(publicDirectory, relative)
       const information = await stat(path)
       if (!information.isFile()) return false
+      const asset = assets.get(requested)
+      const immutable = asset && searchParams.get('v') === asset.hash
+      const css = asset?.body
       response.writeHead(200, {
         'Content-Type': mimeTypes.get(extname(path)) ?? 'application/octet-stream',
-        'Content-Length': information.size,
-        'Cache-Control': requested === '/index.html' ? 'no-cache' : 'public, max-age=86400'
+        'Content-Length': css ? Buffer.byteLength(css) : information.size,
+        'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'public, max-age=86400'
       })
+      if (css) { response.end(css); return true }
       // A file that fails mid-send closes the connection: an unhandled stream error on a
       // response whose headers already left would otherwise take the whole process down.
       const stream = createReadStream(path)
@@ -250,6 +265,20 @@ export function createTwichatServer(overrides = {}) {
         response.writeHead(302, { Location: `/${DEFAULT_LOCALE}/`, 'Cache-Control': 'no-cache' })
         return response.end()
       }
+      if (readMethod && url.pathname === '/404.html') return notFound(response, url.pathname)
+      if (readMethod && url.pathname === '/robots.txt') {
+        const body = `User-agent: *\nAllow: /\nDisallow: /auth/\n\nSitemap: ${publicOrigin}/sitemap.xml\n`
+        response.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' })
+        return response.end(body)
+      }
+      if (readMethod && Object.hasOwn(localisedPages, url.pathname)) {
+        void releaseVersion()
+        return sendHtml(response, 200, localisedPages[url.pathname], 'public, max-age=300')
+      }
+      if (readMethod && !url.pathname.endsWith('/') && Object.hasOwn(localisedPages, `${url.pathname}/`)) {
+        response.writeHead(301, { Location: `${url.pathname}/${url.search}` })
+        return response.end()
+      }
       const localeMatch = /^\/([a-z]{2})(\/?)$/.exec(url.pathname)
       if (readMethod && localeMatch && LOCALES.includes(localeMatch[1])) {
         // One address per language: `/fr` redirects to `/fr/`, never two URLs for one page.
@@ -257,6 +286,7 @@ export function createTwichatServer(overrides = {}) {
           response.writeHead(301, { Location: `/${localeMatch[1]}/` })
           return response.end()
         }
+        void releaseVersion()
         return sendHtml(response, 200, localisedPages[localeMatch[1]], 'public, max-age=300')
       }
       if (readMethod && url.pathname === '/sitemap.xml') {
@@ -372,7 +402,7 @@ export function createTwichatServer(overrides = {}) {
           return sendHtml(response, 503, page(locale, AUTH[locale].downloadSoon, { after: `<a class="auth-button" href="/${locale}/">${AUTH[locale].backToSite}</a>` }))
         }
       }
-      if (readMethod && await staticFile(response, url.pathname)) return
+      if (readMethod && await staticFile(response, url.pathname, url.searchParams)) return
       return notFound(response, url.pathname)
     } catch (error) {
       console.error('Request failed:', error instanceof Error ? error.message : error)
@@ -387,5 +417,3 @@ export function createTwichatServer(overrides = {}) {
 
   return server
 }
-
-

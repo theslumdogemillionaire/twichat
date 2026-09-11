@@ -45,7 +45,7 @@ test('serves the landing page and exposes a health check', async t => {
   const landing = await fetch(`${context.origin}/fr/`)
   assert.equal(landing.status, 200)
   const html = await landing.text()
-  assert.match(html, /dans une seule fenêtre/)
+  assert.match(html, /client Twitch gratuit/)
   assert.match(html, /<meta name="robots" content="index,follow/)
   assert.match(html, /<html lang="fr"/)
   const structuredData = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)?.[1]
@@ -71,7 +71,7 @@ test('serves the landing page and exposes a health check', async t => {
   assert.ok(sitemapText.includes(`hreflang="x-default" href="${PUBLIC}/en/"`))
   const robots = await fetch(`${context.origin}/robots.txt`)
   const robotsText = await robots.text()
-  assert.match(robotsText, /Sitemap: https:\/\/twichat\.theslumdogemillionaire\.com\/sitemap\.xml/)
+  assert.ok(robotsText.includes(`Sitemap: ${PUBLIC}/sitemap.xml`))
   assert.match(robotsText, /Disallow: \/auth\//)
 
   // The theme toggle writes its own tooltip, after the build has translated the markup: it
@@ -169,10 +169,10 @@ test('each language has its route, its alternates and its structured data', asyn
   }
 
   // The English page must no longer carry French, nor the other way around.
-  for (const french of ['Pourquoi Twichat', 'Chaque chaîne', 'Comment ça marche', 'Le chat tient dans une colonne']) {
+  for (const french of ['Pourquoi Twichat', 'Votre écran', 'Comment ça marche', 'La vidéo en grand']) {
     assert.ok(!pages.en.includes(french), `"${french}" still present in /en/`)
   }
-  for (const english of ['Why Twichat', 'How it works', 'Chat fits in a column']) {
+  for (const english of ['Why Twichat', 'How it works', 'The video, up close']) {
     assert.ok(!pages.fr.includes(english), `"${english}" still present in /fr/`)
     assert.ok(pages.en.includes(english), `"${english}" missing from /en/`)
   }
@@ -271,4 +271,101 @@ test('a renewal Twitch turns down is named apart from a Twitch that is out', asy
   const waiting = await post(outage.origin)
   assert.equal(waiting.status, 502)
   assert.equal((await waiting.json()).key, 'twitchUnresponsive')
+})
+
+const schema = html => JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1])['@graph']
+
+test('editorial pages have reciprocal languages, unique metadata, working links and sitemap entries', async t => {
+  const { CONTENT, contentPath } = await import('../server/site-content.mjs')
+  const context = await runningServer()
+  t.after(() => context.server.close())
+  const xml = await (await fetch(`${context.origin}/sitemap.xml`)).text()
+  const titles = new Set()
+  for (const entry of CONTENT) for (const locale of LOCALES) {
+    const path = contentPath(entry, locale)
+    const response = await fetch(`${context.origin}${path}`)
+    assert.equal(response.status, 200, path)
+    const html = await response.text()
+    assert.equal((html.match(/<h1\b/g) ?? []).length, 1, path)
+    const title = html.match(/<title>(.*?)<\/title>/)[1]
+    assert.ok(!titles.has(title)); titles.add(title)
+    assert.ok(html.includes(`rel="canonical" href="${PUBLIC}${path}"`))
+    assert.ok(xml.includes(`<loc>${PUBLIC}${path}</loc>`))
+    for (const language of LOCALES) assert.ok(html.includes(`hreflang="${language}" href="${PUBLIC}${contentPath(entry, language)}"`))
+    const other = locale === 'fr' ? 'en' : 'fr'
+    assert.ok(html.includes(`href="${contentPath(entry, other)}" hreflang="${other}"`), 'language control must keep the page')
+    const graph = schema(html)
+    assert.equal(graph[0].url, `${PUBLIC}${path}`)
+    assert.equal(graph[0]['@type'], 'WebPage')
+    assert.equal(graph.some(entity => entity['@type'] === 'Article'), Boolean(entry.article))
+    assert.ok(graph.some(entity => entity['@type'] === 'BreadcrumbList'))
+    assert.ok(!html.includes('https://twichat.theslumdogemillionaire.com'), 'all internal origins follow configuration')
+    const bare = await fetch(`${context.origin}${path.slice(0, -1)}`, { redirect: 'manual' })
+    assert.equal(bare.status, 301)
+    assert.equal(bare.headers.get('location'), path)
+    for (const [, link] of html.matchAll(/href="(\/[^"?#]+\/)(?:#[^"]*)?"/g)) {
+      assert.equal((await fetch(`${context.origin}${link}`, { method: 'HEAD' })).status, 200, `${path} links to ${link}`)
+    }
+  }
+  assert.equal((xml.match(/<loc>/g) ?? []).length, 14)
+  assert.equal((await fetch(`${context.origin}/404.html`)).status, 404)
+})
+
+test('hashed assets are immutable, unversioned assets remain refreshable and CSS dependencies are versioned', async t => {
+  const context = await runningServer()
+  t.after(() => context.server.close())
+  const html = await (await fetch(`${context.origin}/fr/`)).text()
+  const references = new Set([...html.matchAll(/(\/(?:assets\/[\w./-]+|site\.css|site\.js|theme\.js)\?v=[a-f0-9]{16})/g)].map(match => match[1]))
+  assert.ok(references.size > 20)
+  for (const path of references) {
+    const response = await fetch(`${context.origin}${path}`)
+    assert.equal(response.status, 200, path)
+    assert.match(response.headers.get('cache-control'), /max-age=31536000, immutable/)
+    if (path.startsWith('/site.css')) assert.match(await response.text(), /atkinson\.woff2\?v=[a-f0-9]{16}/)
+  }
+  assert.ok(html.includes('app-chat.fr.640.webp'))
+  assert.ok(html.includes('imagesrcset='))
+  for (const suffix of ['', '?v=outdated']) {
+    const response = await fetch(`${context.origin}/site.css${suffix}`)
+    assert.ok(!response.headers.get('cache-control').includes('immutable'))
+  }
+})
+
+test('application metadata learns the actual release without delaying public HTML', async t => {
+  let answer
+  let calls = 0
+  const pending = new Promise(resolve => { answer = resolve })
+  const context = await runningServer({ releaseBase: 'https://releases.example', fetch: async () => { calls++; return pending } })
+  t.after(() => context.server.close())
+  const first = await (await fetch(`${context.origin}/fr/`)).text()
+  assert.equal(schema(first).find(entity => entity['@type'] === 'SoftwareApplication').softwareVersion, undefined)
+  await fetch(`${context.origin}/en/`)
+  assert.equal(calls, 1, 'concurrent readers share the release lookup')
+  answer(new Response('version: 1.2.3\n'))
+  // Let the background lookup commit its result, bounded to avoid a hanging test.
+  let application
+  for (let attempt = 0; attempt < 10; attempt++) {
+    application = schema(await (await fetch(`${context.origin}/fr/`)).text()).find(entity => entity['@type'] === 'SoftwareApplication')
+    if (application.softwareVersion) break
+    await new Promise(resolve => setTimeout(resolve, 5))
+  }
+  assert.equal(application.softwareVersion, '1.2.3')
+  assert.equal(application.author.name, 'The Slumdoge Millionaire')
+  assert.match(application.license, /LICENSE$/)
+  assert.equal(calls, 1)
+})
+
+test('download filenames and metadata share the resolved release, with a safe failure fallback', async t => {
+  const context = await runningServer({ releaseBase: 'https://releases.example/latest/download', fetch: async () => new Response('version: 2.3.4\n') })
+  t.after(() => context.server.close())
+  for (const [platform, filename] of [['mac', 'Twichat-2.3.4-mac.dmg'], ['windows', 'Twichat-2.3.4-windows.exe'], ['deb_arm64', 'Twichat-2.3.4-linux-arm64.deb']]) {
+    const response = await fetch(`${context.origin}/download?platform=${platform}`, { redirect: 'manual', method: 'HEAD' })
+    assert.equal(response.status, 302)
+    assert.equal(response.headers.get('location'), `https://releases.example/latest/download/${filename}`)
+  }
+  const broken = await runningServer({ releaseBase: 'https://releases.example/latest/download', fetch: async () => new Response('version: not-a-version\n') })
+  t.after(() => broken.server.close())
+  const response = await fetch(`${broken.origin}/download?platform=mac`, { redirect: 'manual' })
+  assert.equal(response.headers.get('location'), 'https://releases.example/latest')
+  assert.equal(schema(await (await fetch(`${broken.origin}/fr/`)).text()).find(entity => entity['@type'] === 'SoftwareApplication').softwareVersion, undefined)
 })

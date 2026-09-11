@@ -108,15 +108,18 @@ into the sign-in dialog never touches any server but Twitch's.
 
 ## The landing site
 
-The pages are static and set no cookie. They load no third-party script, no font from a CDN, no
-analytics. `/download` and `/auth/*` are served with `X-Robots-Tag: noindex`.
+The site code sets no cookie and loads no third-party script, external font or analytics.
+It stores the visitor's theme and language choices in the browser's local storage. The public
+site uses Cloudflare and an HTTP server, which process connection information including IP
+addresses; the absence of application analytics does not describe their infrastructure logging.
+`/download` and `/auth/*` are served with `X-Robots-Tag: noindex`.
 
 ## Scopes asked of Twitch
 
 `chat:read` and `chat:edit`, which are what reading and writing chat require, plus
-`user:read:follows` for the followed-channels list. Nothing lets this application follow, subscribe,
-change a setting, or post anywhere but a chat you are watching — Twitch closed its follow endpoints
-to third parties in 2021, and this client only ever reads that state.
+`user:read:follows` for the followed-channels list and `user:manage:whispers` for receiving and
+sending whispers. These permissions do not let the application manage subscriptions or follow
+channels. Access can be revoked from the Twitch account's connections settings.
 
 ## When this changes
 

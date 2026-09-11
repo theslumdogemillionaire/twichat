@@ -22,7 +22,7 @@
     "dev": "electron-vite dev",
     "site": "node --env-file-if-exists=.env server/index.mjs",
     "site:check": "node --test tests/server.test.mjs",
-    "site:test:ui": "node scripts/landing-smoke.mjs",
+    "site:test:ui": "node scripts/landing-smoke.mjs && node scripts/content-smoke.mjs",
     "site:capture": "npm run build && node --experimental-strip-types scripts/landing-capture.ts && node --experimental-strip-types scripts/landing-capture.ts en",
     "build": "npm run typecheck && electron-vite build",
     "dist": "npm run build && electron-builder",
