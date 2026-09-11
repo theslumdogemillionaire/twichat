@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { TwitchIrc } from '../src/main/irc'
+import { CONCURRENT_ROOMS } from '../src/shared/validation'
 import { messageFragments } from '../src/renderer/emotes'
 import type { ChatEvent, ChatMessage } from '../src/shared/types'
 import { setLocale } from '../src/shared/i18n'
@@ -193,4 +194,100 @@ test('the offsets of a GIF shift by the stripped mention, address untouched', ()
 test('a message without a GIF carries no tag for one', () => {
   const [message] = feed(ROOT)
   assert.equal(message.gifs, undefined)
+})
+
+/**
+ * A client with a socket of its own making: the lines it would send are collected instead. The
+ * join queue is the one part of this class that only exists between a socket and a timer.
+ */
+function wired() {
+  const irc = new TwitchIrc()
+  const written: string[] = []
+  const events: ChatEvent[] = []
+  irc.on('event', (event: ChatEvent) => events.push(event))
+  const inner = irc as unknown as { socket: unknown; nick: string; handle(line: string): void }
+  inner.socket = { readyState: 1, send: (line: string) => { written.push(line.trim()) } }
+  inner.nick = 'justinfan1'
+  return { irc, written, events, feed: (line: string) => inner.handle(line), joins: () => written.filter(line => line.startsWith('JOIN')) }
+}
+
+const WELCOME = ':tmi.twitch.tv 001 justinfan1 :Welcome, GLHF!'
+const echo = (channel: string) => `:justinfan1!justinfan1@justinfan1.tmi.twitch.tv JOIN #${channel}`
+
+test('the room on screen leaves the join queue first, whatever rank it holds in it', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const { irc, joins, feed } = wired()
+  irc.join('alpha'); irc.join('beta'); irc.join('gamma')
+  irc.priority = 'gamma'
+  feed(WELCOME)
+  t.mock.timers.tick(1)
+  // The bug this replaces: rooms were joined in the order they were added, so the room being
+  // looked at could wait one second per room ahead of it before a single message arrived.
+  assert.deepEqual(joins(), ['JOIN #gamma'])
+  t.mock.timers.tick(1100)
+  t.mock.timers.tick(1100)
+  assert.deepEqual(joins(), ['JOIN #gamma', 'JOIN #alpha', 'JOIN #beta'])
+})
+
+test('the queue keeps one JOIN per tick, well under the rate Twitch allows', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const { irc, joins, feed } = wired()
+  for (let index = 0; index < 12; index++) irc.join(`room${index}`)
+  feed(WELCOME)
+  t.mock.timers.tick(1)
+  assert.equal(joins().length, 1)
+  // Not a single one before the spacing is up.
+  t.mock.timers.tick(1000)
+  assert.equal(joins().length, 1)
+  // And nine inside the ten seconds where Twitch allows twenty.
+  for (let step = 0; step < 8; step++) t.mock.timers.tick(1100)
+  assert.equal(joins().length, 9)
+})
+
+test('a JOIN Twitch never answers reports itself, because Twitch reports nothing', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const { irc, events, feed } = wired()
+  irc.join('alpha')
+  feed(WELCOME)
+  t.mock.timers.tick(1)
+  assert.equal(events.some(event => event.type === 'joinFailed'), false)
+  t.mock.timers.tick(15000)
+  assert.deepEqual(events.flatMap(event => event.type === 'joinFailed' ? [event.channel] : []), ['alpha'])
+})
+
+test('the echo of a JOIN settles its deadline, and asking again retries it', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const { irc, events, joins, feed } = wired()
+  irc.join('alpha')
+  feed(WELCOME)
+  t.mock.timers.tick(1)
+  feed(echo('alpha'))
+  t.mock.timers.tick(15000)
+  assert.equal(events.some(event => event.type === 'joinFailed'), false)
+  assert.equal(events.some(event => event.type === 'joined'), true)
+  // A confirmed room is not queued again: the retry path only has something to do after a failure.
+  irc.join('alpha')
+  t.mock.timers.tick(1100)
+  assert.deepEqual(joins(), ['JOIN #alpha'])
+})
+
+test('a room that failed is asked for again rather than left in the list for nothing', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const { irc, joins, feed } = wired()
+  irc.join('alpha')
+  feed(WELCOME)
+  t.mock.timers.tick(1)
+  t.mock.timers.tick(15000)
+  irc.join('alpha')
+  t.mock.timers.tick(1)
+  assert.deepEqual(joins(), ['JOIN #alpha', 'JOIN #alpha'])
+})
+
+test('the only ceiling left is the one Twitch publishes', () => {
+  const irc = new TwitchIrc()
+  for (let index = 0; index < CONCURRENT_ROOMS; index++) irc.join(`room${index}`)
+  assert.equal(irc.channels.size, CONCURRENT_ROOMS)
+  // Twitch holds 100 rooms per account at once. The 20 that used to stand here was its JOIN
+  // *rate* — 20 per 10 s — which the spacing above already keeps the queue well under.
+  assert.throws(() => irc.join('one_too_many'), /ircJoinLimit/)
 })

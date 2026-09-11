@@ -14,6 +14,7 @@ import { createComposer } from './composer'
 import { isMention, resetMentionCache } from './mentions'
 import { exemptFromFollowersOnly, followNotice, followersOnlyMinutes } from './follow-gate'
 import { setupTheme, currentTheme, applyTheme } from './theme'
+import { applyChatFont, currentChatFont, setupChatFont } from './chat-font'
 import { hydrate } from './hydrate'
 import { commandKey, composing, label as keyLabel, matches, platformKeys, setCommandKey, type Chord } from './keys'
 import { PageHistory, type Page } from './page-history'
@@ -139,6 +140,19 @@ function applyPage(page: Page) {
 }
 function goBack() { const page = pageHistory.back(); if (page) applyPage(page) }
 function goForward() { const page = pageHistory.forward(); if (page) applyPage(page) }
+/**
+ * Asking for the same room again. Twitch answers a failed JOIN with nothing at all, so there is
+ * no state to clear on its side and no reason to leave the room first: the request simply goes
+ * out again, and the deadline that reported the silence starts over.
+ */
+$('#join-retry').addEventListener('click', () => {
+  const channel = active
+  if (!channel) return
+  $('#join-retry').hidden = true
+  $('#join-state').textContent = m.app.roomJoining
+  $('#join-state').classList.remove('stopped')
+  void window.twichat.join(channel).catch(error => { toast(displayError(error)); paintJoinState(channel) })
+})
 $('#nav-back').addEventListener('click', goBack)
 $('#nav-forward').addEventListener('click', goForward)
 /**
@@ -197,6 +211,24 @@ function renderUpdateNotice() {
   element.title = updateNotice.state === 'ready' ? m.app.updateInstall : m.app.updateOpen
 }
 let joined = new Set<string>()
+/**
+ * Rooms whose JOIN Twitch never answered. They are in the list, the sidebar draws them, and
+ * nothing will ever arrive in them. Twitch sends no error for this — saying so is entirely on us.
+ */
+const joinFailures = new Set<string>()
+
+/** Connecting, in, or given up on: the room says which, rather than waiting for ever on the first. */
+function paintJoinState(channel: string) {
+  const failed = joinFailures.has(channel)
+  const label = $('#join-state')
+  label.textContent = failed ? m.app.roomJoinFailed : joined.has(channel) ? m.app.roomJoined : m.app.roomJoining
+  label.title = failed ? m.app.roomJoinFailedHint : ''
+  label.classList.toggle('stopped', failed)
+  const retry = $('#join-retry')
+  retry.hidden = !failed
+  // The tag says which state the room is in; why it is there belongs to the thing that acts on it.
+  retry.setAttribute('aria-label', `${m.ui.chatEmpty.retry} · ${m.app.roomJoinFailedHint}`)
+}
 let discoveredStreams: StreamSummary[] = []
 let followedStreams: StreamSummary[] = []
 let followedOffline: RoomProfile[] = []
@@ -442,7 +474,7 @@ function notifications(): NotificationPreferences {
   return { mentions: $<HTMLInputElement>('#notify-mentions').checked, whispers: $<HTMLInputElement>('#notify-whispers').checked }
 }
 function chat(): ChatPreferences {
-  return { links: chatLinks, confirm: chatLinkConfirm, gifs: chatGifs }
+  return { links: chatLinks, confirm: chatLinkConfirm, gifs: chatGifs, font: currentChatFont() }
 }
 /** The controls that carry a preference: they repaint on opening as on every account switch. */
 function paintPreferenceControls(source: Preferences) {
@@ -461,6 +493,7 @@ function paintPreferenceControls(source: Preferences) {
   $<HTMLInputElement>('#chat-link-confirm').checked = chatLinkConfirm
   chatGifs = source.chat.gifs
   $<HTMLInputElement>('#chat-gifs').checked = chatGifs
+  applyChatFont(source.chat.font)
   $<HTMLInputElement>('#hide-idle').checked = source.layout.hideIdleChannels
   $<HTMLSelectElement>('#idle-delay').value = String(source.layout.idleChannelHours)
   applySound(source.playback.volume, source.playback.muted)
@@ -489,7 +522,7 @@ function adoptScope({ scope, preferences: next, locale }: ScopedPreferences) {
   twitchBadges.clear(); badgeRoomKeys.clear()
   thirdPartyEmotes.clear(); thirdPartyRoomKeys.clear()
   discoveredStreams = []; resetFollowed(); selectedTags.clear()
-  joined.clear()
+  joined.clear(); joinFailures.clear()
   accountDisplayName = ''
   resetMentionCache()
   virtualLog.set([], true)
@@ -620,12 +653,16 @@ function paintRoomButton(button: HTMLButtonElement, channel: string, hint: strin
   // Expanded, the tooltip is where a name too long for the column can still be read whole.
   // Collapsed, or on a live row carrying a preview, the row hands that job to `#rail-tip`, which
   // draws itself: keeping the attribute as well would have the two bubbles stacked on one hover.
-  const title = collapsedSidebar() || roomPreview(profile) || button === railTipRow ? '' : [displayName, status, hint].filter(Boolean).join(' · ')
+  // A room Twitch never confirmed reads exactly like a quiet one. Said before the live status,
+  // because until the JOIN takes, that status describes a room we are not in.
+  const unjoined = joinFailures.has(channel) ? m.app.roomJoinFailed : ''
+  const title = collapsedSidebar() || roomPreview(profile) || button === railTipRow ? '' : [displayName, unjoined || status, hint].filter(Boolean).join(' · ')
   if (button.title !== title) button.title = title
   // Read back by the bubble, which is the only thing left saying it on a row without a tooltip.
   if (button.dataset.hint !== hint) button.dataset.hint = hint
   button.classList.toggle('is-live', live === 'true')
   button.classList.toggle('is-offline', live === 'false')
+  button.classList.toggle('join-failed', Boolean(unjoined))
   button.setAttribute('aria-current', String(channel === active && currentView === 'room'))
   // The dot said a channel was live without ever saying how live. Under the name there is width
   // for the whole sentence rather than an abbreviated number, and it is marked away from the
@@ -767,7 +804,7 @@ function activate(channel: string) {
   $('#channel-title').textContent = channel
   applyPlayerMode()
   $('#chat-empty').hidden = store.get(channel).length > 0
-  $('#join-state').textContent = joined.has(channel) ? m.app.roomJoined : m.app.roomJoining
+  paintJoinState(channel)
   updateCount()
   updateModes()
   updateFollowGate()
@@ -1052,7 +1089,7 @@ async function leaveRoom(channel: string) {
   try { await window.twichat.part(channel) } catch (error) { toast(displayError(error)); return }
   if (wasActive) player.stop()
   store.remove(channel); state.preferences.channels = state.preferences.channels.filter(item => item !== channel)
-  unread.delete(channel); mentions.delete(channel); joined.delete(channel); roomModes.delete(channel)
+  unread.delete(channel); mentions.delete(channel); joined.delete(channel); joinFailures.delete(channel); roomModes.delete(channel)
   thirdPartyEmotes.delete(channel); thirdPartyRoomKeys.delete(channel)
   twitchEmotes.delete(channel); twitchEmoteIds.delete(channel); twitchRoomKeys.delete(channel)
   twitchBadges.delete(channel); badgeRoomKeys.delete(channel); roomIds.delete(channel)
@@ -1073,11 +1110,12 @@ async function leaveRoom(channel: string) {
   virtualLog.setVisible(false); showView('welcome'); renderRooms(); save()
 }
 
-// The cap Twitch imposes on a client is announced here, before the room list grows past it.
+/**
+ * No count of our own is checked here any more: Twitch's ceiling is the only one, and it is the
+ * main process that holds it. A room that joins is a room that answered; one that does not say so
+ * within the deadline reports itself through `joinFailed`, because Twitch reports nothing.
+ */
 async function joinChannel(channel: string) {
-  if (!state.preferences.channels.includes(channel) && state.preferences.channels.length >= 20) {
-    throw new Error(m.app.roomLimitReached)
-  }
   await window.twichat.join(channel)
   if (!state.preferences.channels.includes(channel)) state.preferences.channels.push(channel)
   joinDialog.close(); activate(channel); save(); void refreshProfiles([channel])
@@ -1222,6 +1260,10 @@ function scheduleLiveRefresh() {
     if (document.hidden || !workspaceEntered) return
     void refreshProfiles(state.preferences.channels)
     void refreshOwnProfile()
+    // Followers move as well, slower than an audience: left alone, the header would hold the count
+    // read when the room opened for as long as the session lasts. The open room alone, since it is
+    // the only one the header paints — and the main process answers most of these from its cache.
+    if (currentView === 'room' && active) void refreshChannelInfo(active)
   }, 120_000)
   // The displayed duration is only a subtraction: it moves on without asking Twitch again.
   clearInterval(uptimeTimer)
@@ -1999,9 +2041,10 @@ function updateChannelIdentity() {
 }
 
 /**
- * Asked when a room opens. The main process holds the answer for ten minutes, so walking back
- * through the rooms costs a round trip and no Twitch call; the map here is what the header paints
- * from in the meantime, so a room already visited shows its line without a blank.
+ * Asked when a room opens, then on the refresh tick for as long as it stays open. The main process
+ * holds the answer for ten minutes, so walking back through the rooms — and most of those ticks —
+ * costs a round trip and no Twitch call; the map here is what the header paints from in the
+ * meantime, so a room already visited shows its line without a blank.
  */
 async function refreshChannelInfo(channel: string) {
   if (!channel || !state.account || channelInfoChecks.has(channel)) return
@@ -2049,7 +2092,16 @@ function handleEvents(events: ChatEvent[]) {
     if (event.type === 'status') updateConnection(event.status, event.detail)
     if (event.type === 'account') { updateAccount(null); resetFollowed(); if (currentView === 'discover') void loadDiscovery(); toast(event.detail) }
     if (event.type === 'raid') void followRaid(event)
-    if (event.type === 'joined') { joined.add(event.channel); if (event.channel === active) $('#join-state').textContent = m.app.roomJoined }
+    if (event.type === 'joined') {
+      joined.add(event.channel); joinFailures.delete(event.channel)
+      updateRooms = true
+      if (event.channel === active) paintJoinState(event.channel)
+    }
+    if (event.type === 'joinFailed') {
+      joined.delete(event.channel); joinFailures.add(event.channel)
+      updateRooms = true
+      if (event.channel === active) paintJoinState(event.channel)
+    }
     if (event.type === 'roomstate') {
       roomModes.set(event.channel, event.tags)
       const roomId = event.tags['room-id']
@@ -2556,7 +2608,7 @@ $('#auth-form').addEventListener('submit', async event => {
 })
 $('#account-menu-logout').addEventListener('click', async () => {
   closeAccountMenu()
-  await window.twichat.logout(); joined.clear(); updateAccount(null)
+  await window.twichat.logout(); joined.clear(); joinFailures.clear(); updateAccount(null)
   accountDialog.close(); returnToSessionChoice()
 })
 $('#account-menu-forget').addEventListener('click', async () => {
@@ -2572,7 +2624,7 @@ $('#account-menu-forget').addEventListener('click', async () => {
     state.savedAccounts = await window.twichat.forgetAccount(login)
     delete state.savedAvatars[login]
   } catch (error) { toast(displayError(error)) }
-  joined.clear(); updateAccount(null)
+  joined.clear(); joinFailures.clear(); updateAccount(null)
   accountDialog.close(); returnToSessionChoice()
 })
 // Following stays a gesture on twitch.tv: Twitch closed the endpoint that would have done it from here.
@@ -2673,7 +2725,11 @@ document.addEventListener('pointerdown', event => {
 document.addEventListener('visibilitychange', () => {
   // A window put away is a window one may not come back to: the dates gathered leave now.
   if (document.hidden) { flushActivity(); return }
-  if (workspaceEntered) void refreshProfiles(state.preferences.channels)
+  if (!workspaceEntered) return
+  void refreshProfiles(state.preferences.channels)
+  // A window put away for an hour comes back to an hour-old count: the poll above is paused while
+  // hidden, so the room asks again here rather than waiting out the two minutes to the next tick.
+  if (currentView === 'room' && active) void refreshChannelInfo(active)
 })
 window.addEventListener('pagehide', () => { flushActivity(); flushPreferences() })
 $('#toggle-sidebar').addEventListener('click', () => setSidebarCollapsed(!appRoot.classList.contains('sidebar-collapsed')))
@@ -2838,6 +2894,8 @@ window.twichat.init().then(snapshot => {
   applyPlayerMode()
   updateConnection(snapshot.status, snapshot.status === 'connected' ? m.app.twitchChannel : m.app.connectingToTwitchChat)
   setupTheme(snapshot.preferences.theme, () => save())
+  // A typeface changes the height of every message, so the cache of measurements goes with it.
+  setupChatFont(snapshot.preferences.chat.font, () => { save(); virtualLog.remeasure() })
   updateAccount(snapshot.account); renderSavedAccounts(); renderRooms(); void loadChannelActivity(); void refreshProfiles(snapshot.preferences.channels); updatePlayer('stopped')
   if (snapshot.account) enterWorkspace(snapshot.account)
   else { sessionGate.classList.add('ready'); sessionGate.setAttribute('aria-busy', 'false'); $<HTMLButtonElement>('#connect-session').focus() }

@@ -15,7 +15,7 @@
 
 </div>
 
-A desktop Twitch client where chat takes the window. Avatars, badges and emotes show in full, replies form threads, and the stream sits beside them in a player you resize. Up to twenty channels open at once, without the noise of a browser.
+A desktop Twitch client where chat takes the window. Avatars, badges and emotes show in full, replies form threads, and the stream sits beside them in a player you resize. Up to a hundred channels open at once, without the noise of a browser.
 
 ## Features
 

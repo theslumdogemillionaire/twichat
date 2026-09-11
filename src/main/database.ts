@@ -125,7 +125,12 @@ const REVISIONS = [
   // Revision 14. Twitch names the sender of every whisper by id as well as by login, and a reply
   // is addressed to the id. Kept here rather than looked up again — and it is the identity that
   // survives a change of login, which the column beside it does not.
-  `ALTER TABLE whispers ADD COLUMN peer_id TEXT NOT NULL DEFAULT ''`
+  `ALTER TABLE whispers ADD COLUMN peer_id TEXT NOT NULL DEFAULT ''`,
+  // Revision 15. The typeface the conversations are read in. `default` is the font shipped with
+  // the application, which is what everyone has been reading in until now: nobody's chat changes
+  // shape on update. The other choices name families the system already has, so the column holds
+  // a name and never a file.
+  `ALTER TABLE scopes ADD COLUMN chat_font TEXT NOT NULL DEFAULT 'default'`
 ]
 
 /**

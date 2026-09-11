@@ -54,6 +54,13 @@ try {
   await window.locator('#chat-links').uncheck()
   await window.locator('#chat-link-confirm').uncheck()
   await window.locator('#chat-gifs').uncheck()
+  // Where the window's own furniture sits, before the card takes focus. A control hidden inside a
+  // card is absolutely positioned: anchored to the wrong ancestor, taking focus scrolls the window
+  // itself rather than the settings pane, and the status bar walks up the screen.
+  const barBefore = await window.evaluate(() => Math.round(document.querySelector('.statusbar')!.getBoundingClientRect().y))
+  await window.locator('input[name=chat-font][value=mono]').check()
+  const barAfter = await window.evaluate(() => Math.round(document.querySelector('.statusbar')!.getBoundingClientRect().y))
+  if (barAfter !== barBefore) throw new Error(`Choosing a typeface moved the window: status bar ${barBefore} -> ${barAfter}`)
   // The preferences write is deferred by 180 ms on the renderer side.
   await window.waitForTimeout(600)
 } finally { await first.close() }
@@ -65,6 +72,7 @@ if (saved.row?.notify_mentions !== 0) throw new Error(`Notifications not saved: 
 if (saved.row?.chat_links !== 0) throw new Error(`Clickable links not saved: ${JSON.stringify(saved.row)}`)
 if (saved.row?.chat_link_confirm !== 0) throw new Error(`Link confirmation not saved: ${JSON.stringify(saved.row)}`)
 if (saved.row?.chat_gifs !== 0) throw new Error(`Chat GIFs not saved: ${JSON.stringify(saved.row)}`)
+if (saved.row?.chat_font !== 'mono') throw new Error(`Conversation typeface not saved: ${JSON.stringify(saved.row?.chat_font)}`)
 // The flat file is carried over: with no account stored on the device, it lands on the accountless session.
 if (saved.row?.theme !== 'dark') throw new Error(`The theme from the carried-over file is lost: ${JSON.stringify(saved.row?.theme)}`)
 if (saved.channels.join() !== 'mistermv,twitch') throw new Error(`Carried-over then joined rooms wrong: ${JSON.stringify(saved.channels)}`)
@@ -107,10 +115,26 @@ try {
     mentions: document.querySelector<HTMLInputElement>('#notify-mentions')?.checked,
     links: document.querySelector<HTMLInputElement>('#chat-links')?.checked,
     linkConfirm: document.querySelector<HTMLInputElement>('#chat-link-confirm')?.checked,
-    gifs: document.querySelector<HTMLInputElement>('#chat-gifs')?.checked
+    gifs: document.querySelector<HTMLInputElement>('#chat-gifs')?.checked,
+    font: document.querySelector<HTMLInputElement>('input[name=chat-font]:checked')?.value,
+    // What the stylesheet actually reads, and the width of a measured message under it: the
+    // setting is only honoured if both moved.
+    rootFont: document.documentElement.dataset.chatFont,
+    logFont: getComputedStyle(document.querySelector('#chat-log')!).fontFamily,
+    composerFont: getComputedStyle(document.querySelector('#composer')!).fontFamily,
+    // The preview promises what the log will do: it has to move with it, not stay on the default.
+    previewFont: getComputedStyle(document.querySelector('.font-preview .message-text')!).fontFamily
   }))
   if (controls.buffer !== 'comfort' || controls.autoplay !== false || controls.mentions !== false || controls.links !== false || controls.linkConfirm !== false || controls.gifs !== false) {
     throw new Error(`The controls do not pick up the settings: ${JSON.stringify(controls)}`)
+  }
+  // The typeface reaches the root, the log and the box you type in — the mirror the mention list
+  // measures against sits under the same rule as the box, so one check covers both.
+  if (controls.font !== 'mono' || controls.rootFont !== 'mono') {
+    throw new Error(`The conversation typeface does not come back: ${JSON.stringify(controls)}`)
+  }
+  if (!/mono/i.test(controls.logFont ?? '') || controls.composerFont !== controls.logFont || controls.previewFont !== controls.logFont) {
+    throw new Error(`The typeface does not reach the conversation: ${JSON.stringify(controls)}`)
   }
   // The quality picked in Settings is the same one the player holds: a single setting, two places.
   if (controls.quality !== '720p60,720p,best' || controls.dockQuality !== controls.quality) {
@@ -154,4 +178,4 @@ if (onTheWayOut.row?.autoplay !== 1) {
   throw new Error(`The setting changed just before closing was lost: ${JSON.stringify(onTheWayOut.row?.autoplay)}`)
 }
 
-console.log('Video quality, buffering, autoplay, notifications, clickable links and their confirmation, flat-file carry-over, per-account scoping and the last change before closing verified.')
+console.log('Video quality, buffering, autoplay, notifications, clickable links and their confirmation, the conversation typeface, flat-file carry-over, per-account scoping and the last change before closing verified.')

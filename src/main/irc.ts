@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { IrcFramer, messageId, parseIrc, replyReference, stripReplyMention, userNoticeSummary } from './irc-parser'
-import { channelName, chatText } from '../shared/validation'
+import { channelName, chatText, CONCURRENT_ROOMS } from '../shared/validation'
 import type { ChatEvent, ChatMessage, Connection, ReplyReference } from '../shared/types'
 import { fail } from '../shared/errors'
 import { m } from '../shared/i18n'
@@ -14,6 +14,15 @@ import { m } from '../shared/i18n'
 const badgePairs = (value = '') => value.split(',').filter(Boolean).slice(0, 20)
 const badgeNames = (value = '') => badgePairs(value).map(badge => badge.split('/')[0])
 
+/** One JOIN every 1.1 s: ~9 per 10 s, less than half of what Twitch allows. */
+const JOIN_SPACING = 1100
+/**
+ * Nothing is sent when a JOIN does not take — no NOTICE, no error, Twitch documents no answer at
+ * all. The silence is what has to be timed: past this, the room reports itself unjoined rather
+ * than sitting on "connecting" for ever.
+ */
+const JOIN_DEADLINE = 15000
+
 export class TwitchIrc extends EventEmitter {
   readonly channels = new Set<string>()
   // Twitch only sends ROOMSTATE on join: the last one is kept so a renderer reload keeps room ids and modes.
@@ -25,7 +34,18 @@ export class TwitchIrc extends EventEmitter {
   private timer?: ReturnType<typeof setTimeout>
   private handshake?: ReturnType<typeof setTimeout>
   private heartbeat?: ReturnType<typeof setInterval>
-  private joinTimers = new Set<ReturnType<typeof setTimeout>>()
+  /** Rooms whose JOIN has not gone out yet, spaced one per tick. */
+  private joinQueue: string[] = []
+  private joinPump?: ReturnType<typeof setTimeout>
+  /** A JOIN written and not yet echoed back, with the deadline that gives up on it. */
+  private pendingJoins = new Map<string, ReturnType<typeof setTimeout>>()
+  /** Rooms Twitch echoed a JOIN for. One in `channels` but not here is not really in. */
+  private confirmed = new Set<string>()
+  /**
+   * The room on screen. The queue serves it first whatever rank it holds: the room being looked
+   * at must not wait behind every other one before its messages start arriving.
+   */
+  priority = ''
   private attempt = 0
   private stopped = false
   private lastReceived = 0
@@ -86,17 +106,15 @@ export class TwitchIrc extends EventEmitter {
     if (command === '001') {
       this.attempt = 0
       this.state('connected', this.account ? m.chat.connectedAs(this.account.login) : m.chat.connectedReadOnly)
-      // 1 JOIN / 1.1 s, comfortably below Twitch's regular join rate limit.
-      Array.from(this.channels).forEach((room, index) => {
-        const timer = setTimeout(() => {
-          this.joinTimers.delete(timer)
-          if (this.channels.has(room)) this.write(`JOIN #${room}`)
-        }, index * 1100)
-        this.joinTimers.add(timer)
-      })
+      // A new socket has joined nothing: every room needs its JOIN again, and the queue paces them.
+      this.confirmed.clear()
+      this.joinQueue = [...this.channels]
+      this.pumpJoins()
     }
     if (command === 'RECONNECT') this.socket?.close()
-    if (command === 'JOIN' && prefix.split('!')[0].toLowerCase() === this.nick.toLowerCase()) this.publish({ type: 'joined', channel })
+    if (command === 'JOIN' && prefix.split('!')[0].toLowerCase() === this.nick.toLowerCase()) {
+      this.settleJoin(channel); this.confirmed.add(channel); this.publish({ type: 'joined', channel })
+    }
     if (command === 'ROOMSTATE') {
       const merged = { ...this.roomStates.get(channel), ...tags }
       this.roomStates.set(channel, merged)
@@ -152,18 +170,55 @@ export class TwitchIrc extends EventEmitter {
     }
   }
 
+  /**
+   * Asking again for a room already held is how a JOIN that never took is retried: the room stays
+   * in `channels` through its failure, so only the queue has anything left to do.
+   */
   join(value: string) {
     const channel = channelName(value)
-    if (this.channels.has(channel)) return
-    if (this.channels.size >= 20) fail('ircJoinLimit')
+    if (this.channels.has(channel)) { this.queueJoin(channel); return }
+    // Twitch's ceiling, not one of ours. Past it the server simply stops answering JOIN.
+    if (this.channels.size >= CONCURRENT_ROOMS) fail('ircJoinLimit')
     this.channels.add(channel)
-    // Queue interactive joins too, avoiding bursts when multiple rooms are added.
-    if (this.status === 'connected') {
-      const timer = setTimeout(() => { this.joinTimers.delete(timer); if (this.channels.has(channel)) this.write(`JOIN #${channel}`) }, this.joinTimers.size * 1100)
-      this.joinTimers.add(timer)
-    }
+    this.queueJoin(channel)
   }
-  part(value: string) { const channel = channelName(value); this.channels.delete(channel); this.roomStates.delete(channel); this.userBadges.delete(channel); this.write(`PART #${channel}`) }
+  part(value: string) {
+    const channel = channelName(value)
+    this.channels.delete(channel); this.confirmed.delete(channel)
+    this.joinQueue = this.joinQueue.filter(room => room !== channel)
+    this.settleJoin(channel)
+    this.roomStates.delete(channel); this.userBadges.delete(channel); this.write(`PART #${channel}`)
+  }
+  private queueJoin(channel: string) {
+    if (this.status !== 'connected') return
+    if (this.confirmed.has(channel) || this.pendingJoins.has(channel) || this.joinQueue.includes(channel)) return
+    this.joinQueue.push(channel)
+    this.pumpJoins()
+  }
+  /**
+   * One JOIN per tick, the room on screen first. The deadline starts when the JOIN is written
+   * rather than when it is queued: what is being timed is Twitch's answer, not our own wait.
+   */
+  private pumpJoins(delay = 0) {
+    if (this.joinPump || !this.joinQueue.length || this.status !== 'connected') return
+    this.joinPump = setTimeout(() => {
+      this.joinPump = undefined
+      const [channel] = this.joinQueue.splice(Math.max(0, this.joinQueue.indexOf(this.priority)), 1)
+      if (channel && this.channels.has(channel)) { this.write(`JOIN #${channel}`); this.awaitJoin(channel) }
+      this.pumpJoins(JOIN_SPACING)
+    }, delay)
+  }
+  private awaitJoin(channel: string) {
+    this.settleJoin(channel)
+    this.pendingJoins.set(channel, setTimeout(() => {
+      this.pendingJoins.delete(channel)
+      if (this.channels.has(channel)) this.publish({ type: 'joinFailed', channel })
+    }, JOIN_DEADLINE))
+  }
+  private settleJoin(channel: string) {
+    clearTimeout(this.pendingJoins.get(channel))
+    this.pendingJoins.delete(channel)
+  }
   send(value: string, input: string, replyTo?: ReplyReference) {
     const channel = channelName(value)
     const text = chatText(input)
@@ -203,8 +258,13 @@ export class TwitchIrc extends EventEmitter {
   }
   private clearTimers() {
     clearTimeout(this.timer); clearTimeout(this.handshake); clearInterval(this.heartbeat)
-    for (const timer of this.joinTimers) clearTimeout(timer)
-    this.joinTimers.clear()
+    // A socket on its way out confirms nothing more: the queue and its deadlines start over on
+    // the next 001, and no room is declared unjoined for a connection that simply dropped.
+    clearTimeout(this.joinPump); this.joinPump = undefined
+    this.joinQueue = []
+    for (const timer of this.pendingJoins.values()) clearTimeout(timer)
+    this.pendingJoins.clear()
+    this.confirmed.clear()
   }
   disconnect() {
     this.stopped = true

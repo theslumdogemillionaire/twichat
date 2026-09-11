@@ -31,7 +31,11 @@ const CARD_TTL = 10 * 60_000
 // A follower count and a list of tags move on the scale of a stream, not of a poll: this one is
 // read when a room opens, and the lifetime is what keeps a walk through the rooms from asking again.
 const CHANNEL_INFO_TTL = 10 * 60_000
-const EMPTY_CHANNEL_INFO_TTL = 60_000
+// An answer with nothing in it costs the same three calls as a full one, and the open room asks
+// again every two minutes: below that, every tick would be a miss and every tick a fresh set of
+// calls. Matched to the poll, it lands the way LIVE_TTL says an equal lifetime does — retried
+// every other round, so a renewed session repaints the header within two ticks rather than one.
+const EMPTY_CHANNEL_INFO_TTL = 2 * 60_000
 
 function rememberIdentity(channel: string, value: Partial<Identity>) {
   const previous = identities.get(channel)
@@ -95,7 +99,9 @@ async function refreshLiveWithHelix(channels: string[], { token, clientId }: Hel
 }
 
 export async function getRoomProfiles(input: unknown, auth: HelixAuth | null): Promise<RoomProfile[]> {
-  if (!Array.isArray(input) || input.length > 20) fail('channelListInvalid')
+  // What one Helix request carries: `/streams` takes 100 `user_login` at most, and the room list
+  // cannot be longer than that either. Beyond it the call would be refused, not truncated.
+  if (!Array.isArray(input) || input.length > 100) fail('channelListInvalid')
   const channels = [...new Set(input.map(channelName))]
   const stale = channels.filter(channel => !knownLive(channel))
   if (stale.length && auth) {
@@ -378,8 +384,8 @@ export async function getChannelInfo(input: unknown, hint: unknown, auth: HelixA
   const id = await broadcasterId(channel, typeof hint === 'string' ? hint : '', headers)
   const [followers, tags] = await Promise.all([getFollowerTotal(id, auth), getChannelTags(id, headers)])
   // Both calls swallow their own failure, so an answer with nothing in it is as likely to be a
-  // token that has just expired as a channel with no tags: it is held for a minute, not for ten,
-  // or the header would stay empty long after the session renewed itself.
+  // token that has just expired as a channel with no tags: it is held for two minutes, not for
+  // ten, or the header would stay empty long after the session renewed itself.
   const empty = followers === undefined && !tags.length
   return channelInfos.set(channel, { channel, followers, tags }, empty ? EMPTY_CHANNEL_INFO_TTL : CHANNEL_INFO_TTL)
 }

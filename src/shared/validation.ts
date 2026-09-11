@@ -1,4 +1,4 @@
-import type { BufferMode, ChatPreferences, LayoutPreferences, NotificationPreferences, PlaybackPreferences, PlayerWindowState, ReplyReference, Theme, WindowBounds } from './types'
+import type { BufferMode, ChatFont, ChatPreferences, LayoutPreferences, NotificationPreferences, PlaybackPreferences, PlayerWindowState, ReplyReference, Theme, WindowBounds } from './types'
 import { fail, type ErrorKey } from './errors'
 import { isLocale } from './i18n'
 
@@ -73,6 +73,13 @@ export function notificationPreferences(value: unknown): NotificationPreferences
   return { mentions: input.mentions !== false, whispers: input.whispers !== false }
 }
 
+export const CHAT_FONTS = ['default', 'system', 'sans', 'serif', 'mono'] as const
+
+/** Like the theme: an unknown typeface falls back to the shipped one rather than failing. */
+export function chatFont(value: unknown): ChatFont {
+  return (CHAT_FONTS as readonly string[]).includes(value as string) ? value as ChatFont : 'default'
+}
+
 /**
  * Same rule: the links were clickable before the setting, so only an explicit false switches
  * them off. The GIFs follow it rather than starting hidden — Twitch shows them, and a message
@@ -80,11 +87,19 @@ export function notificationPreferences(value: unknown): NotificationPreferences
  */
 export function chatPreferences(value: unknown): ChatPreferences {
   const input = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>
-  return { links: input.links !== false, confirm: input.confirm !== false, gifs: input.gifs !== false }
+  return { links: input.links !== false, confirm: input.confirm !== false, gifs: input.gifs !== false, font: chatFont(input.font) }
 }
 
 /** Wide bounds: they rule out the absurd values of a damaged file, the display tightens them afterwards. */
 const PLAYER_WIDTH_LIMIT = 4000
+/**
+ * Twitch's own ceiling: 100 chat rooms at once per account, since 15 May 2024. Not a number this
+ * application picked. The 20 that used to stand in its place was Twitch's *rate* — 20 JOIN per
+ * 10 seconds — which the pacing in the IRC client already keeps us well under, and which says
+ * nothing about how many rooms may be held at once.
+ */
+export const CONCURRENT_ROOMS = 100
+
 export const WINDOW_MIN_WIDTH = 760
 export const WINDOW_MIN_HEIGHT = 560
 const pixels = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 32000 ? Math.round(value) : undefined

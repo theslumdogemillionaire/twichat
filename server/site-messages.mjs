@@ -107,7 +107,7 @@ export const MESSAGES = {
     "hero.kicker": "CLIENT TWITCH DE BUREAU · MACOS, WINDOWS, LINUX",
     "hero.titleTail": "avec la télé allumée.",
     "hero.titleLead": "Un salon",
-    "hero.body": "Vingt chaînes ouvertes dans la même fenêtre. Le chat sur toute la largeur, les avatars et les emotes en entier, les réponses en fils. Le direct à côté, à la taille que vous lui donnez.",
+    "hero.body": "Cent chaînes ouvertes dans la même fenêtre. Le chat sur toute la largeur, les avatars et les emotes en entier, les réponses en fils. Le direct à côté, à la taille que vous lui donnez.",
     "download.cta": "Télécharger pour macOS",
     "download.otherVersionsLabel": "Autres versions",
     "download.mobile": "Twichat est une application de bureau. Ouvrez cette page sur macOS, Windows ou Linux pour la télécharger.",
@@ -125,7 +125,7 @@ export const MESSAGES = {
     "product.title": "Chaque chaîne,<br>ouverte en permanence.",
     "product.body": "Le chat occupe la largeur de la fenêtre au lieu d’une colonne étroite. Avatars, badges et emotes s’affichent en entier, les réponses forment des fils, et le direct tient dans un lecteur qu’on redimensionne.",
     "product.channelsTitle": "Ouvrez vos chaînes",
-    "product.channelsBody": "Jusqu’à vingt chaînes dans la barre latérale, et ⌘ K pour passer de l’une à l’autre.",
+    "product.channelsBody": "Jusqu’à cent chaînes dans la barre latérale, et ⌘ K pour passer de l’une à l’autre.",
     "product.peopleTitle": "Voyez qui est là",
     "product.peopleBody": "Avatars et badges Twitch, plus les emotes Twitch, 7TV, BetterTTV et FrankerFaceZ.",
     "product.streamTitle": "Placez le direct",
@@ -144,7 +144,7 @@ export const MESSAGES = {
     "why.afterTitle": "Le chat prend la fenêtre.",
     "why.afterWidth": "Le chat sur toute la largeur, historique fluide",
     "why.afterAvatars": "Avatars, badges et emotes en taille réelle",
-    "why.afterChannels": "Jusqu’à vingt chaînes dans la même fenêtre",
+    "why.afterChannels": "Jusqu’à cent chaînes dans la même fenêtre",
     "why.comparisonLabel": "Comparaison entre une page de stream classique et Twichat",
     "how.kicker": "SOUS LE CAPOT · 03",
     "how.title": "Comment ça marche.",
@@ -234,7 +234,7 @@ export const MESSAGES = {
     "hero.kicker": "DESKTOP TWITCH CLIENT · MACOS, WINDOWS, LINUX",
     "hero.titleTail": "with the TV on.",
     "hero.titleLead": "A room",
-    "hero.body": "Twenty channels open in the same window. Chat across the full width, avatars and emotes in full, replies in threads. The stream beside it, at the size you give it.",
+    "hero.body": "A hundred channels open in the same window. Chat across the full width, avatars and emotes in full, replies in threads. The stream beside it, at the size you give it.",
     "download.cta": "Download for macOS",
     "download.otherVersionsLabel": "Other versions",
     "download.mobile": "Twichat is a desktop application. Open this page on macOS, Windows or Linux to download it.",
@@ -252,7 +252,7 @@ export const MESSAGES = {
     "product.title": "Every channel,<br>open all the time.",
     "product.body": "Chat takes the width of the window instead of a narrow column. Avatars, badges and emotes show in full, replies form threads, and the stream sits in a player you can resize.",
     "product.channelsTitle": "Open your channels",
-    "product.channelsBody": "Up to twenty channels in the sidebar, and ⌘ K to move between them.",
+    "product.channelsBody": "Up to a hundred channels in the sidebar, and ⌘ K to move between them.",
     "product.peopleTitle": "See who is there",
     "product.peopleBody": "Twitch avatars and badges, plus Twitch, 7TV, BetterTTV and FrankerFaceZ emotes.",
     "product.streamTitle": "Place the stream",
@@ -271,7 +271,7 @@ export const MESSAGES = {
     "why.afterTitle": "Chat takes the window.",
     "why.afterWidth": "Chat across the full width, smooth history",
     "why.afterAvatars": "Avatars, badges and emotes at full size",
-    "why.afterChannels": "Up to twenty channels in the same window",
+    "why.afterChannels": "Up to a hundred channels in the same window",
     "why.comparisonLabel": "Comparison between a usual stream page and Twichat",
     "how.kicker": "UNDER THE HOOD · 03",
     "how.title": "How it works.",
@@ -310,8 +310,8 @@ export const MESSAGES = {
 
 /** What changes in the document head, and so in the search results. */
 export const HEAD = {
-    "fr": {"title": "Client Twitch centré sur le chat | Twichat", "description": "Twichat est un client Twitch de bureau où le chat occupe la fenêtre : avatars, badges, emotes, fils de réponse et connexion IRC directe.", "ogTitle": "Twichat · Le client Twitch centré sur le chat", "ogDescription": "Client Twitch de bureau : vingt chaînes ouvertes en parallèle, avatars et emotes en entier, et le direct à la taille que vous lui donnez.", "imageAlt": "Logo Twichat et bulles de chat vert citron sur fond anthracite, avec la signature A room with the TV on.", "twitterTitle": "Twichat · Le client Twitch centré sur le chat", "twitterDescription": "Vingt chaînes Twitch dans une seule fenêtre, avatars et emotes en entier, et le direct à côté.", "ogLocale": "fr_FR", "languageName": "Français", "switcherLabel": "Langue du site", "bannerText": "Ce site est aussi disponible en français.", "bannerAction": "Voir en français", "bannerDismiss": "Fermer"},
-    "en": {"title": "Twitch client built around chat | Twichat", "description": "Twichat is a desktop Twitch client where chat takes the window: avatars, badges, emotes, reply threads and a direct IRC connection.", "ogTitle": "Twichat · The Twitch client built around chat", "ogDescription": "Desktop Twitch client: twenty channels open at once, avatars and emotes in full, and the stream at whatever size you give it.", "imageAlt": "Twichat logo and lime chat bubbles on a charcoal background, with the tagline A room with the TV on.", "twitterTitle": "Twichat · The Twitch client built around chat", "twitterDescription": "Twenty Twitch channels in a single window, avatars and emotes in full, and the stream beside them.", "ogLocale": "en_US", "languageName": "English", "switcherLabel": "Site language", "bannerText": "This site is also available in English.", "bannerAction": "View in English", "bannerDismiss": "Dismiss"},
+    "fr": {"title": "Client Twitch centré sur le chat | Twichat", "description": "Twichat est un client Twitch de bureau où le chat occupe la fenêtre : avatars, badges, emotes, fils de réponse et connexion IRC directe.", "ogTitle": "Twichat · Le client Twitch centré sur le chat", "ogDescription": "Client Twitch de bureau : cent chaînes ouvertes en parallèle, avatars et emotes en entier, et le direct à la taille que vous lui donnez.", "imageAlt": "Logo Twichat et bulles de chat vert citron sur fond anthracite, avec la signature A room with the TV on.", "twitterTitle": "Twichat · Le client Twitch centré sur le chat", "twitterDescription": "Cent chaînes Twitch dans une seule fenêtre, avatars et emotes en entier, et le direct à côté.", "ogLocale": "fr_FR", "languageName": "Français", "switcherLabel": "Langue du site", "bannerText": "Ce site est aussi disponible en français.", "bannerAction": "Voir en français", "bannerDismiss": "Fermer"},
+    "en": {"title": "Twitch client built around chat | Twichat", "description": "Twichat is a desktop Twitch client where chat takes the window: avatars, badges, emotes, reply threads and a direct IRC connection.", "ogTitle": "Twichat · The Twitch client built around chat", "ogDescription": "Desktop Twitch client: a hundred channels open at once, avatars and emotes in full, and the stream at whatever size you give it.", "imageAlt": "Twichat logo and lime chat bubbles on a charcoal background, with the tagline A room with the TV on.", "twitterTitle": "Twichat · The Twitch client built around chat", "twitterDescription": "A hundred Twitch channels in a single window, avatars and emotes in full, and the stream beside them.", "ogLocale": "en_US", "languageName": "English", "switcherLabel": "Site language", "bannerText": "This site is also available in English.", "bannerAction": "View in English", "bannerDismiss": "Dismiss"},
   }
 
 /**

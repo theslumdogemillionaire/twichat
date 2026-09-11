@@ -61,7 +61,7 @@ test('the written label follows the platform, and the Shift glyph does not move'
 })
 
 test('a sentence carrying the command glyph is rewritten for the platform', () => {
-  assert.equal(platformKeys('20 CHANNELS AT ONCE · ⌘ K TO SWITCH', 'meta'), '20 CHANNELS AT ONCE · ⌘ K TO SWITCH')
-  assert.equal(platformKeys('20 CHANNELS AT ONCE · ⌘ K TO SWITCH', 'ctrl'), '20 CHANNELS AT ONCE · Ctrl K TO SWITCH')
+  assert.equal(platformKeys('A HUNDRED CHANNELS AT ONCE · ⌘ K TO SWITCH', 'meta'), 'A HUNDRED CHANNELS AT ONCE · ⌘ K TO SWITCH')
+  assert.equal(platformKeys('A HUNDRED CHANNELS AT ONCE · ⌘ K TO SWITCH', 'ctrl'), 'A HUNDRED CHANNELS AT ONCE · Ctrl K TO SWITCH')
   assert.equal(platformKeys('Chat only (⌘ ⇧ V)', 'ctrl'), 'Chat only (Ctrl ⇧ V)')
 })

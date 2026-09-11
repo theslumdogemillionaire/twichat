@@ -117,6 +117,15 @@ export class VirtualLog {
     this.rows.clear()
     this.render()
   }
+  /**
+   * Every height in the cache was measured in the font that was in use. A change of typeface
+   * invalidates the lot, the way a change of width does: the rows on screen are measured again
+   * as they come back, and the ones above are measured when they are scrolled to.
+   */
+  remeasure() {
+    this.heights.clear()
+    this.refresh()
+  }
   /** Each move of our own becomes the new reference, so it never reads back as a user scroll. */
   private moveTo(top: number) { this.viewport.scrollTop = top; this.lastScrollTop = this.viewport.scrollTop }
   /** The row sitting under the top edge, taken from the layout currently on screen. */

@@ -42,6 +42,11 @@ export type ChatEvent =
   | { type: 'account'; login: null; detail: string }
   | { type: 'message'; message: ChatMessage }
   | { type: 'joined'; channel: string }
+  /**
+   * A JOIN Twitch never echoed back. It sends nothing when a join does not take, so this is our
+   * own deadline running out rather than an answer — the room is in the list without being in.
+   */
+  | { type: 'joinFailed'; channel: string }
   | { type: 'clear'; channel: string; user?: string; id?: string }
   | { type: 'roomstate'; channel: string; tags: Record<string, string> }
   /** The signed-in account's badges in this room: they alone say who escapes followers-only mode. */
@@ -77,6 +82,12 @@ export interface NotificationPreferences {
   /** A whisper opens its conversation window, behind what you are doing, and rings once. */
   whispers: boolean
 }
+/**
+ * The typeface the conversations are set in — the channel's messages and a whisper's alike.
+ * `default` is the one shipped with the application; the others name a family the system
+ * already has, so nothing is downloaded to honour the choice.
+ */
+export type ChatFont = 'default' | 'system' | 'sans' | 'serif' | 'mono'
 /** How the chat itself reads. */
 export interface ChatPreferences {
   /** Turns the addresses in a message into links opening in the browser. When false, they stay plain text. */
@@ -85,6 +96,8 @@ export interface ChatPreferences {
   confirm: boolean
   /** Shows the GIFs sent from Twitch's GIPHY keyboard. When false, the title Twitch wrote in the body stays. */
   gifs: boolean
+  /** The typeface of the messages and of what you type, in the room and in a conversation window. */
+  font: ChatFont
 }
 /** The sizes set by hand: they follow the account from one room to the next and from one session to the next. */
 export interface LayoutPreferences {
@@ -406,6 +419,11 @@ export interface TwichatAPI {
   openChannel(channel: string): Promise<void>
   onChannelOpen(callback: (channel: string) => void): () => void
   onWhisper(callback: (whisper: Whisper) => void): () => void
+  /**
+   * The typeface of the conversations, changed while a conversation window is open. It arrives
+   * unchecked, like anything crossing the bridge: the window runs it past the validator.
+   */
+  onChatFont(callback: (font: string) => void): () => void
   /** A release worth knowing about, sent once per version. */
   onUpdate(callback: (notice: UpdateNotice) => void): () => void
   /** Acts on the notice: restart onto the downloaded build, or open the release page. */

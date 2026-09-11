@@ -565,3 +565,72 @@ input,textarea{cursor:text;user-select:text;-webkit-user-select:text}
    app — the brighter one is kept for a link that leaves it. */
 .message-handle{border:0;padding:0;background:transparent;font:inherit;color:var(--lime);text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px;cursor:pointer}
 .message-handle:hover,.message-handle:focus-visible{text-decoration-thickness:2px}
+
+/* The typeface of the conversations. The attribute lands on the root, like the theme's, but what
+   it sets is claimed by four surfaces only — the message log, the box you type in, and their two
+   counterparts in a conversation window. The sidebar, the header and the settings keep the
+   application's own font: a choice about reading a chat should not redraw the furniture.
+
+   No value is declared for `default`: the attribute is then absent, `var()` falls through to
+   `inherit`, and the shipped font stays the one `:root` names. Every stack ends in a generic
+   family, so a system that has none of the names still honours the choice with something close.
+   Nothing here is downloaded — the four alternatives are families the machine already has. */
+:root{
+  --font-system:system-ui,-apple-system,"Segoe UI Variable Text","Segoe UI",Roboto,Cantarell,"Noto Sans",sans-serif;
+  /* Wide by design: generous apertures and loose spacing, at the cost of fitting less per line. */
+  --font-sans:Verdana,"DejaVu Sans",Tahoma,"Bitstream Vera Sans",sans-serif;
+  --font-serif:Charter,Georgia,"Noto Serif","Liberation Serif","Times New Roman",serif;
+  --font-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"DejaVu Sans Mono","Liberation Mono",monospace
+}
+[data-chat-font=system]{--chat-font:var(--font-system)}
+[data-chat-font=sans]{--chat-font:var(--font-sans)}
+[data-chat-font=serif]{--chat-font:var(--font-serif)}
+[data-chat-font=mono]{--chat-font:var(--font-mono)}
+/* `.composer-field` rather than the textarea: the mirror the mention list measures against sits
+   beside it under the same rule, so the two never drift apart. */
+.chat-log,.whisper-log,.composer-field{font-family:var(--chat-font,inherit)}
+/* The hidden radio inside a card is absolutely positioned, and without this it hangs off the
+   nearest positioned ancestor — `<main>`, far outside the pane that scrolls. Taking focus then
+   scrolls the settings pane to the card, as it should, and `<main>` to the radio, which drags the
+   whole window up and leaves a gap under the status bar. Anchored to its own card, the radio
+   travels with the content and only the pane scrolls. It covers the theme cards too: the same
+   rule, the same latent bug, reachable there as soon as the window is short enough. */
+.settings-choice>label{position:relative}
+/* The picker borrows the theme cards' language — a specimen, a name, a tick in the corner —
+   because it is the same kind of choice: one you make by looking, not by reading a list. */
+.font-choice{margin-top:11px}
+.font-card{display:flex;flex-direction:column;gap:8px;width:124px;cursor:pointer}
+.font-card .theme-card-name{display:block;font-size:10px;line-height:1.3}
+.font-card:has(:checked) .theme-card-name{color:var(--paper)}
+.font-card:has(:checked) .theme-check{display:grid}
+/* The specimen is the card: `Ag` for the shape of the letters, `0O1lI` for the four characters a
+   chat makes you tell apart — a nickname, a link, a version number all hang on them. */
+.font-specimen{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;height:74px;border:1px solid var(--n37c);border-radius:7px;background:var(--n22b);color:var(--n80);transition:border-color var(--ease),box-shadow var(--ease),background var(--ease)}
+.font-specimen b{font-size:25px;font-weight:400;line-height:1}
+.font-specimen i{font-style:normal;font-size:11px;color:var(--n57a)}
+.font-card:hover .font-specimen{border-color:var(--n52b);background:var(--n25)}
+.font-card:has(:checked) .font-specimen{border-color:var(--lime);background:var(--n25);box-shadow:0 0 0 2px var(--accent-wash-16)}
+.font-card:has(:checked) .font-specimen i{color:var(--n66)}
+.font-card:has(:focus-visible) .font-specimen{outline:2px solid var(--lime);outline-offset:3px}
+/* Each specimen in the typeface it stands for, from the same variables the choice itself uses:
+   the sample cannot drift from what it promises. */
+.font-specimen[data-sample=system]{font-family:var(--font-system)}
+.font-specimen[data-sample=sans]{font-family:var(--font-sans)}
+.font-specimen[data-sample=serif]{font-family:var(--font-serif)}
+.font-specimen[data-sample=mono]{font-family:var(--font-mono)}
+/* Two messages in the real classes, so the preview is the thing itself rather than a drawing of
+   it. Only the absolute placement has to go: that one belongs to the log that positions them. */
+.font-preview{margin-top:13px;padding:5px 0;border:1px solid var(--n37c);border-radius:var(--radius);background:var(--n22b);font-family:var(--chat-font,inherit);overflow:hidden}
+.font-preview .message{position:static;padding:7px 14px}
+.font-preview .message:hover{background:transparent}
+.font-preview .message-user{color:var(--g90)}
+.font-preview .message+.message .message-user{color:var(--b80)}
+
+/* A room whose JOIN Twitch never answered. It is in the list and nothing arrives in it, which on
+   its own looks exactly like a quiet channel: the avatar is struck through so the row says which.
+   The retry sits in `.chat-empty`, which turns pointer events off for its own text — the one
+   element there meant to be clicked has to turn them back on. */
+.room-button.join-failed .room-avatar{border-color:var(--r78);color:var(--r80)}
+.room-button.join-failed .room-name{color:var(--n60)}
+#join-state.stopped{border-color:var(--r78);color:var(--r80)}
+#join-retry{pointer-events:auto;margin:11px auto 0;min-height:29px;padding:0 11px;font-size:10px}

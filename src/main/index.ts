@@ -20,7 +20,7 @@ import { getGlobalTwitchEmotes, getTwitchEmotes } from './twitch-emotes'
 import { getTwitchBadges } from './twitch-badges'
 import { applyUpdate, watchUpdates } from './updates'
 import { bufferMode, channelName, chatReply, mediaUrl, PLAYER_WINDOW_MIN_HEIGHT, PLAYER_WINDOW_MIN_WIDTH, qualityName, whisperText, WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH } from '../shared/validation'
-import type { ChatEvent, CommandKey, DetachedContext, MentionNotice, Preferences, Whisper, WhisperContext } from '../shared/types'
+import type { ChatEvent, ChatFont, CommandKey, DetachedContext, MentionNotice, Preferences, Whisper, WhisperContext } from '../shared/types'
 import { AppError, errorKey, fail, serializeError, type ErrorKey } from '../shared/errors'
 import { locale as activeLocale, m, resolveLocale, setLocale } from '../shared/i18n'
 
@@ -150,6 +150,9 @@ irc.on('event', queue)
 // saved before it has.
 function refreshWatches() {
   const channel = preferences?.active ?? ''
+  // The same channel decides the head of the join queue: after a reconnection, the room in front
+  // of the user is the one whose messages must come back first, not the one added first.
+  irc.priority = channel
   const broadcasterId = channel ? irc.roomStates.get(channel)?.['room-id'] ?? '' : ''
   const { token, clientId, userId, whispers } = accountSession?.credentials() ?? { token: null, clientId: null, userId: null, whispers: false }
   // Said once per account, because the alternative is silence: with no scope nothing is
@@ -274,6 +277,17 @@ function closeWhisperWindows() {
   for (const target of [...whisperWindows.values()]) if (living(target)) target.close()
   whisperWindows.clear()
   lastWhisperNotice.clear()
+}
+
+/**
+ * The typeface of the conversations, pushed to the windows already open. Everything else the
+ * settings hold reaches a conversation window through its context, once, on opening — which is
+ * enough for a choice made before the window existed. This one is made in the room, often with
+ * a conversation sitting beside it, and a window left in the old font would read as a setting
+ * that took only half.
+ */
+function broadcastChatFont(font: ChatFont) {
+  for (const target of whisperWindows.values()) living(target)?.webContents.send('app:chat-font', font)
 }
 
 /**
@@ -585,6 +599,9 @@ app.whenReady().then(async () => {
   // session gate opens with the theme and the size we left.
   activeScope = store.lastScope() ?? ANONYMOUS_SCOPE
   preferences = await store.load(activeScope)
+  // Before the renderer has saved anything: the first connection is the one with every room to
+  // join at once, so the queue needs to know which one matters from the start.
+  irc.priority = preferences.active
   // The language is set before the first paint: menu, notifications and renderer agree.
   setLocale(resolveLocale(process.env.TWICHAT_LOCALE ?? preferences.language, app.getPreferredSystemLanguages()))
   // Also sets `prefers-color-scheme` in the renderer: the window opens on the right theme already.
@@ -688,6 +705,7 @@ app.whenReady().then(async () => {
     preferences = await store.patch(activeScope, current => ({ ...input, window: current.window, playerWindow: current.playerWindow }))
     applyLanguage(preferences)
     nativeTheme.themeSource = preferences.theme
+    broadcastChatFont(preferences.chat.font)
     // Changing room moves the raid watch: the new channel is the one being watched.
     refreshWatches()
   })

@@ -39,22 +39,33 @@ function liveStart(html: string): string | undefined {
   return started && Number.isFinite(Date.parse(started)) ? started : undefined
 }
 
+// Twitch renders the same tag with its attributes in either order — `property` first on one page,
+// `content` first on the next — so every tag read here has to be matched both ways round.
+function metaContent(html: string, attribute: 'name' | 'property', name: string): string {
+  return html.match(new RegExp(`<meta\\s+${attribute}=["']${name}["']\\s+content=["']([^"']*)["']`, 'i'))?.[1]
+    ?? html.match(new RegExp(`<meta\\s+content=["']([^"']*)["']\\s+${attribute}=["']${name}["']`, 'i'))?.[1]
+    ?? ''
+}
+
 export function parsePublicProfile(channelInput: string, html: string): RoomProfile {
   const channel = channelName(channelInput)
-  const image = html.match(/<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']/i)?.[1]
-    ?? html.match(/<meta\s+content=["']([^"']+)["']\s+property=["']og:image["']/i)?.[1]
-  const title = htmlValue(html.match(/<meta\s+property=["']og:title["']\s+content=["']([^"']*)["']/i)?.[1] ?? '')
-  const description = htmlValue(html.match(/<meta\s+name=["']description["']\s+content=["']([^"']*)["']/i)?.[1] ?? '')
-  // A login Twitch does not know is answered with the site's own home page, which names Twitch and
-  // shows the Twitch logo. Only a real channel page is typed `video.other`, so nothing on the page
-  // is read as the channel's own unless that type is there: the login stands in instead.
-  const known = /<meta\s+property=["']og:type["']\s+content=["']video\.other["']/i.test(html)
+  const image = metaContent(html, 'property', 'og:image')
+  const title = htmlValue(metaContent(html, 'property', 'og:title'))
+  const description = htmlValue(metaContent(html, 'name', 'description'))
+  // A login Twitch does not know is answered with one of Twitch's own pages — the home page, or a
+  // route such as `/directory` that a login can collide with — and each of those carries an
+  // og:image of its own, the Twitch logo. They are all typed `website`, while a channel is typed
+  // `video.other` on air and `profile` off it. Nothing on the page is read as the channel's own
+  // unless it is one of those two types: the login stands in instead.
+  const type = metaContent(html, 'property', 'og:type').toLowerCase()
+  const known = type === 'video.other' || type === 'profile'
   return {
     channel,
     displayName: (known && cleanText(title.replace(/\s*[-–]\s*(?:Live (?:on|sur) Twitch|Twitch).*$/i, ''), 50)) || channel,
-    avatarUrl: known ? safeAvatar(image ? htmlValue(image) : '') : '',
-    // `video.other` is the type of every channel page, on air or not, so the JSON-LD broadcast is
-    // the only thing that tells them apart. The public page carries no audience count at all.
+    avatarUrl: known ? safeAvatar(htmlValue(image)) : '',
+    // The type separates the two states as well, but the JSON-LD broadcast states it directly and
+    // is what survived Twitch retyping the offline page from `video.other` to `profile`. The
+    // public page carries no audience count at all.
     live: /"isLiveBroadcast"\s*:\s*true/i.test(html),
     // The page is served in the reader's language, and so is the tail Twitch appends to the
     // title: `| Streaming <game> for N viewers.` in English, `| Stream de <game> pour N

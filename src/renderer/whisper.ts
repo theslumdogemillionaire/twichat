@@ -7,6 +7,7 @@ import { createEmotePicker } from './emote-picker'
 import { replaceRange } from './composer-text'
 import { paintMessageBody } from './message-body'
 import { applyTheme } from './theme'
+import { adoptChatFont, applyChatFont } from './chat-font'
 import { errorText } from '../shared/errors'
 import { clock, locale, m, setLocale } from '../shared/i18n'
 
@@ -38,7 +39,7 @@ const lines: Whisper[] = []
 /** Whispers that landed while the thread was still being read: held, then played in order. */
 const pending: Whisper[] = []
 let ready = false
-let chat: ChatPreferences = { links: true, confirm: true, gifs: true }
+let chat: ChatPreferences = { links: true, confirm: true, gifs: true, font: 'default' }
 let thirdParty: ReadonlyMap<string, ThirdPartyEmote> | undefined
 let twitchEmotes: readonly TwitchEmote[] | undefined
 let twitchNames: ReadonlyMap<string, string> | undefined
@@ -273,6 +274,7 @@ async function start() {
   hydrate()
   hydrateIcons()
   chat = context.chat
+  applyChatFont(chat.font)
   const name = context.peerName || context.peer
   $('#whisper-name').textContent = name
   $('#whisper-login').textContent = `@${context.peer}`
@@ -293,4 +295,7 @@ async function start() {
 // Registered before the context is asked for: a whisper landing during that round trip is held
 // rather than lost, and lands after the thread it belongs to rather than above it.
 api.onWhisper(line => { if (ready) append(line); else pending.push(line) })
+// The typeface is the one thing the settings change under an open window: the rest of what the
+// context carries was read once, and a window opened after the change reads the new value anyway.
+api.onChatFont(font => { chat = { ...chat, font: adoptChatFont(font) } })
 void start()

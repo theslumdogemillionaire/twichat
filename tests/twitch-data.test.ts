@@ -34,11 +34,26 @@ test('reads a live channel off its public page, the audience excepted', () => {
 
 test('tells an offline channel from a live one by its broadcast, not by its page type', () => {
   const profile = parsePublicProfile('anyme023', page('channel-offline.html'))
-  // An offline channel page is typed `video.other` like any other: only the JSON-LD broadcast is missing.
+  // Twitch types the page `profile` once the channel is off air and `video.other` while it is on,
+  // but what settles the question is the JSON-LD broadcast, which an offline page simply lacks.
   assert.equal(profile.live, false)
   assert.equal(profile.startedAt, undefined)
+  // Both of these read off a `profile` page, which is the whole point: an offline channel is still
+  // a channel, and its name and avatar are its own.
   assert.equal(profile.displayName, 'Anyme023')
   assert.equal(profile.avatarUrl, 'https://static-cdn.jtvnw.net/jtv_user_pictures/17ef7a09-3473-4ff8-85ca-e6648d392116-profile_image-300x300.png')
+})
+
+test('reads a tag whichever way round Twitch orders its attributes', () => {
+  // The same page comes back `property` first on one render and `content` first on the next, so a
+  // tag missed for its order would silently cost the name, the avatar or the title.
+  const reversed = '<meta content="video.other" property="og:type"><meta content="Domingo - Live sur Twitch" property="og:title">'
+    + '<meta content="https://static-cdn.jtvnw.net/jtv_user_pictures/3cdae7df-profile_image-300x300.png" property="og:image">'
+    + '<meta content="ON OUVRE LA MAILBOX | Stream de just chatting pour 9752 viewers." name="description">'
+  const profile = parsePublicProfile('domingo', reversed)
+  assert.equal(profile.displayName, 'Domingo')
+  assert.equal(profile.avatarUrl, 'https://static-cdn.jtvnw.net/jtv_user_pictures/3cdae7df-profile_image-300x300.png')
+  assert.equal(profile.title, 'ON OUVRE LA MAILBOX')
 })
 
 test('falls back to the login when Twitch does not know the channel', () => {
@@ -48,8 +63,20 @@ test('falls back to the login when Twitch does not know the channel', () => {
   assert.equal(profile.avatarUrl, '')
   assert.equal(profile.live, false)
   assert.equal(profile.title, undefined)
-  // Twitch's own channel is a channel like any other, and keeps the name its page gives.
-  assert.equal(parsePublicProfile('twitch', '<meta property="og:type" content="video.other"><meta property="og:title" content="Twitch - Twitch">').displayName, 'Twitch')
+  // Twitch's own channel is a channel like any other, and keeps the name its page gives. It is
+  // usually off air, so its page is the `profile` kind.
+  assert.equal(parsePublicProfile('twitch', '<meta property="og:type" content="profile"><meta property="og:title" content="Twitch - Twitch">').displayName, 'Twitch')
+})
+
+test('takes nothing from a Twitch route a login happens to spell', () => {
+  // `/directory` is not a channel, yet it names itself in a canonical URL exactly as one does and
+  // its og:image sits on the avatar host — so neither of those can be what admits a page. Only the
+  // `website` type keeps `All Categories` and the Twitch logo out of a room.
+  const profile = parsePublicProfile('directory', page('site-route.html'))
+  assert.equal(profile.displayName, 'directory')
+  assert.equal(profile.avatarUrl, '')
+  assert.equal(profile.title, undefined)
+  assert.equal(profile.live, false)
 })
 
 test('assembles and sorts the Helix catalog with tags and viewer counts', () => {

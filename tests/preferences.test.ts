@@ -64,6 +64,18 @@ test('the idle setting round-trips through the database', async () => {
   preferences.close()
 })
 
+test('the typeface of the conversations round-trips through the database', async () => {
+  const preferences = await store()
+  await preferences.patch('zerator', current => ({ ...current, chat: { ...current.chat, font: 'mono' } }))
+  assert.equal((await preferences.load('zerator')).chat.font, 'mono')
+  // It belongs to the account that set it, like everything else in the row.
+  assert.equal((await preferences.load('antoinedaniel')).chat.font, 'default')
+  // The column is read back through the validator: a name this build does not know reads as the shipped font.
+  await preferences.patch('zerator', current => ({ ...current, chat: { ...current.chat, font: 'wingdings' as never } }))
+  assert.equal((await preferences.load('zerator')).chat.font, 'default')
+  preferences.close()
+})
+
 test('the scope of an account-less session cannot be a Twitch login', () => {
   assert.equal(scopeName('ZeRaTor'), 'zerator')
   assert.equal(scopeName(null), ANONYMOUS_SCOPE)
@@ -212,9 +224,11 @@ test('a database a newer version wrote is refused rather than written into', asy
 })
 
 test('a database from before the whispers and the address book catches up, keeping what it had', async () => {
-  // What every installed copy looks like right now: the revisions up to the chat settings applied,
-  // rooms and settings in the file, and nothing of the whispers, the contacts or their switch. A
-  // migration that lost any of that would lose it on a machine, not in a test.
+  // A database left at revision 10: rooms and settings in the file, and nothing of the whispers,
+  // the contacts or their switch. A migration that lost any of that would lose it on a machine,
+  // not in a test. The fixture is built by writing a current database and stripping back to that
+  // revision, so every revision added after this one has to be undone here too — the `DROP COLUMN`
+  // list below is that undoing, and it grows with them.
   const path = join(await mkdtemp(join(tmpdir(), 'twichat-upgrade-')), 'twichat.db')
   const before = new PreferencesStore(path)
   await before.patch('alice', current => ({ ...current, channels: ['studio_nova', 'radio_ancienne'], active: 'studio_nova', quality: '720p60,720p,best' }))
@@ -223,7 +237,7 @@ test('a database from before the whispers and the address book catches up, keepi
   before.close()
 
   const rolled = new DatabaseSync(path)
-  rolled.exec('DROP TABLE contacts; DROP TABLE whispers; ALTER TABLE scopes DROP COLUMN notify_whispers; PRAGMA user_version = 10')
+  rolled.exec('DROP TABLE contacts; DROP TABLE whispers; ALTER TABLE scopes DROP COLUMN notify_whispers; ALTER TABLE scopes DROP COLUMN chat_font; PRAGMA user_version = 10')
   rolled.close()
 
   const after = new PreferencesStore(path)
@@ -234,6 +248,8 @@ test('a database from before the whispers and the address book catches up, keepi
   assert.deepEqual(after.channelActivity('alice'), { studio_nova: 1_757_160_000_000 })
   // The switch arrives on, so a whisper is not silently swallowed by a setting nobody chose.
   assert.equal(preferences.notifications.whispers, true)
+  // And the typeface arrives as the one shipped: an update must not redraw a chat nobody asked to change.
+  assert.equal(preferences.chat.font, 'default')
   // And the two tables are there, empty, ready for the first whisper and the first contact.
   assert.deepEqual(after.contacts.list('alice'), [])
   assert.deepEqual(after.whispers.thread('alice', 'cat_on_keyboard'), [])

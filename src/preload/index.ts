@@ -126,6 +126,11 @@ const api: TwichatAPI = {
     const listener = (_event: unknown, whisper: Whisper) => callback(whisper)
     ipcRenderer.on('app:whisper', listener)
     return () => ipcRenderer.removeListener('app:whisper', listener)
+  },
+  onChatFont: callback => {
+    const listener = (_event: unknown, font: string) => callback(font)
+    ipcRenderer.on('app:chat-font', listener)
+    return () => ipcRenderer.removeListener('app:chat-font', listener)
   }
 }
 contextBridge.exposeInMainWorld('twichat', api)

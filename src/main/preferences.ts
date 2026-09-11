@@ -1,6 +1,6 @@
 import { readFile, rename } from 'node:fs/promises'
 import type { DatabaseSync } from 'node:sqlite'
-import { channelName, chatPreferences, DEFAULT_IDLE_HOURS, languageChoice, layoutPreferences, notificationPreferences, playbackPreferences, playerWindowBounds, QUALITIES, qualityName, themeName, windowBounds } from '../shared/validation'
+import { channelName, chatPreferences, CONCURRENT_ROOMS, DEFAULT_IDLE_HOURS, languageChoice, layoutPreferences, notificationPreferences, playbackPreferences, playerWindowBounds, QUALITIES, qualityName, themeName, windowBounds } from '../shared/validation'
 import type { Preferences } from '../shared/types'
 import { ANONYMOUS_SCOPE, openDatabase } from './database'
 import { ContactStore } from './contacts'
@@ -13,13 +13,15 @@ export const defaultPreferences: Preferences = {
   channels: [], active: '', quality: '480p,best', theme: 'system', language: '',
   layout: { playerWidth: 0, sidebarCollapsed: false, hideIdleChannels: true, idleChannelHours: DEFAULT_IDLE_HOURS },
   playback: { buffer: 'balanced', autoplay: true, detached: false, volume: 1, muted: false }, notifications: { mentions: true, whispers: true },
-  chat: { links: true, confirm: true, gifs: true }
+  chat: { links: true, confirm: true, gifs: true, font: 'default' }
 }
 
 export function validatePreferences(input: unknown): Preferences {
   if (!input || typeof input !== 'object') fail('preferencesInvalid')
   const value = input as Record<string, unknown>
-  if (!Array.isArray(value.channels) || value.channels.length > 20) fail('channelLimit')
+  // Not a rule of ours about how many rooms are reasonable — a row this long did not come from
+  // a session Twitch would have allowed, so it is read as a damaged file rather than a list.
+  if (!Array.isArray(value.channels) || value.channels.length > CONCURRENT_ROOMS) fail('channelLimit')
   const channels = [...new Set(value.channels.map(channelName))]
   const active = value.active === '' ? '' : channelName(value.active)
   const bounds = windowBounds(value.window)
@@ -41,7 +43,7 @@ export function scopeName(login: string | null): string {
 interface ScopeRow {
   active: string; quality: string; theme: string; language: string
   player_width: number; sidebar_collapsed: number
-  buffer: string; autoplay: number; notify_mentions: number; notify_whispers: number; video_detached: number; chat_links: number; chat_link_confirm: number; chat_gifs: number
+  buffer: string; autoplay: number; notify_mentions: number; notify_whispers: number; video_detached: number; chat_links: number; chat_link_confirm: number; chat_gifs: number; chat_font: string
   window_width: number | null; window_height: number | null
   window_x: number | null; window_y: number | null; window_maximized: number
   player_window_width: number | null; player_window_height: number | null
@@ -77,7 +79,7 @@ function rowToPreferences(row: ScopeRow, channels: string[]): Preferences {
     },
     playback: { buffer: row.buffer, autoplay: bool(row.autoplay), detached: bool(row.video_detached), volume: row.volume / 100, muted: bool(row.muted) },
     notifications: { mentions: bool(row.notify_mentions), whispers: bool(row.notify_whispers) },
-    chat: { links: bool(row.chat_links), confirm: bool(row.chat_link_confirm), gifs: bool(row.chat_gifs) },
+    chat: { links: bool(row.chat_links), confirm: bool(row.chat_link_confirm), gifs: bool(row.chat_gifs), font: row.chat_font },
     ...(window ? { window } : {}),
     ...(playerWindow ? { playerWindow } : {})
   })
@@ -120,8 +122,8 @@ export class PreferencesStore {
           scope, active, quality, theme, language, player_width, sidebar_collapsed, buffer, autoplay, notify_mentions, notify_whispers,
           window_width, window_height, window_x, window_y, window_maximized,
           player_window_width, player_window_height, player_window_x, player_window_y, player_window_pinned, volume, muted, video_detached,
-          hide_idle, idle_hours, chat_links, chat_link_confirm, chat_gifs, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          hide_idle, idle_hours, chat_links, chat_link_confirm, chat_gifs, chat_font, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(scope) DO UPDATE SET
           active = excluded.active, quality = excluded.quality, theme = excluded.theme, language = excluded.language,
           player_width = excluded.player_width, sidebar_collapsed = excluded.sidebar_collapsed,
@@ -135,6 +137,7 @@ export class PreferencesStore {
           volume = excluded.volume, muted = excluded.muted, video_detached = excluded.video_detached,
           hide_idle = excluded.hide_idle, idle_hours = excluded.idle_hours,
           chat_links = excluded.chat_links, chat_link_confirm = excluded.chat_link_confirm, chat_gifs = excluded.chat_gifs,
+          chat_font = excluded.chat_font,
           updated_at = excluded.updated_at`).run(
         scope, preferences.active, preferences.quality, preferences.theme, preferences.language,
         preferences.layout.playerWidth, flag(preferences.layout.sidebarCollapsed),
@@ -145,7 +148,7 @@ export class PreferencesStore {
         preferences.playerWindow?.x ?? null, preferences.playerWindow?.y ?? null, flag(preferences.playerWindow?.pinned ?? false),
         Math.round(preferences.playback.volume * 100), flag(preferences.playback.muted), flag(preferences.playback.detached),
         flag(preferences.layout.hideIdleChannels), preferences.layout.idleChannelHours,
-        flag(preferences.chat.links), flag(preferences.chat.confirm), flag(preferences.chat.gifs),
+        flag(preferences.chat.links), flag(preferences.chat.confirm), flag(preferences.chat.gifs), preferences.chat.font,
         Date.now()
       )
       // Rewrite the whole list: the order of the rooms is part of the preference.

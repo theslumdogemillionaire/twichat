@@ -19,7 +19,7 @@ export const en = {
   errors: {
     channelInvalid: 'Invalid channel name.',
     channelFormat: 'Use a Twitch username: letters, digits and underscores, 25 characters at most.',
-    channelLimit: '20 channels maximum.',
+    channelLimit: 'More channels than Twitch lets one account hold at once (100).',
     channelListInvalid: 'Invalid channel list.',
     messageEmpty: 'Empty or invalid message.',
     messageTooLong: 'Message too long (450 bytes maximum).',
@@ -69,7 +69,7 @@ export const en = {
     streamEnded: 'The live stream has stopped.',
     mediaUnresponsive: 'The Twitch media is no longer responding.',
 
-    ircJoinLimit: '20 channels maximum, to keep the connection light.',
+    ircJoinLimit: 'A hundred channels at once is Twitch’s own ceiling for an account.',
     ircNeedAccount: 'Connect your Twitch account to write.',
     ircJoinFirst: 'Join this channel before writing.',
     ircRateLimit: 'Wait a moment before the next message.',
@@ -210,6 +210,8 @@ export const en = {
     openYourChannelChat: 'Open your channel chat',
     rightClickToLeave: 'Right-click to leave this channel',
     roomJoined: 'CHANNEL JOINED',
+    roomJoinFailed: 'CHANNEL NOT JOINED',
+    roomJoinFailedHint: 'Twitch never confirmed this channel. Nothing will arrive in it until it is joined.',
     roomJoining: 'CONNECTING TO CHANNEL…',
     guest: 'Guest',
     channelMessage: 'Channel message',
@@ -224,7 +226,6 @@ export const en = {
     followOnTwitch: (login: string) => `Opens ${login} on Twitch, where following happens.`,
     loadingProfile: 'Loading the Twitch profile…',
     profileNeedsAccount: 'Connect your Twitch account to see the bio, followers and live status.',
-    roomLimitReached: '20 channels maximum: leave a channel before joining another.',
     exploreChannels: 'Explore channels',
     joinChannelShortcut: 'Join a channel (⌘ K)',
     accountAndSettings: 'Account and settings',
@@ -553,7 +554,7 @@ export const en = {
     welcome: {
       kicker: 'NO CHANNEL OPEN',
       tagline: 'INDEPENDENT TWITCH CLIENT',
-      subtitle: '20 CHANNELS AT ONCE · ⌘ K TO SWITCH',
+      subtitle: 'A HUNDRED CHANNELS AT ONCE · ⌘ K TO SWITCH',
       titleTail: 'The stream right beside it.',
       titleLead: 'Chat first.',
       body: 'Every Twitch channel takes its place in the sidebar.<br>The video player stays beside it, resizable or audio only.',
@@ -562,7 +563,7 @@ export const en = {
       exampleChannelOne: '# zerator',
       exampleChannelTwo: '# ponce',
       twitch: '# twitch',
-      channelsTitle: 'Twenty channels open',
+      channelsTitle: 'A hundred channels open',
       channelsBody: '⌘ K to move between them.',
       playerTitle: 'Video on demand',
       playerBody: 'Compact player, fullscreen or audio only.',
@@ -648,6 +649,9 @@ export const en = {
       detachToggle: 'Video in its own window',
       detachHint: 'The room keeps only an anchor. The window resizes freely, holds the picture’s ratio and can stay on top.',
       chatTitle: 'Chat',
+      font: 'Conversation typeface',
+      fontHint: 'Applies to the channel’s messages and to whispers, in the log as in what you write.',
+      fontNote: 'The first is the one shipped with the application, drawn for legibility. The others take the nearest family your machine already has: nothing is downloaded, and the rest of the interface stays as it is.',
       linksToggle: 'Make links clickable',
       linksHint: 'Addresses written in a message open in your browser. Otherwise they stay text to copy.',
       linkConfirmToggle: 'Ask before opening a link',
@@ -695,6 +699,7 @@ export const en = {
       title: 'You are in the channel.',
       body: 'New messages will appear here.<br>Chat stays open, even without video.',
       connecting: 'Connecting to the channel…',
+      retry: 'Try again',
     },
     messageForm: {
       inputLabel: 'Your message',
@@ -821,7 +826,7 @@ export const en = {
       placeholder: {
         example: 'e.g. zerator',
       },
-      limit: '20 channels maximum',
+      limit: 'A hundred channels, Twitch’s own ceiling',
       submit: 'Join',
     },
     linkForm: {
@@ -876,6 +881,15 @@ export const en = {
     },
     messageContextJoin: {
       joinChannel: 'Join their channel',
+    },
+    chatFont: {
+      default: 'Atkinson Hyperlegible',
+      system: 'System font',
+      sans: 'Wide sans-serif',
+      serif: 'Serif',
+      mono: 'Monospace',
+      previewOne: 'patch 04 finally runs — I stream at 9',
+      previewTwo: 'my handle is 0O1lI, good luck',
     },
     idleDelay: {
       hours6: '6 hours',
