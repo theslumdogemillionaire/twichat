@@ -143,10 +143,16 @@ export function createTwichatServer(overrides = {}) {
   // bounds what a flood holds at once. A full table refuses the newcomer rather than evicting an
   // older entry: evicting would hand an attacker a way to cancel other people's sign-ins.
   const maxSessions = Number(overrides.maxSessions ?? env.TWICHAT_MAX_SESSIONS ?? 2000)
-  // Where the published packages live. Their names carry the version, so the address of the one
-  // to serve is not known until the current version is: `latest.yml` sits at a fixed address in
-  // that same folder and names it, which is one plain file to read rather than an API to query.
-  const releaseBase = String(overrides.releaseBase ?? env.TWICHAT_RELEASE_BASE ?? '').replace(/\/$/, '')
+  // The releases root. The package names carry the version, so the address of the one to serve is
+  // not known until the current version is: `latest.yml` sits at a fixed address under `latest`
+  // and names it, which is one plain file to read rather than an API to query.
+  //
+  // The package itself is then addressed by its tag rather than through `latest`. The two point at
+  // the same release only until the next one lands: a version still held from before that moment,
+  // asked for under `latest`, names a file that release does not carry and the download 404s. By
+  // tag, a version read a moment ago still serves the release it was read from.
+  const releaseBase = String(overrides.releaseBase ?? env.TWICHAT_RELEASE_BASE ?? '')
+    .replace(/\/$/, '').replace(/\/latest\/download$/, '')
   let knownVersion = null
   let versionRead = 0
   let versionAttempt = 0
@@ -159,7 +165,7 @@ export function createTwichatServer(overrides = {}) {
     if (Date.now() - versionAttempt < 60_000) return knownVersion
     versionAttempt = Date.now()
     versionRequest = (async () => { try {
-      const response = await fetcher(`${releaseBase}/latest.yml`, { signal: AbortSignal.timeout(5000) })
+      const response = await fetcher(`${releaseBase}/latest/download/latest.yml`, { signal: AbortSignal.timeout(5000) })
       if (!response.ok) return knownVersion
       const found = /^version:\s*(\S+)/m.exec(await response.text())
       if (!found || !/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(found[1])) return knownVersion
@@ -390,8 +396,8 @@ export function createTwichatServer(overrides = {}) {
           // No version means the release could not be read at all. Its page always resolves, and
           // says more to a visitor than a download that fails.
           const target = version
-            ? `${releaseBase}/${file.name.replace('{version}', version)}`
-            : releaseBase.replace(/\/download$/, '')
+            ? `${releaseBase}/download/v${version}/${file.name.replace('{version}', version)}`
+            : `${releaseBase}/latest`
           response.writeHead(302, { Location: new URL(target).href })
           return response.end()
         }
