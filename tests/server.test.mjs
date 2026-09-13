@@ -360,12 +360,16 @@ test('application metadata learns the actual release without delaying public HTM
 })
 
 test('download filenames and metadata share the resolved release, with a safe failure fallback', async t => {
+  // The older spelling of the variable, still in a deployed .env, has to keep working.
   const context = await runningServer({ releaseBase: 'https://releases.example/latest/download', fetch: async () => new Response('version: 2.3.4\n') })
   t.after(() => context.server.close())
   for (const [platform, filename] of [['mac', 'Twichat-2.3.4-mac.dmg'], ['windows', 'Twichat-2.3.4-windows.exe'], ['deb_arm64', 'Twichat-2.3.4-linux-arm64.deb']]) {
     const response = await fetch(`${context.origin}/download?platform=${platform}`, { redirect: 'manual', method: 'HEAD' })
     assert.equal(response.status, 302)
-    assert.equal(response.headers.get('location'), `https://releases.example/latest/download/${filename}`)
+    // By tag, never through `latest`. A version read just before a release lands names a file the
+    // new `latest` does not carry, and that is a 404 on every download button until the cache
+    // expires. The tag holds whatever the version was read from.
+    assert.equal(response.headers.get('location'), `https://releases.example/download/v2.3.4/${filename}`)
   }
   const broken = await runningServer({ releaseBase: 'https://releases.example/latest/download', fetch: async () => new Response('version: not-a-version\n') })
   t.after(() => broken.server.close())
