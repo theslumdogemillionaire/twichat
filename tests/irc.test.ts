@@ -36,11 +36,39 @@ test('publishes the event line then the viewer message for a resub', () => {
   assert.notEqual(event.id, chat.id)
 })
 
-test('a raid without a message produces only the system line', () => {
-  const messages = feed('@msg-id=raid;id=xyz;msg-param-displayName=Dora;msg-param-viewerCount=42 :tmi.twitch.tv USERNOTICE #salon')
+test('an incoming raid preserves its source and audience in a single system event', () => {
+  const messages = feed('@msg-id=raid;id=xyz;login=other;msg-param-login=DoRa;msg-param-displayName=Dora;msg-param-viewerCount=42;msg-param-profileImageURL=https://static-cdn.jtvnw.net/jtv_user_pictures/dora.png :tmi.twitch.tv USERNOTICE #salon')
   assert.equal(messages.length, 1)
   assert.equal(messages[0].text, 'Dora débarque en raid avec 42 spectateurs.')
   assert.equal(messages[0].system, true)
+  assert.equal(messages[0].channel, 'salon')
+  assert.equal(messages[0].id, 'xyz:event')
+  assert.deepEqual(messages[0].raid, { login: 'dora', displayName: 'Dora', viewers: 42, avatarUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/dora.png' })
+})
+
+test('raid fallback keeps an unknown audience unknown and rejects unusable identities and avatars', () => {
+  for (const count of ['', '-1', 'Infinity', '1.5', '9007199254740992', 'oops']) {
+    const [event] = feed(`@msg-id=raid;msg-param-login=bad/login;msg-param-displayName=Dora;msg-param-viewerCount=${count};msg-param-profileImageURL=https://example.com/avatar.png :tmi.twitch.tv USERNOTICE #salon`)
+    assert.deepEqual(event.raid, { login: '', displayName: 'Dora', viewers: null, avatarUrl: '' })
+    assert.equal(event.text, 'Dora débarque en raid avec sa communauté.')
+  }
+  const [fallback] = feed('@msg-id=raid;login=dora;display-name=Dora;msg-param-viewerCount=0 :tmi.twitch.tv USERNOTICE #salon')
+  assert.deepEqual(fallback.raid, { login: 'dora', displayName: 'Dora', viewers: 0, avatarUrl: '' })
+  for (const url of ['javascript:alert(1)', 'https://static-cdn.jtvnw.net.evil.test/x', 'https://user@static-cdn.jtvnw.net/x', 'https://static-cdn.jtvnw.net:8080/x']) {
+    const [event] = feed(`@msg-id=raid;msg-param-profileImageURL=${url} :tmi.twitch.tv USERNOTICE #salon`)
+    assert.equal(event.raid?.avatarUrl, '')
+  }
+})
+
+test('other notices and outgoing raid summaries never become incoming raid cards', () => {
+  const [event] = feed('@msg-id=unraid :tmi.twitch.tv USERNOTICE #salon')
+  assert.equal(event.raid, undefined)
+  assert.equal(event.text, 'Le raid a été annulé.')
+  const irc = new TwitchIrc()
+  const events: ChatEvent[] = []
+  irc.on('event', (event: ChatEvent) => events.push(event))
+  irc.system('salon', 'La chaîne part en raid vers Dora.')
+  assert.equal(events[0].type === 'message' && events[0].message.raid, undefined)
 })
 
 test('an announcement keeps its text attributed to its author', () => {
@@ -290,4 +318,72 @@ test('the only ceiling left is the one Twitch publishes', () => {
   // Twitch holds 100 rooms per account at once. The 20 that used to stand here was its JOIN
   // *rate* — 20 per 10 s — which the spacing above already keeps the queue well under.
   assert.throws(() => irc.join('one_too_many'), /ircJoinLimit/)
+})
+
+// Four tags Twitch sends on the same PRIVMSG frame and the app used to drop.
+
+test('a first message in the channel is marked, and every other one is not', () => {
+  const [first] = feed('@first-msg=1;id=11111111-1111-1111-1111-111111111111;display-name=Newcomer;tmi-sent-ts=1788563234315 :newcomer!newcomer@newcomer.tmi.twitch.tv PRIVMSG #salon :bonjour')
+  assert.equal(first.firstMessage, true)
+  // `first-msg=0` is on nearly every line: only the flag itself may raise the chip.
+  assert.equal(feed(ROOT)[0].firstMessage, undefined)
+  const [untagged] = feed(':alice!alice@alice.tmi.twitch.tv PRIVMSG #salon :coucou')
+  assert.equal(untagged.firstMessage, undefined)
+})
+
+test('a channel-points highlight is marked, and its reward id is not invented into anything', () => {
+  const [message] = feed('@msg-id=highlighted-message;custom-reward-id=c2f1d4a0-0000-4000-8000-000000000001;id=22222222-2222-2222-2222-222222222222;display-name=Pixel;tmi-sent-ts=1788563234315 :pixel!pixel@pixel.tmi.twitch.tv PRIVMSG #salon :regardez ça')
+  assert.equal(message.highlighted, true)
+  assert.equal(message.text, 'regardez ça')
+  // Naming the reward needs `channel:read:redemptions`: nothing of that id may reach the message.
+  assert.equal(JSON.stringify(message).includes('c2f1d4a0'), false)
+  assert.equal(feed(ROOT)[0].highlighted, undefined)
+})
+
+// Shared chat, since September 2024: the message is written in one channel and mirrored into the
+// others of the same session. The `source-*` tags are the only thing that says so.
+const SHARED = '@badges=subscriber/0;source-badges=moderator/1,subscriber/12;source-id=90000000-0000-4000-8000-000000000001;source-room-id=71092938;room-id=643143404;id=33333333-3333-3333-3333-333333333333;display-name=Mirrored;tmi-sent-ts=1788563234315 :mirrored!mirrored@mirrored.tmi.twitch.tv PRIVMSG #theslumdogemillionaire :salut d’à côté'
+
+test('a shared-chat message wears the badges of the channel it was written in', () => {
+  const [message] = feed(SHARED)
+  assert.deepEqual(message.badges, ['moderator/1', 'subscriber/12'])
+  assert.deepEqual(message.source, { roomId: '71092938', channel: '' })
+})
+
+test('the source channel is named only when this session already holds that room', () => {
+  const joined = feed('@room-id=71092938 :tmi.twitch.tv ROOMSTATE #studio_nova', SHARED)
+  assert.deepEqual(joined.at(-1)?.source, { roomId: '71092938', channel: 'studio_nova' })
+})
+
+test('an empty source-badges means no badge over there, never this room’s', () => {
+  const [message] = feed('@badges=vip/1;source-badges=;source-room-id=71092938;room-id=643143404;id=44444444-4444-4444-4444-444444444444 :bob!bob@bob.tmi.twitch.tv PRIVMSG #salon :rien du tout')
+  assert.deepEqual(message.badges, [])
+  // No `source-badges` at all is a different case: the room's own tag is all Twitch sent.
+  const [absent] = feed('@badges=vip/1;source-room-id=71092938;room-id=643143404;id=55555555-5555-5555-5555-555555555555 :bob!bob@bob.tmi.twitch.tv PRIVMSG #salon :toujours rien')
+  assert.deepEqual(absent.badges, ['vip/1'])
+})
+
+test('a message from the room itself carries no source, however Twitch spells the id', () => {
+  assert.equal(feed(ROOT)[0].source, undefined)
+  // The host channel of a shared session gets `source-room-id` equal to its own room id.
+  const [own] = feed('@source-room-id=643143404;room-id=643143404;id=66666666-6666-6666-6666-666666666666 :bob!bob@bob.tmi.twitch.tv PRIVMSG #salon :chez moi')
+  assert.equal(own.source, undefined)
+  for (const id of ['', 'abc', '12a', '../1']) {
+    const [bad] = feed(`@source-room-id=${id};room-id=643143404;id=77777777-7777-7777-7777-777777777777 :bob!bob@bob.tmi.twitch.tv PRIVMSG #salon :bizarre`)
+    assert.equal(bad.source, undefined)
+  }
+})
+
+test('the bits total is carried, and only when Twitch actually counted one', () => {
+  const [cheer] = feed('@bits=100;id=88888888-8888-8888-8888-888888888888;display-name=Pixel;tmi-sent-ts=1788563234315 :pixel!pixel@pixel.tmi.twitch.tv PRIVMSG #salon :Cheer100 bravo')
+  assert.equal(cheer.bits, 100)
+  // The body keeps the token: the renderer replaces it after the emote offsets have been read.
+  assert.equal(cheer.text, 'Cheer100 bravo')
+  // Somebody typing the word without cheering gets no tag, and therefore no cheermote.
+  const [typed] = feed(':pixel!pixel@pixel.tmi.twitch.tv PRIVMSG #salon :Cheer100 bravo')
+  assert.equal(typed.bits, undefined)
+  for (const value of ['', '0', '-5', '1.5', 'lots', '9999999999']) {
+    const [bad] = feed(`@bits=${value} :pixel!pixel@pixel.tmi.twitch.tv PRIVMSG #salon :Cheer100`)
+    assert.equal(bad.bits, undefined, value)
+  }
 })

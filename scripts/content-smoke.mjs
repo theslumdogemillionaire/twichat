@@ -35,11 +35,13 @@ try {
         await page.locator('#theme-toggle').click()
         await page.locator('.reading-figure img').evaluate(img => img.decode())
         assert.equal(await page.locator('.reading-figure img').evaluate(img => img.currentSrc.includes('-light.')), colorScheme !== 'light')
+        // The choice is stored, so it would follow us onto the next page: put it back.
+        await page.locator('#theme-toggle').click()
       }
     }
     assert.deepEqual(errors, [])
     await context.close()
-    console.log(`✓ ${locale}/${colorScheme}: six content pages, five widths, links and theme`)
+    console.log(`✓ ${locale}/${colorScheme}: ${CONTENT.length} content pages, five widths, links and theme`)
   }
   const phone = await browser.newContext(devices['iPhone 13'])
   const mobile = await phone.newPage()

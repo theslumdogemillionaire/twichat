@@ -1,11 +1,14 @@
 import '@fontsource-variable/atkinson-hyperlegible-next'
 import './style.css'
-import type { BufferMode, ChannelInfo, ChatBadge, ChatEvent, ChatMessage, ChatPreferences, Connection, FollowStatus, LayoutPreferences, NotificationPreferences, PlaybackPreferences, Preferences, RoomProfile, ScopedPreferences, Snapshot, StreamSummary, ThirdPartyEmote, TwitchEmote, UpdateNotice, UserCard } from '../shared/types'
-import { bufferMode, idleChannelHours } from '../shared/validation'
+import type { AccountScopes, BufferMode, CategoryMatch, ChannelInfo, ChatBadge, ChatEvent, ChatMessage, ChatPreferences, Cheermote, Connection, FollowStatus, LayoutPreferences, NotificationPreferences, PlaybackPreferences, Preferences, RoomProfile, ScopedPreferences, Snapshot, StreamSummary, ThirdPartyEmote, TwitchEmote, UpdateNotice, UserCard } from '../shared/types'
+import { mergeById } from './paging'
+import { bufferMode, CHAT_COLORS, idleChannelHours } from '../shared/validation'
 import { hydrateIcons, icon } from './icons'
 import { ChatStore } from './chat-store'
 import { VirtualLog } from './virtual-log'
+import { createRaidMessage } from './raid-message'
 import { StreamPlayer, type StreamPlayerState } from './player'
+import { cheermoteIndex } from './cheers'
 import { inlineEmoteNodes } from './emotes'
 import { paintMessageBody } from './message-body'
 import { liveUptime } from './live-stats'
@@ -63,6 +66,9 @@ const twitchEmoteIds = new Map<string, Map<string, string>>()
 /** The badge images of each room, keyed as the `badges` tag names them: `moderator/1`. */
 const twitchBadges = new Map<string, Map<string, ChatBadge>>()
 const badgeRoomKeys = new Map<string, string>()
+/** The cheer prefixes of each room, keyed lowercase: Twitch matches a cheer without regard to case. */
+const cheermotes = new Map<string, ReadonlyMap<string, Cheermote>>()
+const cheerRoomKeys = new Map<string, string>()
 const twitchRoomKeys = new Map<string, string>()
 const roomIds = new Map<string, string>()
 // The account badges, room by room: a moderator, a VIP or a subscriber writes despite followers-only mode.
@@ -93,6 +99,15 @@ const selectedTags = new Map<string, string>()
 // card without the mark is one we cannot vouch for, never one we know is not followed.
 const followedLogins = new Set<string>()
 let state: Snapshot
+/**
+ * What this account's token was granted beyond chat. Held apart from `state` because it changes
+ * on its own: signing in again as the account already connected — the only way an account already
+ * on this machine gains these permissions — moves no preference and no scope, so it arrives on a
+ * channel of its own rather than with a set of preferences.
+ */
+let accountScopes: AccountScopes = { emotes: false, blocks: false, chatColor: false }
+/** Everyone this account has blocked on Twitch, by login. The card reads it; the main process filters on it. */
+let blockedLogins = new Set<string>()
 let active = ''
 // The account display name, when Twitch gives one: a non-Latin nickname looks nothing like its login.
 let accountDisplayName = ''
@@ -112,11 +127,26 @@ function showView(view: View) {
   // so the trail is written at the one door rather than at each of its callers.
   if (!restoringPage) {
     if (view === 'welcome') pageHistory.reset()
+    else if (view === 'discover') pageHistory.push(discoverPage())
     else pageHistory.push({ view, channel: view === 'room' ? active : undefined })
   }
   renderPageNav()
   updateDockPresence()
   updateTitlebarNote()
+}
+
+/**
+ * Where the explorer stands, as a page. Its lists are chosen the way a room is, and a category is
+ * a step inside one of them: recording all of that as a single "explorer" page is what made "back"
+ * from a category leave the explorer instead of returning to the list it was opened from.
+ */
+function discoverPage(): Page {
+  return { view: 'discover', scope: discoveryScope, category: activeCategory ?? undefined, origin: categoryOrigin }
+}
+
+/** A move inside the explorer, recorded at the one place that makes them. */
+function pushDiscoverPage() {
+  if (!restoringPage && currentView === 'discover') { pageHistory.push(discoverPage()); renderPageNav() }
 }
 
 /** The two buttons say what the trail allows: a dead end is disabled, never silently inert. */
@@ -133,7 +163,14 @@ function applyPage(page: Page) {
   restoringPage = true
   try {
     if (page.view === 'room') { if (page.channel) activate(page.channel) }
-    else if (page.view === 'discover') openDiscover()
+    else if (page.view === 'discover') {
+      // The list comes back before the view does: `openDiscover` loads whatever scope is set, and
+      // setting it afterwards would fetch the page being left on the way to the one asked for.
+      if (page.origin === 'top' || page.origin === 'followed' || page.origin === 'categories') categoryOrigin = page.origin
+      if (page.scope && page.scope !== discoveryScope) setDiscoveryScope(page.scope as 'top' | 'followed' | 'category' | 'categories', page.category ?? null)
+      else if (page.scope === 'category' && page.category && page.category.id !== activeCategory?.id) setDiscoveryScope('category', page.category)
+      openDiscover()
+    }
     else openSettings()
   } finally { restoringPage = false }
   renderPageNav()
@@ -210,6 +247,28 @@ function renderUpdateNotice() {
   element.textContent = updateNotice.state === 'ready' ? m.app.updateReady(updateNotice.version) : m.app.updateAvailable(updateNotice.version)
   element.title = updateNotice.state === 'ready' ? m.app.updateInstall : m.app.updateOpen
 }
+/**
+ * An account signed in before this build asked for the scopes some of its views need.
+ *
+ * Twitch consents all or nothing — its authorisation screen has no per-scope boxes — so a grant
+ * that is missing was never refused: it was asked for after this token was issued. Renewal does
+ * not widen a token either, the refresh carries the scopes of the sign-in that opened it. Only a
+ * new round-trip through the browser adds them, which is what this offers.
+ *
+ * It offers rather than insists, and the reason is the failure it must not cause: the window
+ * cannot tell a token that predates a scope from a sign-in server that never asks for one. Where
+ * the server is the one behind, signing in again changes nothing — so a version of this that
+ * barred the way would shut someone out of their own chat, in a loop with no way out of the
+ * application. Nothing here is broken meanwhile: every view short of a scope already says so.
+ */
+function renderScopeNotice() {
+  const element = $<HTMLButtonElement>('#scope-notice')
+  const missing = !!state.account && (!accountScopes.emotes || !accountScopes.blocks || !accountScopes.chatColor)
+  element.hidden = !missing
+  if (!missing) return
+  element.textContent = m.app.scopesMissing
+  element.title = m.app.scopesMissingHint
+}
 let joined = new Set<string>()
 /**
  * Rooms whose JOIN Twitch never answered. They are in the list, the sidebar draws them, and
@@ -234,7 +293,60 @@ let followedStreams: StreamSummary[] = []
 let followedOffline: RoomProfile[] = []
 /** Twitch was still offering more than the list holds: the count above it says so. */
 let followedTruncated = false
-let discoveryScope: 'top' | 'followed' = 'top'
+/**
+ * `category` is the catalog narrowed by Twitch rather than by us: same loader, same list, one more
+ * parameter on the call. It shares `discoveredStreams` because nobody is in two of these at once,
+ * and `activeCategory` is what says which of the two that list belongs to.
+ */
+let discoveryScope: 'top' | 'followed' | 'category' | 'categories' = 'top'
+let activeCategory: { id: string; name: string } | null = null
+/**
+ * Which list a category was opened from. It is what the way out is labelled with, and what makes
+ * that way out the same step "back" takes — a category reached from the popular channels returns
+ * there, not to a categories index nobody was looking at.
+ */
+let categoryOrigin: 'top' | 'followed' | 'categories' = 'categories'
+/**
+ * Twitch's categories by audience, and the list the `categories` tab paints. It is not a catalogue
+ * of streams and shares nothing with one: its own loader, its own list, its own freshness. Reusing
+ * `loadDiscovery` for it would have fetched channels for a view that shows none.
+ */
+let topCategories: CategoryMatch[] = []
+let topCategoriesUpdatedAt = 0
+let topCategoriesLoading = false
+/**
+ * Where the next page of each list starts, empty when there is none. Twitch hands back a hundred
+ * rows and a cursor; the explorer used to drop the cursor, which is why so much of Twitch was
+ * simply not reachable from here. One per list, because the two are walked independently.
+ */
+let topCategoriesCursor = ''
+let discoveredCursor = ''
+/**
+ * A page being fetched under a list already on screen. Kept apart from the loading flags: those
+ * gate the skeleton, and a skeleton over a list the reader is scrolled into would throw them back
+ * to the top of a view they were halfway down.
+ */
+let pagingMore = false
+/**
+ * Consecutive pages that never arrived. A road being out is not a verdict on the list, so the
+ * cursor is kept and the next time the bottom comes into view it is tried again; after three the
+ * sentinel goes, because a bottom that asks forever is worse than a list that ends.
+ */
+let pagingFailures = 0
+/**
+ * The categories this account has opened, most recently first, read from this machine's own
+ * database. It is the one list here that describes the reader rather than Twitch, which is why it
+ * lives locally and goes nowhere: the explorer asks the main process for it, and nothing sends it.
+ */
+let visitedCategories: CategoryMatch[] = []
+let visitedCategoriesRead = false
+/**
+ * The category `discoveredStreams` actually holds, which is not the one being browsed: between
+ * leaving a category and its replacement landing, the list on screen is still the old one. Without
+ * it the way back out of a category painted that category's hundred channels under the general
+ * catalogue's heading, chip row and all, until the real one arrived.
+ */
+let loadedCategory = ''
 let followedLoginsLoading = false
 /**
  * The errors that condemn a saved account: its row leaves the session screen.
@@ -293,6 +405,9 @@ let chatLinkConfirm = true
 // Whether the GIFs of Twitch's GIPHY keyboard are shown as images. Held here for the same
 // reason as the links: every row painted asks the question.
 let chatGifs = true
+// Whether the time shows beside each message. Unlike the two above, no painted row reads it:
+// it lands on the root as an attribute and the stylesheet does the rest.
+let chatTimestamps = true
 // The address the dialog is asking about. Emptied on every way out, so nothing older can be opened.
 let pendingLink = ''
 // The player volume: the native video controls being hidden, it lives here and follows the account.
@@ -306,6 +421,9 @@ const sessionGate = $('#session-gate')
 const joinDialog = $<HTMLDialogElement>('#join-dialog')
 const accountDialog = $<HTMLDialogElement>('#account-dialog')
 const linkDialog = $<HTMLDialogElement>('#link-dialog')
+const blockDialog = $<HTMLDialogElement>('#block-dialog')
+/** Who the block dialog is asking about, and which way. Emptied on every way out of it. */
+let pendingBlock: { login: string; displayName: string; userId: string; blocked: boolean } | null = null
 const chatLog = $('#chat-log')
 const space = $('#virtual-space')
 const video = $<HTMLVideoElement>('#video')
@@ -338,7 +456,8 @@ const composer = createComposer({
   reload: () => reloadEmotes(active),
   messages: () => store.get(active),
   avatar: login => chatterAvatars.get(login),
-  error: failure => toast(displayError(failure))
+  error: failure => toast(displayError(failure)),
+  ownEmotesGranted: () => accountScopes.emotes
 })
 
 /** The text of an error for the screen: a known error reads in the current language. */
@@ -474,7 +593,18 @@ function notifications(): NotificationPreferences {
   return { mentions: $<HTMLInputElement>('#notify-mentions').checked, whispers: $<HTMLInputElement>('#notify-whispers').checked }
 }
 function chat(): ChatPreferences {
-  return { links: chatLinks, confirm: chatLinkConfirm, gifs: chatGifs, font: currentChatFont() }
+  return { links: chatLinks, confirm: chatLinkConfirm, gifs: chatGifs, font: currentChatFont(), timestamps: chatTimestamps }
+}
+/**
+ * The time, set on the root the way the theme and the chat font are. Showing it writes nothing:
+ * that is the state the log has always been in, so a stylesheet loaded before the preferences
+ * have arrived draws the times rather than flashing them away a moment later.
+ */
+function applyTimestamps(shown: boolean): void {
+  chatTimestamps = shown
+  if (shown) delete document.documentElement.dataset.timestamps
+  else document.documentElement.dataset.timestamps = 'off'
+  $<HTMLInputElement>('#chat-timestamps').checked = shown
 }
 /** The controls that carry a preference: they repaint on opening as on every account switch. */
 function paintPreferenceControls(source: Preferences) {
@@ -493,6 +623,7 @@ function paintPreferenceControls(source: Preferences) {
   $<HTMLInputElement>('#chat-link-confirm').checked = chatLinkConfirm
   chatGifs = source.chat.gifs
   $<HTMLInputElement>('#chat-gifs').checked = chatGifs
+  applyTimestamps(source.chat.timestamps)
   applyChatFont(source.chat.font)
   $<HTMLInputElement>('#hide-idle').checked = source.layout.hideIdleChannels
   $<HTMLSelectElement>('#idle-delay').value = String(source.layout.idleChannelHours)
@@ -517,11 +648,17 @@ function adoptScope({ scope, preferences: next, locale }: ScopedPreferences) {
   roomModes.clear(); roomProfiles.clear(); roomIds.clear(); roomBadges.clear()
   channelActivity.clear(); pendingActivity.clear(); idleExpanded = false
   followStatuses.clear(); followChecks.clear(); followRetryAt.clear()
+  // Whom the previous account blocked is not this one's business, and the colour on screen was
+  // its colour. Both are read again for the new account rather than carried over.
+  blockedLogins = new Set(); currentChatColor = ''
   channelInfos.clear(); channelInfoChecks.clear()
   twitchEmotes.clear(); twitchEmoteIds.clear(); twitchRoomKeys.clear()
   twitchBadges.clear(); badgeRoomKeys.clear()
+  cheermotes.clear(); cheerRoomKeys.clear()
   thirdPartyEmotes.clear(); thirdPartyRoomKeys.clear()
-  discoveredStreams = []; resetFollowed(); selectedTags.clear()
+  discoveredStreams = []; loadedCategory = ''; resetFollowed(); selectedTags.clear(); leaveCategory()
+  topCategories = []; topCategoriesUpdatedAt = 0; topCategoriesCursor = ''; discoveredCursor = ''; pagingFailures = 0
+  visitedCategories = []; visitedCategoriesRead = false
   joined.clear(); joinFailures.clear()
   accountDisplayName = ''
   resetMentionCache()
@@ -851,7 +988,7 @@ function openAccountMenu() {
   closeRoomContextMenu(); closeMessageContextMenu(); closeUserCard()
   const login = state.account
   $('#account-menu-title').textContent = login || m.app.guest
-  $<HTMLButtonElement>('#account-menu-connect').hidden = !!login
+  $<HTMLButtonElement>('#account-menu-home').hidden = !!login
   $<HTMLButtonElement>('#account-menu-logout').hidden = !login
   $<HTMLButtonElement>('#account-menu-forget').hidden = !login
   // Reopening the menu asks again: an armed button left over from a moment ago is a trap.
@@ -862,7 +999,7 @@ function openAccountMenu() {
   const anchor = $('#account-button').getBoundingClientRect()
   placeFloating(menu, anchor.left + 8, anchor.top - menu.getBoundingClientRect().height - 6)
   $('#account-button').setAttribute('aria-expanded', 'true')
-  $<HTMLButtonElement>(login ? '#account-menu-settings' : '#account-menu-connect').focus()
+  $<HTMLButtonElement>(login ? '#account-menu-settings' : '#account-menu-home').focus()
 }
 
 function closeRoomContextMenu() {
@@ -945,11 +1082,44 @@ function scheduleCardClose() {
   cardCloseTimer = window.setTimeout(() => { if (!cardPinned) closeUserCard() }, CARD_CLOSE_DELAY)
 }
 
+/**
+ * The permissions changed under us.
+ *
+ * Everything that had to be said in the negative is redrawn here rather than waiting for the next
+ * gesture: an account that has just signed in again to grant these should see them arrive, not
+ * find them on its next click.
+ */
+function adoptScopes(scopes: AccountScopes) {
+  const gained = { emotes: scopes.emotes && !accountScopes.emotes, blocks: scopes.blocks && !accountScopes.blocks }
+  accountScopes = scopes
+  if (!scopes.blocks) blockedLogins = new Set()
+  else void refreshBlockedUsers()
+  // The picker's own tab says why it is empty, and the sets themselves were fetched without the
+  // scope: this is the moment they are worth asking for again.
+  if (gained.emotes) { void reloadEmotes(active); composer.refresh() } else composer.refresh()
+  if (gained.blocks) paintCardBlock(cardLogin)
+  if (currentView === 'settings') void refreshChatColor()
+  // The whole point of the notice is that it goes away by itself: a sign-in that granted the
+  // missing scopes arrives here, and the line must not outlive what it was asking for.
+  renderScopeNotice()
+}
+
+/** Everyone this account has blocked, read once and kept. Silent on failure: nothing asked. */
+async function refreshBlockedUsers() {
+  if (!accountScopes.blocks) { blockedLogins = new Set(); return }
+  try {
+    const users = await window.twichat.blockedUsers()
+    blockedLogins = new Set(users.map(user => user.login))
+    paintCardBlock(cardLogin)
+  } catch { /* The card asks again when it is opened, and says so if it still cannot. */ }
+}
+
 // What the room already knows about a chatter: enough for a card to open before Helix answers, and all it gets when no account is connected.
 function localChatter(login: string) {
   const messages = store.get(active).filter(message => !message.system && message.login.toLowerCase() === login)
   const last = messages.at(-1)
-  return { count: messages.length, user: last?.user ?? '', color: last?.color && /^#[0-9a-f]{6}$/i.test(last.color) ? last.color : '' }
+  const raider = store.get(active).findLast(message => message.raid?.login === login)?.raid
+  return { count: messages.length, user: last?.user ?? raider?.displayName ?? '', color: last?.color && /^#[0-9a-f]{6}$/i.test(last.color) ? last.color : '' }
 }
 
 function renderUserCard(login: string, card: UserCard | null, note: string) {
@@ -1028,6 +1198,66 @@ function renderUserCard(login: string, card: UserCard | null, note: string) {
   actions.append(mention, whisper, join, twitch)
   paintFollowButton(twitch, login)
   element.append(actions)
+
+  // Blocking sits on the card, where Twitch puts it, and below the rest of the actions rather
+  // than among them: it is the one gesture here that changes something on the real account.
+  // It is only drawn where it would work — no account, or a token that predates the scope, and
+  // there is nothing to offer — and never for oneself, which Twitch refuses outright.
+  if (state.account && accountScopes.blocks && login !== state.account) {
+    const block = document.createElement('button'); block.type = 'button'
+    block.className = 'user-card-block'; block.dataset.block = login
+    block.dataset.userId = card?.userId ?? ''
+    block.addEventListener('click', () => askBlock(login, displayName, block.dataset.userId ?? ''))
+    element.append(block)
+    paintBlockButton(block, login)
+  }
+}
+
+/** Blocked or not, said by the one list the window holds rather than asked per card. */
+function paintBlockButton(button: HTMLElement, login: string) {
+  const blocked = blockedLogins.has(login)
+  button.innerHTML = `${icon(blocked ? 'check' : 'close')}${blocked ? m.app.unblockUser : m.app.blockUser}`
+  button.dataset.blocked = String(blocked)
+  button.title = blocked ? m.app.blockedHere : ''
+}
+/** The list came back, or changed, while a card was open. */
+function paintCardBlock(login: string) {
+  if (!login) return
+  const button = document.querySelector<HTMLElement>(`#user-card [data-block="${CSS.escape(login)}"]`)
+  if (button) paintBlockButton(button, login)
+}
+/**
+ * Asks first, both ways.
+ *
+ * A block is outward-facing — it holds on Twitch, everywhere the account is signed in, and the
+ * person on the other side can tell — so it does not belong one mis-click away. The way back is
+ * the same button and the same dialog: a block this application could set and not undo would be
+ * worse than one it never offered.
+ */
+function askBlock(login: string, displayName: string, userId: string) {
+  if (!userId) { toast(m.app.blockUnknownUser); return }
+  const blocked = blockedLogins.has(login)
+  pendingBlock = { login, displayName, userId, blocked: !blocked }
+  closeUserCard()
+  $('#block-title').textContent = blocked ? m.ui.blockForm.unblockTitle : m.ui.blockForm.title
+  $('#block-body').textContent = blocked ? m.ui.blockForm.unblockBody : m.ui.blockForm.body
+  $('#block-name').textContent = displayName
+  $('#block-handle').textContent = ` @${login}`
+  $('#block-confirm').textContent = blocked ? m.ui.blockForm.unblockConfirm : m.ui.blockForm.confirm
+  $('#block-confirm').classList.toggle('danger', !blocked)
+  blockDialog.showModal()
+  // The answer that changes nothing is the one the Enter key reaches.
+  $<HTMLButtonElement>('#block-cancel').focus()
+}
+async function applyBlock(target: NonNullable<typeof pendingBlock>) {
+  try {
+    const users = target.blocked
+      ? await window.twichat.blockUser(target.login, target.userId)
+      : await window.twichat.unblockUser(target.login, target.userId)
+    blockedLogins = new Set(users.map(user => user.login))
+    // The main process empties the rooms of them on its side, the way a moderation clear does.
+    toast(target.blocked ? m.app.blockDone(target.displayName) : m.app.unblockDone(target.displayName))
+  } catch (error) { toast(displayError(error)) }
 }
 
 /**
@@ -1093,6 +1323,7 @@ async function leaveRoom(channel: string) {
   thirdPartyEmotes.delete(channel); thirdPartyRoomKeys.delete(channel)
   twitchEmotes.delete(channel); twitchEmoteIds.delete(channel); twitchRoomKeys.delete(channel)
   twitchBadges.delete(channel); badgeRoomKeys.delete(channel); roomIds.delete(channel)
+  cheermotes.delete(channel); cheerRoomKeys.delete(channel)
   // A room nothing can go back to is not a page any more; the rest of the trail stands.
   pageHistory.prune(page => page.view !== 'room' || page.channel !== channel)
   renderPageNav()
@@ -1150,12 +1381,23 @@ const railHints = (): [string, string][] => [['#open-discover', m.app.exploreCha
 function setSidebarCollapsed(collapsed: boolean, remember = true) {
   appRoot.classList.toggle('sidebar-collapsed', collapsed)
   const toggle = $('#toggle-sidebar')
+  const toggleHome = $(collapsed ? '.sidebar-rail-controls' : '.rooms-heading')
+  if (toggle.parentElement !== toggleHome) {
+    const focused = document.activeElement === toggle
+    toggleHome.append(toggle)
+    if (focused) toggle.focus({ preventScroll: true })
+  }
   const label = collapsed ? m.app.expandSidebar : m.app.collapseSidebar
   toggle.setAttribute('aria-expanded', String(!collapsed))
   toggle.setAttribute('aria-label', label)
   toggle.title = `${label} (${keyLabel(SHORTCUTS.sidebar, commandKey())})`
   // Reduced to avatars, every row needs the tooltip its label used to carry.
-  for (const [selector, hint] of railHints()) { const element = $(selector); if (collapsed) element.title = hint; else element.removeAttribute('title') }
+  for (const [selector, hint] of railHints()) {
+    const element = $(selector)
+    element.removeAttribute('title')
+    if (collapsed) element.dataset.railHint = hint
+    else delete element.dataset.railHint
+  }
   // The rooms hold theirs in an attribute expanded and in `#rail-tip` collapsed, so they are
   // repainted to swap the one for the other. Not before the workspace exists: this runs once at
   // load, when there is no account, no preferences and nothing to draw.
@@ -1304,14 +1546,67 @@ function discoveryStatus(title: string, copy: string, action: 'login' | 'retry' 
   button.dataset.action = action ?? ''
   $('#discover-results').hidden = true
   $('#discover-skeleton').hidden = true
+  // A status is the whole of the view: there is no list under it to scroll to the end of.
+  $('#discover-more').hidden = true
+  // The rail is not part of the list: an empty grid is exactly where a way back to somewhere
+  // already visited is worth the most.
+  renderVisitedCategories()
   // The chips stay when one of them is what emptied the grid: hiding them here left the
   // reader with a filter and nothing to switch it off with.
   $('#discover-categories').hidden = !selectedCategories.size && !selectedTags.size
+  // And so do the categories Twitch matched, for the same reason turned the other way: when no
+  // channel carries the typed name, they are the only thing on screen that answers it.
+  $('#discover-found-categories').hidden = !$('#discover-found-category-list').childElementCount
   $('#followed-offline').hidden = true
 }
 
 /** Both tabs share the grid: a single list is alive at a time. */
 function scopeStreams(): StreamSummary[] { return discoveryScope === 'followed' ? followedStreams : discoveredStreams }
+
+/**
+ * The category the visible catalog belongs to, empty for the general one. Read again after every
+ * await rather than captured once: it is what tells an answer for the category just left from the
+ * one being waited on.
+ */
+function browsedCategory(): string { return discoveryScope === 'category' ? activeCategory?.id ?? '' : '' }
+
+/**
+ * Whether the explorer is still on a catalogue of streams — the general one or a category — rather
+ * than on the followed list or the grid of categories. Named positively rather than as "not
+ * followed": a scope added later is not a catalogue until it says it is. A function rather than a
+ * comparison because these are read after an await, where the scope may well have moved and the
+ * narrowing above would say it could not have.
+ */
+function showsCatalog(): boolean { return discoveryScope === 'top' || discoveryScope === 'category' }
+
+/** Back to the general catalog, and the transient tab with it. */
+function leaveCategory() {
+  activeCategory = null
+  if (discoveryScope === 'category') discoveryScope = 'top'
+  renderScopeTabs()
+}
+
+const SCOPE_LABELS = { top: 'scopeTop', followed: 'scopeFollowed', categories: 'scopeCategories' } as const
+
+/**
+ * A category is not a fourth list to pick from, it is a step inside one of the three — so the tabs
+ * give way to the way back out rather than growing a tab that was never a choice. The row keeps
+ * its place either way: one thing stands where the other stood.
+ */
+function renderScopeTabs() {
+  const inside = discoveryScope === 'category'
+  $('.discover-scope').hidden = inside
+  $('#discover-crumb').hidden = !inside
+  $('#scope-top').setAttribute('aria-pressed', String(discoveryScope === 'top'))
+  $('#scope-followed').setAttribute('aria-pressed', String(discoveryScope === 'followed'))
+  $('#scope-categories').setAttribute('aria-pressed', String(discoveryScope === 'categories'))
+  if (!inside) return
+  const origin = m.ui.discover[SCOPE_LABELS[categoryOrigin]]
+  $('#crumb-origin').textContent = origin
+  $('#crumb-back').title = m.app.backTo(origin)
+  $('#crumb-back').setAttribute('aria-label', m.app.backTo(origin))
+  $('#crumb-current').textContent = activeCategory?.name ?? ''
+}
 
 // Thumbnails arrive over the network, so the grid keeps its shape while they load.
 function showDiscoverySkeleton() {
@@ -1324,9 +1619,18 @@ function showDiscoverySkeleton() {
     }
   }
   root.hidden = false
-  $('#discover-summary').textContent = discoveryScope === 'followed' ? m.app.loadingFollowed : m.app.loadingChannels
+  $('#discover-summary').textContent = discoveryScope === 'followed' ? m.app.loadingFollowed
+    : discoveryScope === 'categories' ? m.app.loadingCategories
+    : activeCategory ? m.app.loadingCategory(activeCategory.name)
+    : m.app.loadingChannels
   $('#discover-status').hidden = true
   $('#discover-results').hidden = true
+  // Nothing to reach the bottom of while the next list is on its way.
+  $('#discover-more').hidden = true
+  renderVisitedCategories()
+  // The categories were found for the list being replaced: they go with it rather than hang over
+  // the skeleton of the next one, which `renderDiscoveryResults` would only correct once it lands.
+  $('#discover-found-categories').hidden = true
   $('#followed-offline').hidden = true
 }
 
@@ -1361,10 +1665,36 @@ function toggleCategory(category: string) {
   renderDiscoveryCategories(); renderDiscoveryResults()
 }
 
+/**
+ * A chip is a filter when it is already on, and in the followed tab where the list behind it is
+ * complete and the count on it is exact. Everywhere else — the general catalogue, a sample of a
+ * hundred out of all Twitch — it is a road into that category's own listing, and a road carries
+ * no count of the sample it was read from.
+ */
+function categoryFilters(category: string): boolean {
+  return discoveryScope === 'followed' || selectedCategories.has(category)
+}
+
 function renderDiscoveryCategories() {
-  const counts = new Map<string, number>()
-  for (const stream of scopeStreams()) if (stream.game) counts.set(stream.game, (counts.get(stream.game) ?? 0) + 1)
-  const categories = [...counts].sort((a, b) => b[1] - a[1] || collator.compare(a[0], b[0])).slice(0, 18)
+  const counts = new Map<string, { count: number; id: string }>()
+  for (const stream of scopeStreams()) {
+    if (!stream.game) continue
+    const known = counts.get(stream.game)
+    counts.set(stream.game, { count: (known?.count ?? 0) + 1, id: known?.id || stream.gameId })
+  }
+  // Inside a category every stream carries the same one: the row would be a single chip naming
+  // the tab above it. What is left is whatever tag the reader filtered on, and its way back out.
+  const listed = discoveryScope === 'category'
+    ? []
+    : [...counts].sort((a, b) => b[1].count - a[1].count || collator.compare(a[0], b[0])).slice(0, 18)
+  // A category filtered on from a room header is not necessarily one this catalog holds, and one
+  // held while the language changed may have left it. The row lists what the catalog has, so
+  // neither would have a chip — and the filter would have no handle to drop it by. Those are put
+  // at the front, pressed, at whatever the catalog actually counts: seeing the zero is the answer.
+  const missing = [...selectedCategories]
+    .filter(game => !listed.some(([name]) => name === game))
+    .map(game => [game, { count: counts.get(game)?.count ?? 0, id: counts.get(game)?.id ?? '' }] as [string, { count: number; id: string }])
+  const categories = [...missing, ...listed]
   const root = $('#discover-tag-list'); root.replaceChildren()
   $('#discover-categories').hidden = !categories.length && !selectedTags.size
   const all = document.createElement('button'); all.type = 'button'; all.className = 'tag-filter'; all.textContent = m.app.allCategories
@@ -1381,12 +1711,21 @@ function renderDiscoveryCategories() {
     button.addEventListener('click', () => toggleTag(label))
     root.append(button)
   }
-  for (const [category, count] of categories) {
+  for (const [category, { count, id }] of categories) {
     const button = document.createElement('button'); button.type = 'button'; button.className = 'tag-filter'
     button.textContent = category
-    const badge = document.createElement('b'); badge.textContent = String(count); button.append(badge)
-    button.setAttribute('aria-pressed', String(selectedCategories.has(category)))
-    button.addEventListener('click', () => toggleCategory(category))
+    // A road with an id goes; without one there is nothing to go to, and it filters as it always
+    // did. Either way the pressed state and the count belong to the filter alone.
+    if (categoryFilters(category) || !id) {
+      const badge = document.createElement('b'); badge.textContent = String(count); button.append(badge)
+      button.setAttribute('aria-pressed', String(selectedCategories.has(category)))
+      button.title = m.app.filterOnGame(category)
+      button.addEventListener('click', () => toggleCategory(category))
+    } else {
+      button.classList.add('is-road')
+      button.title = m.app.browseGame(category)
+      button.addEventListener('click', () => browseCategory({ id, name: category }))
+    }
     root.append(button)
   }
 }
@@ -1435,8 +1774,13 @@ function discoveryCard(stream: StreamSummary) {
   const meta = document.createElement('div'); meta.className = 'stream-meta'
   if (stream.game) {
     const game = document.createElement('button'); game.type = 'button'; game.className = 'stream-game'; game.textContent = stream.game
-    game.title = m.app.filterOnGame(stream.game); game.setAttribute('aria-pressed', String(selectedCategories.has(stream.game)))
-    game.addEventListener('click', () => toggleCategory(stream.game))
+    if (categoryFilters(stream.game) || !stream.gameId) {
+      game.title = m.app.filterOnGame(stream.game); game.setAttribute('aria-pressed', String(selectedCategories.has(stream.game)))
+      game.addEventListener('click', () => toggleCategory(stream.game))
+    } else {
+      game.title = m.app.browseGame(stream.game)
+      game.addEventListener('click', () => browseCategory({ id: stream.gameId, name: stream.game }))
+    }
     meta.append(game)
   }
   for (const tag of stream.tags.slice(0, 3)) {
@@ -1508,6 +1852,21 @@ let discoverySearchResults: StreamSummary[] = []
  * that was found read as a channel that was not.
  */
 let discoverySearchOffline: RoomProfile[] = []
+/**
+ * Twitch's categories matching the same query. Their search is its own call and its own failure:
+ * a category search Twitch refuses leaves the channels it found standing, and the row simply
+ * stays empty. That is why it has no error of its own — `discoverySearchError` speaks for the
+ * channel search, which is what the empty states below read.
+ */
+let discoverySearchCategories: CategoryMatch[] = []
+/**
+ * The query those categories answer, kept apart from `discoverySearchQuery` for the same reason
+ * the call is: they land at different moments and fail separately. Sharing the channel search's
+ * query hid the row until the channels arrived, and hid it altogether when they never did.
+ */
+let discoveryCategoryQuery = ''
+/** A category search out. Its own flag: `discoverySearching` answers for the channels alone. */
+let discoveryCategorySearching = false
 let discoverySearching = false
 /** What Twitch answered instead of a list. A refused search must not read as an empty one. */
 let discoverySearchError: unknown = null
@@ -1518,6 +1877,7 @@ let discoverySearchGeneration = 0
 function resetDiscoverySearch() {
   clearTimeout(discoverySearchTimer)
   discoverySearchQuery = ''; discoverySearchResults = []; discoverySearchOffline = []; discoverySearching = false; discoverySearchError = null
+  discoverySearchCategories = []; discoveryCategoryQuery = ''; discoveryCategorySearching = false
   discoverySearchGeneration++
 }
 
@@ -1527,6 +1887,7 @@ async function runDiscoverySearch(raw: string) {
   const generation = ++discoverySearchGeneration
   discoverySearching = true; discoverySearchError = null
   renderDiscoveryResults()
+  void runCategorySearch(raw, generation)
   try {
     const found = await window.twichat.searchChannels(raw)
     if (generation !== discoverySearchGeneration) return
@@ -1540,7 +1901,165 @@ async function runDiscoverySearch(raw: string) {
   }
 }
 
+/**
+ * The other half of the box. It runs beside the channel search rather than with it: one call
+ * refused must not take the other's answers down, and the categories are a bonus row above a grid
+ * that stands on its own. The generation is shared, so a query since edited drops both together.
+ */
+async function runCategorySearch(raw: string, generation: number) {
+  const query = raw.toLocaleLowerCase(locale)
+  discoveryCategorySearching = true
+  if (discoveryScope === 'categories') renderDiscoveryResults()
+  try {
+    const found = await window.twichat.searchCategories(raw)
+    if (generation !== discoverySearchGeneration) return
+    discoverySearchCategories = found; discoveryCategoryQuery = query
+  } catch {
+    // Nothing to say: the row is a shortcut, not a result. It stays empty and the grid answers.
+    if (generation === discoverySearchGeneration) { discoverySearchCategories = []; discoveryCategoryQuery = '' }
+  }
+  if (generation !== discoverySearchGeneration) return
+  discoveryCategorySearching = false
+  renderDiscoveryResults()
+}
+
+/**
+ * As many as Twitch is asked for: the row scrolls, so a card past the fold is reached rather than
+ * lost, and a cap below the fetch would hide matches nothing else could reach.
+ */
+const FOUND_CATEGORIES = 12
+
+/**
+ * The categories Twitch matched, above the channels. Shown only where a category browse can
+ * follow — the followed list is the account's own, and narrowing it to a category is what its
+ * chips already do — and only while the query they were found for is still the one being typed.
+ */
+function renderFoundCategories(query: string): number {
+  const section = $('#discover-found-categories')
+  // Held to the query they were found for, exactly as the channel hits are: a row still answering
+  // a word since erased is worse than an empty one.
+  const related = Boolean(query && discoveryCategoryQuery) && (query.startsWith(discoveryCategoryQuery) || discoveryCategoryQuery.startsWith(query))
+  const matches = discoveryScope === 'top' && related ? discoverySearchCategories.slice(0, FOUND_CATEGORIES) : []
+  section.hidden = !matches.length
+  if (!matches.length) { $('#discover-found-category-list').replaceChildren(); return 0 }
+  $('#discover-found-category-list').replaceChildren(...matches.map(category => {
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'found-category'
+    if (category.boxArtUrl) {
+      const image = document.createElement('img'); image.src = category.boxArtUrl; image.alt = ''; image.width = 36; image.height = 48
+      image.loading = 'lazy'; image.decoding = 'async'; image.addEventListener('error', () => image.remove())
+      button.append(image)
+    }
+    const name = document.createElement('span'); name.textContent = category.name
+    button.append(name)
+    button.title = m.app.browseGame(category.name)
+    button.addEventListener('click', () => browseCategory({ id: category.id, name: category.name }))
+    return button
+  }))
+  return matches.length
+}
+
+/**
+ * The categories tab: Twitch's own list when nothing is typed, and what `search/categories` found
+ * when something is. Both are lists of the same card, so the grid does not care which it holds.
+ */
+/**
+ * The categories already opened from here, above the ones Twitch ranks. A rail rather than a
+ * reordering of the grid below it: the grid says it lists categories by audience, and hoisting a
+ * few into its front would quietly make that untrue.
+ *
+ * Only in the categories tab, and only with nothing typed — a search replaces what is being looked
+ * at, and a shortcut to somewhere else on top of it is noise.
+ */
+/** What the rail is currently drawn from, so typing does not rebuild twelve buttons a keystroke. */
+let visitedRailKey = ''
+
+function renderVisitedCategories() {
+  const section = $('#discover-visited')
+  const showing = discoveryScope === 'categories' && !$<HTMLInputElement>('#discover-query').value.trim() && visitedCategories.length
+  section.hidden = !showing
+  if (!showing) { visitedRailKey = ''; $('#discover-visited-list').replaceChildren(); return }
+  const key = visitedCategories.map(category => category.id).join(',')
+  if (key === visitedRailKey) return
+  visitedRailKey = key
+  $('#discover-visited-list').replaceChildren(...visitedCategories.map(category => {
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'found-category'
+    if (category.boxArtUrl) {
+      const image = document.createElement('img'); image.src = category.boxArtUrl; image.alt = ''; image.width = 36; image.height = 48
+      image.loading = 'lazy'; image.decoding = 'async'; image.addEventListener('error', () => image.remove())
+      button.append(image)
+    }
+    const name = document.createElement('span'); name.textContent = category.name
+    button.append(name)
+    button.title = m.app.browseGame(category.name)
+    button.addEventListener('click', () => browseCategory(category))
+    return button
+  }))
+}
+
+/** Read once for the session, and again after every visit, which is what reorders it. */
+async function loadVisitedCategories(force = false) {
+  if (!state.account && !force) return
+  if (visitedCategoriesRead && !force) return
+  visitedCategoriesRead = true
+  try {
+    visitedCategories = await window.twichat.visitedCategories()
+    renderVisitedCategories()
+  } catch {
+    // A rail that will not load costs a shortcut, never the grid under it — and the next look
+    // asks again rather than the session deciding once that there is nothing to show.
+    visitedCategoriesRead = false
+  }
+}
+
+function renderCategoryGrid() {
+  const query = $<HTMLInputElement>('#discover-query').value.trim().toLocaleLowerCase(locale)
+  // A search here replaces the list rather than sifting it: the hundred largest categories are not
+  // where a small one would be found, which is the same reason the channel search exists at all.
+  const related = Boolean(query && discoveryCategoryQuery) && (query.startsWith(discoveryCategoryQuery) || discoveryCategoryQuery.startsWith(query))
+  const categories = query
+    ? (related ? discoverySearchCategories : topCategories.filter(category => category.name.toLocaleLowerCase(locale).includes(query)))
+    : topCategories
+  // The row of found categories belongs above a grid of channels; here it would repeat the grid.
+  $('#discover-found-categories').hidden = true
+  $('#discover-categories').hidden = true
+  if (!categories.length) {
+    if (topCategoriesLoading || discoveryCategorySearching) discoveryStatus(m.app.searchingCategories, m.app.searchingCategoriesHint)
+    // Under three characters nothing was sent: the hundred largest categories were sifted, which
+    // is not the same as Twitch having been asked and having answered nothing.
+    else if (query && query.length < SEARCH_MINIMUM) discoveryStatus(m.app.noCategoryYet, m.app.noCategoryYetHint)
+    else if (query) discoveryStatus(m.app.noCategoryMatch(query), m.app.noCategoryMatchHint)
+    else discoveryStatus(m.app.noCategories, m.app.noCategoriesHint, 'retry')
+    return
+  }
+  const root = $('#discover-results')
+  root.replaceChildren(...categories.map(categoryCard))
+  root.hidden = false; root.dataset.categories = 'true'
+  $('#discover-status').hidden = true; $('#discover-skeleton').hidden = true; $('#followed-offline').hidden = true
+  $('#discover-summary').textContent = query ? m.app.categoriesFound(categories.length) : m.app.categoriesByAudience(categories.length)
+}
+
+function categoryCard(category: CategoryMatch) {
+  const button = document.createElement('button'); button.type = 'button'; button.className = 'category-card'
+  if (category.boxArtUrl) {
+    const image = document.createElement('img'); image.src = category.boxArtUrl; image.alt = ''; image.width = 144; image.height = 192
+    image.loading = 'lazy'; image.decoding = 'async'; image.addEventListener('error', () => image.remove())
+    button.append(image)
+  }
+  const name = document.createElement('span'); name.textContent = category.name
+  button.append(name)
+  button.title = m.app.browseGame(category.name)
+  button.setAttribute('aria-label', m.app.browseGame(category.name))
+  button.addEventListener('click', () => browseCategory({ id: category.id, name: category.name }))
+  return button
+}
+
 function renderDiscoveryResults() {
+  updateMoreSentinel()
+  renderVisitedCategories()
+  if (discoveryScope === 'categories') return renderCategoryGrid()
+  // The grid is shared with the categories tab, which lays it out differently: the mark it leaves
+  // has to go with it, or a catalogue painted after one would keep the category sizing.
+  delete $('#discover-results').dataset.categories
   const streams = scopeStreams()
   const query = $<HTMLInputElement>('#discover-query').value.trim().toLocaleLowerCase(locale)
   const matchesFilters = (stream: StreamSummary) =>
@@ -1559,10 +2078,14 @@ function renderDiscoveryResults() {
     ? discoverySearchResults.filter(stream => !known.has(stream.channel) && matchesFilters(stream)
       && `${stream.displayName} ${stream.channel}`.toLocaleLowerCase(locale).includes(query))
     : []
+  const foundCategories = renderFoundCategories(query)
   const results = [...filtered, ...found]
   // A search under way answers for the empty grid below: the catalog being cold is not the story.
   if (!results.length && !discoverySearching && !streams.length && !(discoveryScope === 'followed' && followedOffline.length)) {
     if (discoveryScope === 'followed') discoveryStatus(m.app.noFollowedChannels, m.app.noFollowedHint, 'retry')
+    // A category that answers with nothing answered for itself: Twitch was asked about that
+    // category and not about the catalog, so this is not a list too short to hold it — it is empty.
+    else if (activeCategory) discoveryStatus(m.app.noChannelLiveInCategory(activeCategory.name), m.app.noChannelLiveInCategoryHint, 'retry')
     else discoveryStatus(m.app.noLiveChannel, m.app.noChannelForLanguage, 'retry')
     return
   }
@@ -1584,23 +2107,31 @@ function renderDiscoveryResults() {
     $('#discover-summary').textContent = results.length ? m.app.liveAndViewers(live, compactNumbers.format(total)) : m.app.noChannelMatchFilters
   }
   if (results.length || offline) return
-  // Six ways to come up empty, and they are not the same story: a search still out, one Twitch
-  // refused, a tag it cannot search on, a name too short to send, a name found but off air, and a
-  // name Twitch knows nothing of.
+  // Seven ways to come up empty, and they are not the same story: a search still out, one Twitch
+  // refused, a tag it cannot search on, a category nobody loaded is playing, a name too short to
+  // send, a name found but off air, and a name Twitch knows nothing of.
   const tag = [...selectedTags.values()][0]
+  const category = [...selectedCategories][0]
   const searchable = discoveryScope === 'top' && Boolean(query)
   if (discoverySearching) discoveryStatus(m.app.searchingChannels, m.app.searchingChannelsHint)
   else if (discoverySearchError) discoveryStatus(m.app.searchFailed, displayError(discoverySearchError), 'retry')
   else if (tag) discoveryStatus(m.app.noChannelForTag(tag), m.app.noChannelForTagHint, 'retry')
+  else if (category) discoveryStatus(m.app.noChannelForCategory(category), m.app.noChannelForCategoryHint, 'retry')
   else if (searchable && query.length < SEARCH_MINIMUM) discoveryStatus(m.app.noChannelMatch, m.app.searchTooShort)
   else if (searchable && query === discoverySearchQuery && discoverySearchOffline.length)
     discoveryStatus(m.app.noLiveMatch, m.app.foundOffAir(discoverySearchOffline.slice(0, 3).map(profile => profile.displayName).join(', ')))
+  // Twitch found no channel under that name but did find categories: the row above is the answer,
+  // and saying "nothing found" over it would be plainly wrong.
+  else if (searchable && foundCategories)
+    discoveryStatus(m.app.noChannelButCategories, m.app.noChannelButCategoriesHint)
   else if (searchable && query === discoverySearchQuery) discoveryStatus(m.app.noChannelMatch, m.app.noChannelSearchHint)
   else discoveryStatus(m.app.noChannelMatch, m.app.noChannelMatchHint)
 }
 
 function updateDiscoveryFreshness() {
-  const updatedAt = discoveryScope === 'followed' ? followedUpdatedAt : discoveryUpdatedAt
+  const updatedAt = discoveryScope === 'followed' ? followedUpdatedAt
+    : discoveryScope === 'categories' ? topCategoriesUpdatedAt
+    : discoveryUpdatedAt
   const label = $('#discover-freshness')
   label.hidden = !updatedAt
   if (updatedAt) label.textContent = m.app.updatedAt(clock.format(updatedAt))
@@ -1622,7 +2153,6 @@ async function loadFollowed(refresh = false) {
     followedStreams = followed.live; followedOffline = followed.offline; followedTruncated = followed.truncated; followedUpdatedAt = Date.now()
     for (const stream of followed.live) followedLogins.add(stream.channel)
     for (const profile of followed.offline) followedLogins.add(profile.channel)
-    for (const category of [...selectedCategories]) if (!followedStreams.some(stream => stream.game === category)) selectedCategories.delete(category)
     updateDiscoveryFreshness(); renderDiscoveryCategories(); renderDiscoveryResults()
   } catch (error) {
     // A request the main process turned down because the account changed under it is not a
@@ -1636,11 +2166,124 @@ async function loadFollowed(refresh = false) {
   }
 }
 
+/**
+ * Twitch's categories by audience. Its own loader because it answers a different question from
+ * `loadDiscovery`: no language, no category, and a list of places rather than of channels. The
+ * guard after the wait is the scope alone — there is one such list, and it belongs to the account.
+ */
+async function loadTopCategories(refresh = false) {
+  void loadVisitedCategories()
+  if (!state.account) { discoveryStatus(m.app.connectAccountShort, m.app.discoverNeedsAccount, 'login'); return }
+  if (topCategoriesLoading) return
+  topCategoriesLoading = true; $<HTMLButtonElement>('#refresh-discover').disabled = true
+  // A refresh asks Twitch for the ranking as it stands now. The pages already shown were cut from
+  // the one before it, so they go: mixing them would card the same category twice and lose others.
+  if (refresh) { topCategories = []; topCategoriesCursor = '' }
+  pagingFailures = 0
+  if (topCategories.length) renderDiscoveryResults()
+  else showDiscoverySkeleton()
+  const asked = state.account
+  try {
+    const page = await window.twichat.topCategories(refresh)
+    if (discoveryScope !== 'categories' || asked !== state.account) return
+    topCategories = page.categories; topCategoriesCursor = page.cursor; topCategoriesUpdatedAt = Date.now()
+    updateDiscoveryFreshness(); renderDiscoveryResults()
+  } catch (error) {
+    if (discoveryScope === 'categories' && asked === state.account) discoveryStatus(m.app.categoriesLoadFailed, displayError(error), state.account ? 'retry' : 'login')
+  } finally {
+    topCategoriesLoading = false; $<HTMLButtonElement>('#refresh-discover').disabled = false
+  }
+}
+
+/**
+ * The next page of whichever list is on screen, asked for as the reader nears the bottom.
+ *
+ * Nothing here touches the skeleton or the status: the list stays exactly where it is and grows
+ * under the scroll. A page that brings nothing new ends the walk — Twitch hands out cursors past
+ * the end of a shifting ranking, and `mergeById` answering with the very list it was given is how
+ * that is noticed without a flag of its own.
+ *
+ * The followed tab is absent on purpose: it is already loaded whole, twenty pages deep.
+ */
+/**
+ * The bottom of the list watches for itself. An element below the grid, observed inside the
+ * scrolling pane with room to spare, so the next page is asked for while the reader is still
+ * looking at the one before it rather than at an empty screen.
+ *
+ * It is hidden whenever there is nothing after this page — a hidden element intersects nothing, so
+ * the end of a list costs no observer work at all.
+ */
+const moreObserver = new IntersectionObserver(
+  entries => { if (entries.some(entry => entry.isIntersecting)) void loadMore() },
+  { root: $('#discover-content'), rootMargin: '700px 0px' }
+)
+moreObserver.observe($('#discover-more'))
+
+/** Three tries at the same page. Past that the bottom stops asking until the list is replaced. */
+const PAGING_ATTEMPTS = 3
+
+function updateMoreSentinel() {
+  const cursor = discoveryScope === 'categories' ? topCategoriesCursor : showsCatalog() ? discoveredCursor : ''
+  // A query replaces the list with what Twitch matched, and that answer is not paged: the bottom
+  // of a search is the bottom of it.
+  const paged = cursor && !$<HTMLInputElement>('#discover-query').value.trim() && pagingFailures < PAGING_ATTEMPTS
+  $('#discover-more').hidden = !paged
+}
+
+async function loadMore() {
+  if (pagingMore || topCategoriesLoading || discoveryLoading || !state.account || pagingFailures >= PAGING_ATTEMPTS) return
+  if ($<HTMLInputElement>('#discover-query').value.trim()) return
+  const categories = discoveryScope === 'categories'
+  const cursor = categories ? topCategoriesCursor : showsCatalog() ? discoveredCursor : ''
+  if (!cursor) return
+  pagingMore = true
+  const asked = state.account
+  const scope = discoveryScope
+  const language = discoveryLanguage
+  const category = browsedCategory()
+  // What the list on screen is, rather than where it was up to. A first page that landed while
+  // this one was out replaced the list under us, and it may well carry the same cursor — a cached
+  // page one served back inside its minute does — so the cursor cannot tell the two apart. These
+  // are stamped by every load that completes, and that is what makes them the generation.
+  const stamped = categories ? topCategoriesUpdatedAt : discoveryUpdatedAt
+  try {
+    if (categories) {
+      const page = await window.twichat.topCategories(false, cursor)
+      if (discoveryScope !== scope || asked !== state.account || stamped !== topCategoriesUpdatedAt) return
+      const grown = mergeById(topCategories, page.categories, item => item.id)
+      // A page that brought nothing new is the end of a ranking that kept moving under the walk.
+      topCategoriesCursor = grown === topCategories ? '' : page.cursor
+      topCategories = grown
+    } else {
+      const page = await window.twichat.discover(language, false, category, cursor)
+      if (discoveryScope !== scope || asked !== state.account || stamped !== discoveryUpdatedAt) return
+      if (language !== discoveryLanguage || category !== browsedCategory()) return
+      const grown = mergeById(discoveredStreams, page.streams, item => item.channel)
+      discoveredCursor = grown === discoveredStreams ? '' : page.cursor
+      discoveredStreams = grown
+    }
+    pagingFailures = 0
+    renderDiscoveryCategories(); renderDiscoveryResults()
+  } catch {
+    // The list on screen is whole and still right: a page that never came costs the rows it
+    // carried and nothing else. The cursor is kept — a road being out is not Twitch saying the
+    // list ends — so reaching the bottom again asks for it again.
+    if (discoveryScope === scope && asked === state.account) { pagingFailures++; renderDiscoveryResults() }
+  } finally { pagingMore = false }
+}
+
 function resetFollowed() { followedStreams = []; followedOffline = []; followedTruncated = false; followedUpdatedAt = 0; followedLogins.clear() }
 
-function setDiscoveryScope(scope: 'top' | 'followed') {
-  if (discoveryScope === scope) return
+function setDiscoveryScope(scope: 'top' | 'followed' | 'category' | 'categories', category: { id: string; name: string } | null = null) {
+  // Two categories in a row are two browses under one scope, so the scope alone cannot say
+  // whether anything moved: the second would otherwise keep the first one's tab, its search hits
+  // and its freshness, while the grid quietly filled with the right channels.
+  if (discoveryScope === scope && (scope !== 'category' || activeCategory?.id === category?.id)) return
   discoveryScope = scope
+  activeCategory = scope === 'category' ? category : null
+  // The list about to be shown is a different one: whatever page the last was up to is not a
+  // position in it, and asking Twitch to continue from there would page the wrong ranking.
+  discoveredStreams = []; discoveredCursor = ''; pagingFailures = 0
   selectedCategories.clear(); selectedTags.clear()
   // The followed tab loads the whole list: a global search there would answer with channels the
   // account does not follow. The hits leave with the tab that asked for them.
@@ -1649,11 +2292,21 @@ function setDiscoveryScope(scope: 'top' | 'followed') {
   // general listing asks Twitch again for what it had found there.
   const pending = $<HTMLInputElement>('#discover-query').value.trim()
   if (scope === 'top' && pending.length >= SEARCH_MINIMUM) void runDiscoverySearch(pending)
-  $('#scope-top').setAttribute('aria-pressed', String(scope === 'top'))
-  $('#scope-followed').setAttribute('aria-pressed', String(scope === 'followed'))
-  // The language only filters the public catalog: Twitch returns followed channels as they are.
-  $<HTMLSelectElement>('#discover-language').disabled = scope === 'followed'
-  $('#discover-language-field').classList.toggle('is-muted', scope === 'followed')
+  // And the same for the grid of categories: the reset above cleared what the previous tab had
+  // found, so without this the grid sifts a hundred loaded names and calls that Twitch's answer.
+  else if (scope === 'categories' && pending.length >= SEARCH_MINIMUM) void runCategorySearch(pending, ++discoverySearchGeneration)
+  renderScopeTabs()
+  pushDiscoverPage()
+  // The language filters the public catalog and a category alike — Twitch narrows on both at once.
+  // The followed list ignores it, Twitch returning those channels as they are; and a grid of
+  // categories has no language either — a category is the same category in every one of them.
+  const noLanguage = scope === 'followed' || scope === 'categories'
+  $<HTMLSelectElement>('#discover-language').disabled = noLanguage
+  $('#discover-language-field').classList.toggle('is-muted', noLanguage)
+  // Audience, uptime and channel name: a category has none of the three, so the control would
+  // read as something that does nothing rather than as something that does not apply.
+  $<HTMLSelectElement>('#discover-sort').disabled = scope === 'categories'
+  $('#discover-sort').parentElement?.classList.toggle('is-muted', scope === 'categories')
   updateDiscoveryFreshness()
   void loadDiscovery()
 }
@@ -1684,31 +2337,37 @@ async function loadFollowedLogins(refresh = false) {
 }
 
 async function loadDiscovery(refresh = false) {
+  if (discoveryScope === 'categories') return loadTopCategories(refresh)
   if (discoveryScope === 'followed') return loadFollowed(refresh)
   void loadFollowedLogins(refresh)
   if (!state.account) { discoveryStatus(m.app.connectAccountShort, m.app.discoverNeedsAccount, 'login'); return }
   if (discoveryLoading) return
   discoveryLoading = true; $<HTMLButtonElement>('#refresh-discover').disabled = true
   const language = discoveryLanguage
-  // Refreshing in place keeps the grid readable; only an empty view needs placeholders.
-  if (discoveredStreams.length) { renderDiscoveryCategories(); renderDiscoveryResults() }
+  const category = browsedCategory()
+  // Refreshing in place keeps the grid readable; only an empty view needs placeholders. A list
+  // fetched for another category is not this one being refreshed — in either direction — so it
+  // gives way to the skeleton rather than being painted under the wrong heading.
+  if (discoveredStreams.length && loadedCategory === category) { renderDiscoveryCategories(); renderDiscoveryResults() }
   else showDiscoverySkeleton()
   const asked = state.account
   try {
-    const streams = await window.twichat.discover(language, refresh)
-    // A slower answer for a language the user already left must not replace the visible grid,
-    // and neither must one fetched under an account that has since been signed out.
-    if (language !== discoveryLanguage || discoveryScope !== 'top' || asked !== state.account) return
-    discoveredStreams = streams; discoveryUpdatedAt = Date.now()
-    for (const category of [...selectedCategories]) if (!discoveredStreams.some(stream => stream.game === category)) selectedCategories.delete(category)
+    const page = await window.twichat.discover(language, refresh, category)
+    // A slower answer for a language — or a category — the user already left must not replace the
+    // visible grid, and neither must one fetched under an account that has since been signed out.
+    if (language !== discoveryLanguage || category !== browsedCategory() || !showsCatalog() || asked !== state.account) return
+    discoveredStreams = page.streams; discoveredCursor = page.cursor; pagingFailures = 0
+    loadedCategory = category; discoveryUpdatedAt = Date.now()
     updateDiscoveryFreshness(); renderDiscoveryCategories(); renderDiscoveryResults()
   } catch (error) {
-    if (language === discoveryLanguage && discoveryScope === 'top' && asked === state.account) discoveryStatus(m.app.discoverLoadFailed, displayError(error), state.account ? 'retry' : 'login')
+    if (language === discoveryLanguage && category === browsedCategory() && showsCatalog() && asked === state.account) discoveryStatus(m.app.discoverLoadFailed, displayError(error), state.account ? 'retry' : 'login')
   }
   finally {
     discoveryLoading = false; $<HTMLButtonElement>('#refresh-discover').disabled = false
-    // A language picked mid-request was skipped by the reentrancy guard: honour it now.
-    if (language !== discoveryLanguage && discoveryScope === 'top') void loadDiscovery()
+    // A language picked — or a category opened — mid-request was skipped by the reentrancy guard,
+    // and the answer that lands is for the one before it: without this the grid keeps the old
+    // list and nothing ever asks for the new one.
+    if ((language !== discoveryLanguage || category !== browsedCategory()) && showsCatalog()) void loadDiscovery()
   }
 }
 
@@ -1815,11 +2474,31 @@ async function loadTwitchBadges(channel: string, roomId: string) {
   }
 }
 
+/**
+ * The cheer prefixes of a room. Silent on failure like the badges: a cheer then reads as the
+ * `Cheer100` somebody typed, which is what this application showed before it asked at all.
+ */
+async function loadCheermotes(channel: string, roomId: string) {
+  if (!state.account) return
+  const key = `${channel}:${roomId}`
+  if (cheerRoomKeys.get(channel) === key) return
+  cheerRoomKeys.set(channel, key)
+  try {
+    const prefixes = await window.twichat.cheermotes(roomId)
+    if (cheerRoomKeys.get(channel) !== key) return
+    cheermotes.set(channel, cheermoteIndex(prefixes))
+    if (channel === active && currentView === 'room') virtualLog.refresh()
+  } catch (error) {
+    if (cheerRoomKeys.get(channel) === key) cheerRoomKeys.delete(channel)
+    console.warn('Unable to load the Twitch cheermotes:', displayError(error))
+  }
+}
+
 async function reloadEmotes(channel: string) {
   const roomId = roomIds.get(channel)
   if (!channel || !roomId) return
-  thirdPartyRoomKeys.delete(channel); twitchRoomKeys.delete(channel); badgeRoomKeys.delete(channel)
-  await Promise.allSettled([loadThirdPartyEmotes(channel, roomId), loadTwitchEmotes(channel, roomId), loadTwitchBadges(channel, roomId)])
+  thirdPartyRoomKeys.delete(channel); twitchRoomKeys.delete(channel); badgeRoomKeys.delete(channel); cheerRoomKeys.delete(channel)
+  await Promise.allSettled([loadThirdPartyEmotes(channel, roomId), loadTwitchEmotes(channel, roomId), loadTwitchBadges(channel, roomId), loadCheermotes(channel, roomId)])
 }
 
 /** The name a badge is keyed by: what the log showed before Twitch's own images were asked for. */
@@ -1850,9 +2529,13 @@ function badgeNode(channel: string, id: string) {
 }
 
 function createMessage(message: ChatMessage) {
+  if (message.raid) {
+    const login = message.raid.login
+    return createRaidMessage(message, chatterAvatars.get(login) || state.channelAvatars[login], url => { if (login) chatterAvatars.set(login, url) })
+  }
   const row = document.createElement('article')
   const mention = isMention(message, state.account, accountDisplayName)
-  row.className = `message${message.action ? ' action' : ''}${message.own ? ' own' : ''}${message.system ? ' system' : ''}${mention ? ' mention' : ''}`
+  row.className = `message${message.action ? ' action' : ''}${message.own ? ' own' : ''}${message.system ? ' system' : ''}${mention ? ' mention' : ''}${message.firstMessage ? ' first-message' : ''}${message.highlighted ? ' highlighted' : ''}`
   const avatar = document.createElement('span'); avatar.className = 'message-avatar'; avatar.textContent = message.user.slice(0, 1)
   const login = message.login.toLowerCase()
   // An identified author is what both the profile card and the message menu hang on.
@@ -1894,6 +2577,37 @@ function createMessage(message: ChatMessage) {
   if (message.color && /^#[0-9a-f]{6}$/i.test(message.color)) user.style.setProperty('--chatter', message.color)
   meta.append(user)
   for (const id of message.badges.slice(0, 2)) meta.append(badgeNode(message.channel, id))
+  // Twitch marks a first message so a channel can greet it. A chip rather than a shade: the row
+  // has to be readable as a newcomer's at a glance, from the middle of a log going past.
+  if (message.firstMessage) {
+    const chip = document.createElement('span'); chip.className = 'message-first'
+    chip.textContent = m.app.firstMessageChip; chip.title = m.app.firstMessageOf(message.user)
+    meta.append(chip)
+  }
+  // The redemption shows as a tint and a bar, as it does on Twitch: a colour says nothing to a
+  // screen reader, so the state is also written where only one will find it.
+  if (message.highlighted) {
+    const label = document.createElement('span'); label.className = 'sr-only'; label.textContent = m.app.highlightedMessage
+    meta.append(label)
+  }
+  // A shared-chat message was written elsewhere. Saying so is the point: the badges beside it are
+  // the source channel's, and a moderator there is nobody here. Where the source room is one this
+  // session has joined, the chip is also the door back to it; where it is an id and nothing else,
+  // it stays a label, since a number names no channel to anyone.
+  if (message.source) {
+    const named = message.source.channel
+    const chip = document.createElement(named ? 'button' : 'span'); chip.className = 'message-source'
+    chip.textContent = named ? m.app.sharedChatFrom(named) : m.app.sharedChatElsewhere
+    chip.title = m.app.sharedChatExplained
+    if (named) {
+      const door = chip as HTMLButtonElement
+      door.type = 'button'; door.dataset.channel = named
+      // Not a tab stop, as the handles and the room names in a body are not: the virtualised log
+      // would put hundreds of them between the reader and the composer.
+      door.tabIndex = -1
+    }
+    meta.append(chip)
+  }
   const time = document.createElement('time'); time.className = 'message-time'; time.dateTime = new Date(message.time).toISOString(); time.textContent = clock.format(message.time); meta.append(time)
   const text = document.createElement('p'); text.className = 'message-text'
   // The `gifs` tag is only handed over when the setting allows it: withheld, the title Twitch
@@ -1904,7 +2618,13 @@ function createMessage(message: ChatMessage) {
     thirdParty: thirdPartyEmotes.get(message.channel),
     // Only a message of ours carries no tag: everyone else's arrives with its positions.
     twitchNames: message.own ? twitchEmoteIds.get(message.channel) : undefined,
+    // The `bits` tag is what makes a cheer a cheer. Without it, `Cheer100` in a body is a word,
+    // and this room's prefixes have no business being looked for in it.
+    cheermotes: message.bits ? cheermotes.get(message.channel) : undefined,
     links: chatLinks,
+    // A room named in a message — `#studio_nova`, or the address a shoutout bot posts — opens
+    // where it is read rather than in the browser.
+    channels: true,
     // A viewer named with an `@` opens the same card their author handle does.
     handles: true,
     mention: mention ? { login: state.account, displayName: accountDisplayName } : undefined
@@ -2008,9 +2728,9 @@ function updateRoomLive() {
 }
 
 /**
- * What the channel is, next to what it is doing: how many people follow it, and the tags Twitch
- * lists it under. Both hold once the stream is over, which is why they do not come from the live
- * state — a room stays open long after its broadcast.
+ * What the channel is, next to what it is doing: how many people follow it, the category Twitch
+ * lists it in, and the tags under it. All three hold once the stream is over, which is why they do
+ * not come from the live state — a room stays open long after its broadcast.
  */
 function updateChannelIdentity() {
   const info = currentView === 'room' && active ? channelInfos.get(active) : undefined
@@ -2027,6 +2747,13 @@ function updateChannelIdentity() {
       ? m.app.followerCountFollowing(numbers.format(info.followers), info.followers)
       : m.app.followerCount(numbers.format(info.followers), info.followers)
   }
+  // The category comes first: it is the one word that says what the room is for, and unlike the
+  // tags it is a single value, so it gets the filled chip and they keep the outlined ones.
+  const category = $('#channel-category')
+  category.textContent = info?.game ?? ''
+  category.title = info?.game ? m.app.browseGame(info.game) : ''
+  category.hidden = !info?.game
+
   const tags = $('#channel-tags')
   tags.replaceChildren()
   // Four is what the header holds at its narrowest before the actions start losing room.
@@ -2075,6 +2802,40 @@ function browseTag(tag: string) {
   openDiscover()
 }
 
+/**
+ * The header's category chip. With an id it is a browse of its own — Twitch answers the hundred
+ * largest audiences *in that category*, which is the only way to see who is playing something the
+ * global catalog is too small to hold.
+ *
+ * Without one it falls back to what the explorer's own chips do: filter the catalog in hand. That
+ * is the weaker answer, and it says so when it comes up empty; it is here because the id and the
+ * name arrive from the same payload, and a payload can carry the one without the other.
+ */
+function browseCategory(category: { id: string; name: string; boxArtUrl?: string }) {
+  if (!category.name) return
+  if (category.id) {
+    // Where the way out leads. A category opened from a room carries no list behind it, so the
+    // categories index stands in: it is the one page that holds every category, this one included.
+    if (discoveryScope !== 'category') categoryOrigin = discoveryScope === 'followed' ? 'followed' : discoveryScope === 'categories' ? 'categories' : currentView === 'discover' ? 'top' : 'categories'
+    // Written down where the browse actually happens rather than at each of the six places that
+    // start one. The fallback below is a filter over the loaded catalog, not a visit to anywhere.
+    const scope = state.scope
+    void window.twichat.visitCategory({ id: category.id, name: category.name, boxArtUrl: category.boxArtUrl ?? '' }, scope)
+      .then(list => { if (scope === state.scope) { visitedCategories = list; renderVisitedCategories() } })
+      .catch(() => { /* The rail is a convenience: losing one visit costs it nothing else. */ })
+    // The query was how the category was reached, not a filter to carry into it: left in the box
+    // it would sift the category's own channels for the name of the category.
+    $<HTMLInputElement>('#discover-query').value = ''
+    setDiscoveryScope('category', category)
+  }
+  else {
+    setDiscoveryScope('top')
+    selectedTags.clear()
+    selectedCategories.clear(); selectedCategories.add(category.name)
+  }
+  openDiscover()
+}
+
 function updateConnection(status: Connection, detail: string) {
   state.status = status
   const dot = $('#connection-dot'); dot.className = `status-dot ${status}`
@@ -2105,7 +2866,7 @@ function handleEvents(events: ChatEvent[]) {
     if (event.type === 'roomstate') {
       roomModes.set(event.channel, event.tags)
       const roomId = event.tags['room-id']
-      if (roomId) { roomIds.set(event.channel, roomId); void loadThirdPartyEmotes(event.channel, roomId); void loadTwitchEmotes(event.channel, roomId); void loadTwitchBadges(event.channel, roomId) }
+      if (roomId) { roomIds.set(event.channel, roomId); void loadThirdPartyEmotes(event.channel, roomId); void loadTwitchEmotes(event.channel, roomId); void loadTwitchBadges(event.channel, roomId); void loadCheermotes(event.channel, roomId) }
       if (event.channel === active) { updateModes(); updateFollowGate() }
     }
     if (event.type === 'userstate') {
@@ -2166,6 +2927,9 @@ function paintAccountLabels(login: string | null) {
 function updateAccount(login: string | null) {
   const changed = state.account !== login
   state.account = login
+  // Reached on every account change and again on a language change, which `repaintDynamic`
+  // drives through here: one call covers both, and an anonymous session is offered nothing.
+  renderScopeNotice()
   // Mentions are read against the account: the rows already rendered must run the detection again.
   if (changed) { accountDisplayName = ''; virtualLog.refresh() }
   const avatarGeneration = ++accountAvatarGeneration
@@ -2205,7 +2969,7 @@ function updateAccount(login: string | null) {
   // Signing in takes your channel out of the room list for the block above it; signing out gives
   // it back, so the whole sidebar is repainted rather than that one row.
   renderRooms()
-  if (login) { void refreshOwnProfile(); chatterAvatarRetryAt.clear(); queueRecentChatterAvatars(); for (const [room, roomId] of roomIds) { void loadTwitchEmotes(room, roomId); void loadTwitchBadges(room, roomId) } }
+  if (login) { void refreshOwnProfile(); chatterAvatarRetryAt.clear(); queueRecentChatterAvatars(); for (const [room, roomId] of roomIds) { void loadTwitchEmotes(room, roomId); void loadTwitchBadges(room, roomId); void loadCheermotes(room, roomId) } }
 }
 
 /**
@@ -2503,10 +3267,18 @@ $('#discover-query').addEventListener('input', () => {
   // pause is a request.
   clearTimeout(discoverySearchTimer)
   const raw = $<HTMLInputElement>('#discover-query').value.trim()
+  // The channel search belongs to the catalogue; the category search is asked for by both tabs
+  // that can act on it — one shows it as a row above the channels, the other as the grid itself.
   if (discoveryScope === 'top' && raw.length >= SEARCH_MINIMUM) discoverySearchTimer = window.setTimeout(() => void runDiscoverySearch(raw), 400)
+  else if (discoveryScope === 'categories' && raw.length >= SEARCH_MINIMUM) discoverySearchTimer = window.setTimeout(() => void runCategorySearch(raw, ++discoverySearchGeneration), 400)
 })
 $('#scope-top').addEventListener('click', () => setDiscoveryScope('top'))
 $('#scope-followed').addEventListener('click', () => setDiscoveryScope('followed'))
+$('#scope-categories').addEventListener('click', () => setDiscoveryScope('categories'))
+// A crumb names a destination, so it goes there. The back button beside it takes a step instead,
+// and the two differ after a walk from one category into another: back returns to the category
+// before, the crumb to the list both were opened from. Each does what it says.
+$('#crumb-back').addEventListener('click', () => setDiscoveryScope(categoryOrigin))
 $('#discover-sort').addEventListener('change', renderDiscoveryResults)
 /** The content filter follows the account language, which is only resolved after `setLocale`. */
 function syncDiscoveryLanguage() {
@@ -2515,7 +3287,7 @@ function syncDiscoveryLanguage() {
 }
 $('#discover-language').addEventListener('change', event => {
   discoveryLanguage = (event.target as HTMLSelectElement).value
-  selectedCategories.clear(); selectedTags.clear(); discoveredStreams = []; discoveryUpdatedAt = 0; updateDiscoveryFreshness()
+  selectedCategories.clear(); selectedTags.clear(); discoveredStreams = []; discoveredCursor = ''; pagingFailures = 0; discoveryUpdatedAt = 0; updateDiscoveryFreshness()
   void loadDiscovery()
 })
 $('#discover-login').addEventListener('click', () => {
@@ -2533,6 +3305,14 @@ document.querySelectorAll<HTMLButtonElement>('[data-close]').forEach(button => b
 // Cancelled, dismissed with Escape or closed by an account switch: the address is forgotten either
 // way, so a later Enter on the button cannot open a link the reader has already turned down.
 linkDialog.addEventListener('close', () => { pendingLink = '' })
+// Same rule as the link: what the dialog was asking about is forgotten on every way out, so a
+// later Enter on the button cannot block somebody the reader already declined to block.
+blockDialog.addEventListener('close', () => { pendingBlock = null })
+$('#block-confirm').addEventListener('click', () => {
+  const target = pendingBlock
+  blockDialog.close()
+  if (target) void applyBlock(target)
+})
 $('#link-open').addEventListener('click', () => {
   const href = pendingLink
   if ($<HTMLInputElement>('#link-remember').checked) {
@@ -2563,7 +3343,13 @@ ownChannelButton.addEventListener('keydown', event => {
 })
 $('#idle-toggle').addEventListener('click', () => { idleExpanded = !idleExpanded; renderRooms() })
 $('#account-button').addEventListener('click', () => { if ($('#account-menu').hidden) openAccountMenu(); else closeAccountMenu() })
-$('#account-menu-connect').addEventListener('click', () => { closeAccountMenu(); openAccount() })
+// Anonymous, the menu leads back to the gate rather than straight to Twitch: the saved accounts
+// live there, and this was the only way out of a session entered without one.
+$('#account-menu-home').addEventListener('click', async () => {
+  closeAccountMenu()
+  await window.twichat.logout(); joined.clear(); joinFailures.clear(); updateAccount(null)
+  accountDialog.close(); returnToSessionChoice()
+})
 $('#account-menu-settings').addEventListener('click', () => { closeAccountMenu(); openSettings() })
 $('#composer-login').addEventListener('click', openAccount)
 async function startBrowserAuthentication(mode: 'open' | 'copy') {
@@ -2634,16 +3420,111 @@ $('#composer-gate-follow').addEventListener('click', () => {
 $('#composer-gate-recheck').addEventListener('click', () => { void refreshFollowStatus(active, true) })
 $('#auth-help').addEventListener('click', () => window.twichat.external('auth-docs'))
 $('#resume').addEventListener('click', () => virtualLog.bottom())
+/**
+ * The colour the account's own name is written in.
+ *
+ * Twitch names its fifteen presets after CSS colour keywords — `blue_violet` is `blueviolet` —
+ * so the swatch is drawn with the keyword itself rather than with a table of hex values copied
+ * from a documentation page that gives none. The names are shown as Twitch spells them, in
+ * English and untranslated: they are the values the API takes, not labels of ours.
+ */
+const colorKeyword = (preset: string) => preset.replace(/_/gu, '')
+const colorLabel = (preset: string) => preset.split('_').map(word => word[0].toUpperCase() + word.slice(1)).join(' ')
+/** What the browser makes of a keyword, as `#rrggbb`: the only way to match one against Twitch's answer. */
+const presetHex = new Map<string, string>()
+function resolvePresetHex() {
+  if (presetHex.size) return presetHex
+  const probe = document.createElement('span')
+  probe.style.display = 'none'
+  document.body.append(probe)
+  for (const preset of CHAT_COLORS) {
+    probe.style.color = colorKeyword(preset)
+    const parts = /rgb\((\d+),\s*(\d+),\s*(\d+)\)/u.exec(getComputedStyle(probe).color)
+    if (parts) presetHex.set(preset, `#${parts.slice(1).map(part => Number(part).toString(16).padStart(2, '0')).join('')}`)
+  }
+  probe.remove()
+  return presetHex
+}
+let currentChatColor = ''
+function renderChatColorChoice() {
+  const host = $('#chat-color-choice')
+  const settable = !!state.account && accountScopes.chatColor
+  const hexes = resolvePresetHex()
+  host.replaceChildren()
+  for (const preset of CHAT_COLORS) {
+    const label = document.createElement('label')
+    label.className = 'color-swatch'
+    label.style.setProperty('--chatter', colorKeyword(preset))
+    const input = document.createElement('input')
+    input.type = 'radio'; input.name = 'chat-color'; input.value = preset
+    input.disabled = !settable
+    input.checked = !!currentChatColor && hexes.get(preset) === currentChatColor
+    input.addEventListener('change', () => { if (input.checked) void applyChatColor(preset) })
+    const dot = document.createElement('i')
+    label.append(input, dot, document.createTextNode(colorLabel(preset)))
+    host.append(label)
+  }
+  $<HTMLInputElement>('#chat-color-custom').disabled = !settable
+  $<HTMLButtonElement>('#chat-color-apply').disabled = !settable
+  if (currentChatColor) $<HTMLInputElement>('#chat-color-custom').value = currentChatColor
+}
+/** The status line: what is set, or why nothing can be. */
+function paintChatColorStatus(message = '') {
+  const status = $('#chat-color-status')
+  if (message) { status.textContent = message; return }
+  if (!state.account) { status.textContent = m.ui.settings.colorNeedsAccount; return }
+  if (!accountScopes.chatColor) { status.textContent = m.ui.settings.colorScopeMissing; return }
+  status.textContent = currentChatColor ? m.ui.settings.colorCurrent(currentChatColor) : m.ui.settings.colorDefault
+}
+/**
+ * Reads it back from Twitch. Done on opening the settings rather than kept with the preferences:
+ * this one does not live on this machine, and twitch.tv can have changed it since.
+ */
+async function refreshChatColor() {
+  if (!state.account) { currentChatColor = ''; renderChatColorChoice(); paintChatColorStatus(); return }
+  try {
+    currentChatColor = await window.twichat.chatColor()
+    renderChatColorChoice(); paintChatColorStatus()
+  } catch (error) {
+    renderChatColorChoice(); paintChatColorStatus(displayError(error))
+  }
+}
+async function applyChatColor(color: string) {
+  const apply = $<HTMLButtonElement>('#chat-color-apply')
+  apply.disabled = true
+  try {
+    currentChatColor = await window.twichat.setChatColor(color)
+    renderChatColorChoice(); paintChatColorStatus(m.ui.settings.colorSaved)
+  } catch (error) {
+    // A hex refused for want of Turbo is the one refusal worth staying on: the named list above
+    // is still open, and the message says so rather than leaving a status code on screen.
+    renderChatColorChoice(); paintChatColorStatus(displayError(error))
+  }
+}
+
 function openSettings() {
   if (!workspaceEntered) return
   closeFloatingLayers(); virtualLog.setVisible(false); showView('settings'); renderRooms()
+  void refreshChatColor()
 }
 $('#open-settings').addEventListener('click', openSettings)
 $('#cue-buffer').addEventListener('click', () => { openSettings(); $('#buffer').focus() })
 // A release the user may want: the notice stays until it is acted on, and says what a click does.
+// The same road the settings and the account menu take: the browser is the only place a scope
+// is granted, and the ticket comes back through `twichat://auth` as it does for a first sign-in.
+$('#scope-notice').addEventListener('click', () => {
+  window.twichat.browserLogin().catch(error => toast(displayError(error)))
+})
 window.twichat.onUpdate(notice => { updateNotice = notice; renderUpdateNotice() })
 $('#update-notice').addEventListener('click', () => void window.twichat.applyUpdate())
 window.twichat.onSettings(openSettings)
+/**
+ * What the token may do has changed — a sign-in, a sign-out, or the same account signed in again
+ * through the browser to grant one of these. The last is the one this exists for: it is how an
+ * account already stored on this machine gains the emotes, the blocking and the colour, and it
+ * moves nothing else at all.
+ */
+window.twichat.onAccountScopes(adoptScopes)
 // The main process loaded another account's preferences: nothing of the previous one remains.
 window.twichat.onPreferences(adoptScope)
 // A click on a mention notification: the main process already brought the window back; what is left is the room.
@@ -2651,6 +3532,10 @@ window.twichat.onMentionOpen(channel => { if (state?.preferences.channels.includ
 // A channel named inside a conversation: unlike a mention, it may well be one we have never joined.
 window.twichat.onChannelOpen(channel => { void openChannelOf(channel) })
 $('#reconnect').addEventListener('click', () => window.twichat.reconnect().catch(error => toast(displayError(error))))
+$('#channel-category').addEventListener('click', () => {
+  const info = active ? channelInfos.get(active) : undefined
+  if (info?.game) browseCategory({ id: info.gameId ?? '', name: info.game })
+})
 $('#open-twitch').addEventListener('click', () => window.twichat.external('twitch', active))
 $('#leave-room').addEventListener('click', () => void leaveRoom(active))
 $('#room-context-leave').addEventListener('click', () => { if (contextRoom) void leaveRoom(contextRoom) })
@@ -2673,6 +3558,9 @@ chatLog.addEventListener('click', event => {
   }
   const quote = (event.target as Element).closest<HTMLElement>('[data-reply]')
   if (quote?.dataset.reply) { revealMessage(quote.dataset.reply); return }
+  // Joining where the room is new, activating where it is not: the same door the cards open.
+  const room = (event.target as Element).closest<HTMLElement>('[data-channel]')
+  if (room?.dataset.channel) { void openChannelOf(room.dataset.channel); return }
   const trigger = (event.target as Element).closest<HTMLElement>('[data-card]')
   if (!trigger?.dataset.card) return
   openUserCard(trigger.dataset.card, ...cardAnchorPoint(trigger), true)
@@ -2740,15 +3628,34 @@ const railRow = (event: Event) => {
   const row = (event.target as HTMLElement).closest<HTMLButtonElement>('.room-button')
   return row && railTipWanted(row) ? row : null
 }
+function showRailActionTip(event: Event) {
+  hideRailTip()
+  const action = (event.target as HTMLElement).closest<HTMLElement>('[data-rail-hint]')
+  if (!collapsedSidebar() || !action) return
+  const label = document.createElement('strong')
+  label.textContent = action.dataset.railHint!
+  railTip.classList.remove('has-preview')
+  railTip.replaceChildren(label)
+  railTip.hidden = false
+  const bounds = action.getBoundingClientRect()
+  placeFloating(railTip, bounds.right + 8, bounds.top + bounds.height / 2 - railTip.getBoundingClientRect().height / 2)
+}
 $('#sidebar').addEventListener('pointerover', event => {
   const row = railRow(event)
   railHovered = Boolean(row)
-  if (row) showRailTip(row); else hideRailTip()
+  if (row) showRailTip(row); else showRailActionTip(event)
 })
-$('#sidebar').addEventListener('focusin', event => { const row = railRow(event); if (row) showRailTip(row); else if (!railHovered) hideRailTip() })
+$('#sidebar').addEventListener('focusin', event => { const row = railRow(event); if (row) showRailTip(row); else if (!railHovered) showRailActionTip(event) })
 $('#sidebar').addEventListener('pointerleave', () => { railHovered = false; hideRailTip() })
 $('#sidebar').addEventListener('focusout', () => { if (!railHovered) hideRailTip() })
-for (const selector of ['#rooms', '#idle-rooms']) $(selector).addEventListener('scroll', hideRailTip)
+const channelScroll = $('#channel-scroll')
+let railScrollTimer = 0
+channelScroll.addEventListener('scroll', () => {
+  hideRailTip()
+  channelScroll.classList.add('is-scrolling')
+  clearTimeout(railScrollTimer)
+  railScrollTimer = window.setTimeout(() => channelScroll.classList.remove('is-scrolling'), 700)
+}, { passive: true })
 $('#toggle-player').addEventListener('click', () => setChatOnly(!$('#room-body').classList.contains('chat-only')))
 $('#play-stream').addEventListener('click', () => player.play(active, $<HTMLSelectElement>('#quality').value, playback().buffer))
 fullscreenButton.addEventListener('click', () => void togglePlayerFullscreen())
@@ -2783,6 +3690,9 @@ function repaintDynamic() {
   renderUpdateNotice()
   applyPlayerMode(); applySound(volume, muted); updatePlayer(currentPlayerState); updateCount(); updateModes(); updateRoomLive(); updateChannelIdentity()
   virtualLog.refresh()
+  // The colour swatches and the line under them are built here rather than shipped in the HTML,
+  // so `hydrate` has nothing of theirs to translate.
+  renderChatColorChoice(); paintChatColorStatus()
   if (currentView === 'discover') { renderDiscoveryCategories(); renderDiscoveryResults() }
 }
 
@@ -2793,11 +3703,13 @@ function applyLanguageChoice() {
   repaintDynamic()
 }
 
-for (const selector of ['#buffer', '#autoplay', '#notify-mentions', '#notify-whispers', '#language', '#hide-idle', '#idle-delay', '#chat-links', '#chat-link-confirm', '#chat-gifs']) $(selector).addEventListener('change', () => {
+for (const selector of ['#buffer', '#autoplay', '#notify-mentions', '#notify-whispers', '#language', '#hide-idle', '#idle-delay', '#chat-links', '#chat-link-confirm', '#chat-gifs', '#chat-timestamps']) $(selector).addEventListener('change', () => {
   // Read before saving: the payload takes the choice from here, not from the checkbox.
   if (selector === '#chat-links') chatLinks = $<HTMLInputElement>('#chat-links').checked
   if (selector === '#chat-link-confirm') chatLinkConfirm = $<HTMLInputElement>('#chat-link-confirm').checked
   if (selector === '#chat-gifs') chatGifs = $<HTMLInputElement>('#chat-gifs').checked
+  // The attribute is what shows or hides them, and it lands before the save: no repaint needed.
+  if (selector === '#chat-timestamps') applyTimestamps($<HTMLInputElement>('#chat-timestamps').checked)
   save()
   // The messages already on screen follow the choice: the log repaints them from the same state.
   if (selector === '#chat-links' || selector === '#chat-gifs') virtualLog.refresh()
@@ -2869,6 +3781,12 @@ setSidebarCollapsed(false, false)
 window.twichat.onEvents(handleEvents)
 window.twichat.init().then(snapshot => {
   state = snapshot; active = snapshot.preferences.active
+  // Before the first room is drawn: the picker's tab and the card's button both read this, and
+  // reading it as "not granted" for a moment would say the wrong thing to an account that has it.
+  accountScopes = snapshot.scopes
+  // The main process filters the messages on its own list; this one is what the card reads, and
+  // it is asked for here rather than waiting for a scope change that will not come this session.
+  void refreshBlockedUsers()
   // The language arrives resolved from the main process: the HTML is translated before being shown.
   setLocale(snapshot.locale)
   // Before the first translation: every label the catalogs write with `⌘` is stamped for this
@@ -2883,7 +3801,7 @@ window.twichat.init().then(snapshot => {
   for (const [room, tags] of Object.entries(snapshot.roomStates)) {
     roomModes.set(room, tags)
     const roomId = tags['room-id']
-    if (roomId) { roomIds.set(room, roomId); void loadThirdPartyEmotes(room, roomId); void loadTwitchEmotes(room, roomId); void loadTwitchBadges(room, roomId) }
+    if (roomId) { roomIds.set(room, roomId); void loadThirdPartyEmotes(room, roomId); void loadTwitchEmotes(room, roomId); void loadTwitchBadges(room, roomId); void loadCheermotes(room, roomId) }
   }
   // Same for USERSTATE: without those badges, a moderator would see the "follow this channel" banner.
   for (const [room, badges] of Object.entries(snapshot.userBadges)) roomBadges.set(room, badges)

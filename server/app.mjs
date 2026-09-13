@@ -14,8 +14,15 @@ const requiredScopes = ['chat:read', 'chat:edit']
 // Requested at sign-in, never required at validation: a session opened before the view that
 // needs one must keep renewing itself without it. `user:read:follows` carries the followed
 // channels; `user:manage:whispers` carries both halves of the whispers — receiving them over
-// EventSub and sending them — so a single consent covers the pair.
-const loginScopes = [...requiredScopes, 'user:read:follows', 'user:manage:whispers']
+// EventSub and sending them — so a single consent covers the pair. `user:read:emotes` brings the
+// viewer's own emotes into every channel rather than only into the ones that publish them.
+// Blocking needs its two halves named separately, and only both make it usable: a block nothing
+// can read back is a block nothing can undo. `user:manage:chat_color` sets the colour the account
+// is written in — reading it back needs no scope, which is why only the writing one is here.
+const loginScopes = [
+  ...requiredScopes, 'user:read:follows', 'user:manage:whispers', 'user:read:emotes',
+  'user:read:blocked_users', 'user:manage:blocked_users', 'user:manage:chat_color'
+]
 const mimeTypes = new Map([
   ['.html', 'text/html; charset=utf-8'], ['.css', 'text/css; charset=utf-8'],
   ['.js', 'text/javascript; charset=utf-8'], ['.png', 'image/png'],

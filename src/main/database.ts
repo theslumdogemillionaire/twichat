@@ -130,7 +130,26 @@ const REVISIONS = [
   // the application, which is what everyone has been reading in until now: nobody's chat changes
   // shape on update. The other choices name families the system already has, so the column holds
   // a name and never a file.
-  `ALTER TABLE scopes ADD COLUMN chat_font TEXT NOT NULL DEFAULT 'default'`
+  `ALTER TABLE scopes ADD COLUMN chat_font TEXT NOT NULL DEFAULT 'default'`,
+  // Revision 16. Whether the time shows beside each message. It defaults to on, which is what the
+  // log has always drawn: an update hides nothing from someone who never asked for it.
+  `ALTER TABLE scopes ADD COLUMN chat_timestamps INTEGER NOT NULL DEFAULT 1`,
+  // Revision 17. The categories this account has opened, so the ones it keeps coming back to are
+  // waiting at the top of the explorer rather than somewhere down a list of a hundred. It records
+  // browsing rather than joining, which nothing here did before — and it is why this table stays
+  // on this machine, under the account that did the browsing, and is sent nowhere.
+  // `visits` is counted and not yet read: ordering by the last visit is what somebody can predict,
+  // and a frequency that outranks it would bury a category opened for the first time.
+  `CREATE TABLE category_visits (
+     scope TEXT NOT NULL REFERENCES scopes(scope) ON DELETE CASCADE,
+     game_id TEXT NOT NULL,
+     name TEXT NOT NULL DEFAULT '',
+     box_art_url TEXT NOT NULL DEFAULT '',
+     visits INTEGER NOT NULL DEFAULT 0,
+     last_visit_at INTEGER NOT NULL,
+     PRIMARY KEY (scope, game_id)
+   );
+   CREATE INDEX category_visits_recent ON category_visits(scope, last_visit_at DESC);`
 ]
 
 /**

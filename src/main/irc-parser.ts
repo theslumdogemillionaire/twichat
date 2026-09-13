@@ -1,4 +1,5 @@
-import type { ReplyReference } from '../shared/types'
+import type { IncomingRaid, ReplyReference } from '../shared/types'
+import { avatarSource } from './avatars'
 import { formatGifs, parseGifs } from '../shared/gifs'
 import { m, numbers } from '../shared/i18n'
 import { fail } from '../shared/errors'
@@ -50,6 +51,20 @@ export class IrcFramer {
   }
 }
 
+export function incomingRaid(tags: Record<string, string>): IncomingRaid | undefined {
+  if (tags['msg-id'] !== 'raid') return undefined
+  const login = (tags['msg-param-login'] || tags.login || '').toLowerCase()
+  const count = tags['msg-param-viewerCount'] || ''
+  const viewers = /^\d+$/.test(count) && Number.isSafeInteger(Number(count)) ? Number(count) : null
+  let avatarUrl = ''
+  try { avatarUrl = avatarSource(tags['msg-param-profileImageURL']) } catch { /* Optional Twitch CDN picture. */ }
+  return {
+    login: /^[a-z0-9_]{1,25}$/.test(login) ? login : '',
+    displayName: tags['msg-param-displayName'] || tags['display-name'] || login || m.chat.someone,
+    viewers, avatarUrl
+  }
+}
+
 /** Summarizes a USERNOTICE (sub, gift, raid, announcement); falls back to Twitch's `system-msg`. */
 export function userNoticeSummary(tags: Record<string, string>): string {
   const name = tags['msg-param-displayName'] || tags['display-name'] || tags.login || m.chat.someone
@@ -63,7 +78,10 @@ export function userNoticeSummary(tags: Record<string, string>): string {
     case 'submysterygift': return m.chat.giftedSubs(name, number(tags['msg-param-mass-gift-count'] ?? ''))
     case 'giftpaidupgrade':
     case 'anongiftpaidupgrade': return m.chat.continuesGiftedSub(name)
-    case 'raid': return m.chat.raid(name, number(tags['msg-param-viewerCount'] ?? ''))
+    case 'raid': {
+      const raid = incomingRaid(tags)!
+      return raid.viewers === null ? m.chat.raidCommunity(raid.displayName) : m.chat.raid(raid.displayName, raid.viewers)
+    }
     case 'unraid': return m.chat.raidCancelled
     case 'announcement': return m.chat.announcement(name)
     case 'viewermilestone': return tags['msg-param-category'] === 'watch-streak'
@@ -124,6 +142,22 @@ export function stripReplyMention(text: string, emotes: string, gifs: string, ..
   const shift = mentionPrefix(text, ...names)
   if (!shift) return { text, emotes, gifs }
   return { text: Array.from(text).slice(shift).join(''), emotes: shiftEmotes(emotes, shift), gifs: shiftGifs(gifs, shift) }
+}
+
+/**
+ * The other channel a message was written in, since Twitch started mirroring chats between
+ * channels in a shared-chat session (September 2024). Undefined for an ordinary message.
+ *
+ * `badgeTag` is `null` when Twitch sent no `source-badges` at all, and `''` when it sent the tag
+ * empty — which means the viewer holds no badge over there. The two must not be confused: falling
+ * back to the room's own `badges` on an empty tag is exactly how a foreign message ends up
+ * wearing this channel's sets. `parseIrc` writes `''` for a tag present and empty and leaves the
+ * key absent otherwise, so presence is the only reliable discriminator.
+ */
+export function sharedChatSource(tags: Record<string, string>): { roomId: string; badgeTag: string | null } | undefined {
+  const roomId = tags['source-room-id'] || ''
+  if (!/^\d{1,30}$/.test(roomId) || roomId === tags['room-id']) return undefined
+  return { roomId, badgeTag: 'source-badges' in tags ? tags['source-badges'] : null }
 }
 
 /**

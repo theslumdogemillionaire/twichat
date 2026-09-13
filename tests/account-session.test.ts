@@ -24,6 +24,8 @@ function harness(options: { saved?: Record<string, AccountCredentials>; preferre
   let preferred = options.preferred ?? null
   const queued: Array<(url: string) => AuthResponse | Promise<AuthResponse>> = []
   let chatLogin: string | null = null
+  /** How often the account's own emote set was dropped, and its permissions re-announced. */
+  const scopeSignals = { forgotten: 0, announced: 0 }
 
   const parts: AccountSessionParts = {
     accounts: {
@@ -54,9 +56,18 @@ function harness(options: { saved?: Record<string, AccountCredentials>; preferre
     rememberAvatar: async login => { calls.push(`avatar:${login}`) },
     forgetAvatar: async login => { calls.push(`forget-avatar:${login}`) },
     forgetPreferences: login => { calls.push(`forget-preferences:${login}`) },
-    streams: async () => [],
+    streams: async () => ({ streams: [], cursor: '' }),
     followed: async () => ({ live: [], offline: [], truncated: false }),
     search: async () => ({ live: [], offline: [] }),
+    searchCategories: async () => [],
+    topCategories: async () => ({ categories: [], cursor: '' }),
+    blocked: async () => [],
+    block: async () => {},
+    unblock: async () => {},
+    // Kept off `calls`, which several tests compare whole: these two fire on every credential
+    // change and would rewrite every expectation in this file. Counted instead.
+    forgetUserEmotes: () => { scopeSignals.forgotten++ },
+    announceScopes: () => { scopeSignals.announced++ },
     // No appointment fires on its own: a renewal in these tests is one the test asked for.
     timers: { set: () => 0, clear: () => {} }
   }
@@ -64,6 +75,7 @@ function harness(options: { saved?: Record<string, AccountCredentials>; preferre
   return {
     session: createAccountSession(parts),
     calls,
+    scopeSignals,
     saved,
     reply: (...answers: AuthResponse[]) => { for (const one of answers) queued.push(() => one) },
     /** Makes the preferences row refuse to go, the way a locked database would. */
@@ -258,7 +270,68 @@ test('the discovery lists are emptied when the account changes', async () => {
   const bench = harness({ saved: { alice: { accessToken: 'alice-token' } } })
   bench.reply(validated('alice'))
   await bench.session.useSaved('alice')
-  assert.deepEqual(await bench.session.data.streams('fr', false), [])
+  assert.deepEqual(await bench.session.data.streams('fr', false), { streams: [], cursor: '' })
   bench.session.logout()
   await assert.rejects(bench.session.data.streams('fr', false), error => errorKey(error) === 'needAccountForDiscover')
+})
+
+test('the account own emote set is dropped at every credential change', async () => {
+  // These emotes are the viewer's, not a channel's, so the rule the other Twitch caches live by —
+  // keyed by room, left standing across an account change — is exactly the rule that must not
+  // apply here. One left behind would put an account's subscriptions in the next one's picker.
+  const bench = harness({ preferred: 'alice', saved: { alice: { accessToken: 'alice-token' }, bob: { accessToken: 'bob-token' } } })
+  bench.reply(validated('alice'))
+  await bench.session.restore()
+  assert.equal(bench.scopeSignals.forgotten, 1)
+
+  // Another account picked in the chooser: dropped again, before anything of Bob's is fetched.
+  bench.reply(validated('bob'))
+  await bench.session.useSaved('bob')
+  assert.equal(bench.scopeSignals.forgotten, 2)
+
+  // And on the way out, where what is left behind would be read by the next account to sign in.
+  bench.session.logout()
+  assert.equal(bench.scopeSignals.forgotten, 3)
+  // Each of those told the window what the token may do: an account signing in again to grant one
+  // of these scopes moves no preference, so this channel is the only one that would say so.
+  assert.equal(bench.scopeSignals.announced, 3)
+})
+
+test('the three late scopes are read off the validation, never guessed from a refusal', async () => {
+  // Twitch answers all three of these endpoints with a 401 to a token that simply lacks the scope —
+  // the same status a dead session gets, and never a 403. So the grant can only be read here.
+  const bare = harness({ preferred: 'alice', saved: { alice: { accessToken: 'alice-token' } } })
+  bare.reply(validated('alice'))
+  await bare.session.restore()
+  assert.deepEqual(bare.session.scopes(), { emotes: false, blocks: false, chatColor: false })
+
+  const granted = harness({ preferred: 'bob', saved: { bob: { accessToken: 'bob-token' } } })
+  granted.reply(answer(200, {
+    login: 'bob', client_id: 'bob-client', user_id: '7', expires_in: 14_400,
+    scopes: ['chat:read', 'chat:edit', 'user:read:emotes', 'user:read:blocked_users', 'user:manage:blocked_users', 'user:manage:chat_color']
+  }))
+  await granted.session.restore()
+  assert.deepEqual(granted.session.scopes(), { emotes: true, blocks: true, chatColor: true })
+
+  // Blocking needs both of its halves. With only the reading one, a block could be set and never
+  // seen again — and so never undone: the pair is refused rather than half-offered.
+  const half = harness({ preferred: 'carol', saved: { carol: { accessToken: 'carol-token' } } })
+  half.reply(answer(200, {
+    login: 'carol', client_id: 'carol-client', user_id: '8', expires_in: 14_400,
+    scopes: ['chat:read', 'chat:edit', 'user:read:blocked_users']
+  }))
+  await half.session.restore()
+  assert.equal(half.session.scopes().blocks, false)
+})
+
+test('signing out leaves no permission standing for whoever comes next', async () => {
+  const bench = harness({ preferred: 'bob', saved: { bob: { accessToken: 'bob-token' } } })
+  bench.reply(answer(200, {
+    login: 'bob', client_id: 'bob-client', user_id: '7', expires_in: 14_400,
+    scopes: ['chat:read', 'chat:edit', 'user:read:emotes', 'user:read:blocked_users', 'user:manage:blocked_users', 'user:manage:chat_color']
+  }))
+  await bench.session.restore()
+  assert.equal(bench.session.scopes().emotes, true)
+  bench.session.logout()
+  assert.deepEqual(bench.session.scopes(), { emotes: false, blocks: false, chatColor: false })
 })

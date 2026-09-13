@@ -15,6 +15,13 @@ export interface ReplyReference {
   threadLogin: string
   threadUser: string
 }
+/** The source of an incoming raid, preserved from Twitch's USERNOTICE tags. */
+export interface IncomingRaid {
+  login: string
+  displayName: string
+  viewers: number | null
+  avatarUrl: string
+}
 export interface ChatMessage {
   id: string
   channel: string
@@ -30,12 +37,30 @@ export interface ChatMessage {
   /** Local echo of a send: its `id` stays provisional until Twitch has confirmed the message. */
   pending?: boolean
   system?: boolean
+  raid?: IncomingRaid
   /** The `msg-id` of a Twitch NOTICE. Stable where its text is translated and reworded. */
   notice?: string
   emotes?: string
   /** The `gifs` tag as Twitch sent it: `<start>-<end>|<id>|<url>`, one entry per GIPHY image. */
   gifs?: string
   reply?: ReplyReference
+  /** `first-msg=1`: this viewer had never written in this channel before. */
+  firstMessage?: boolean
+  /** `msg-id=highlighted-message`: the channel-points redemption that lifts a message out of the log. */
+  highlighted?: boolean
+  /**
+   * Set when the message was written in another channel and mirrored here by a Twitch shared-chat
+   * session. `badges` then already holds the source channel's sets rather than this room's.
+   * `channel` is the source's name when it could be put to the id at no cost — a room this
+   * session has also joined — and `''` otherwise: a bare numeric id tells a reader nothing.
+   */
+  source?: { roomId: string; channel: string }
+  /**
+   * The `bits` tag: what the whole message cheered. The body carries the tokens that add up to
+   * it, so this is not what the log prints — it is what says the tokens are cheers at all, and
+   * a `Cheer100` in a message without it stays the five characters somebody typed.
+   */
+  bits?: number
 }
 export type ChatEvent =
   | { type: 'status'; status: Connection; detail: string }
@@ -98,6 +123,12 @@ export interface ChatPreferences {
   gifs: boolean
   /** The typeface of the messages and of what you type, in the room and in a conversation window. */
   font: ChatFont
+  /**
+   * Shows the time beside each message in the room's log. A conversation window ignores it: its
+   * times are day separators rather than a column, and hiding them would leave a thread with no
+   * chronology at all.
+   */
+  timestamps: boolean
 }
 /** The sizes set by hand: they follow the account from one room to the next and from one session to the next. */
 export interface LayoutPreferences {
@@ -160,6 +191,8 @@ export interface Snapshot {
   channelAvatars: Record<string, string>
   roomStates: Record<string, Record<string, string>>
   userBadges: Record<string, string[]>
+  /** What this token was granted beyond chat. Sent again, on its own channel, at every account change. */
+  scopes: AccountScopes
 }
 export interface RoomProfile {
   channel: string
@@ -178,14 +211,39 @@ export interface RoomProfile {
 }
 /**
  * What the room header knows about the channel apart from its stream: the size of its audience
- * over time, and the tags it is listed under. Both survive the stream going offline, so neither
- * belongs to `RoomProfile`, which is refreshed for twenty rooms at a time.
+ * over time, and the category and tags it is listed under. All three survive the stream going
+ * offline, so none of them belongs to `RoomProfile`, which is refreshed for twenty rooms at a time.
  */
 export interface ChannelInfo {
   channel: string
   /** Absent when the endpoint turned the token down: the header drops the line rather than showing a zero. */
   followers?: number
+  /** The category the channel is listed under. Absent when Twitch named none — a channel that has never streamed has none. */
+  game?: string
+  /** Twitch's id for that category, and what browsing it is made of. Absent when the payload carried no usable one: the chip then filters rather than browses. */
+  gameId?: string
   tags: string[]
+}
+/**
+ * A Twitch category as the search answers it. The id is what `helix/streams` browses by — a name
+ * browses nothing — and the box art is the one picture a category has.
+ */
+/**
+ * A page of a Twitch listing: the rows, and where the next page starts. An empty cursor is the end
+ * of the list — the one thing a caller needs to know to stop asking.
+ */
+export interface CategoryPage {
+  categories: CategoryMatch[]
+  cursor: string
+}
+export interface StreamPage {
+  streams: StreamSummary[]
+  cursor: string
+}
+export interface CategoryMatch {
+  id: string
+  name: string
+  boxArtUrl: string
 }
 export interface StreamSummary {
   id: string
@@ -195,6 +253,8 @@ export interface StreamSummary {
   thumbnailUrl: string
   title: string
   game: string
+  /** Twitch's id for that category. Empty when the row carried none: the card filters instead of browsing. */
+  gameId: string
   viewers: number
   tags: string[]
   language: string
@@ -220,6 +280,8 @@ export interface ChannelSearch {
 }
 export interface UserCard {
   login: string
+  /** Twitch's id for them. Empty when the payload carried none: blocking needs an id, not a name. */
+  userId: string
   displayName: string
   avatarUrl: string
   description: string
@@ -246,8 +308,36 @@ export interface FollowStatus {
 export interface TwitchEmote {
   id: string
   name: string
-  scope: 'global' | 'channel'
+  /**
+   * `account` is the set the viewer carries rather than one the room publishes: subscriptions to
+   * other channels, Prime and Turbo emotes, what a Hype Train left behind. It exists as a third
+   * value because those are typable here while belonging to nowhere in particular, and the picker
+   * has to say where they came from rather than passing them off as the channel's.
+   */
+  scope: 'global' | 'channel' | 'account'
   type: string
+}
+/** Someone the account has blocked on Twitch itself. The login is what a chat message carries. */
+export interface BlockedUser {
+  login: string
+  userId: string
+  displayName: string
+}
+/**
+ * Which of the optional scopes the signed-in token actually carries.
+ *
+ * Every one of these was added to the sign-in after accounts were already stored on machines, and
+ * a token only gains a scope through the browser round-trip: an account saved before is not
+ * broken, it simply cannot do these three things. The window reads this rather than discovering
+ * it from a refusal, so a button that would only ever fail is not drawn in the first place.
+ */
+export interface AccountScopes {
+  /** `user:read:emotes`: the account's own emotes, in every room rather than only in theirs. */
+  emotes: boolean
+  /** `user:read:blocked_users` and `user:manage:blocked_users`, granted together or not at all. */
+  blocks: boolean
+  /** `user:manage:chat_color`. Reading the colour back needs no scope; only setting it does. */
+  chatColor: boolean
 }
 /**
  * A chat badge, keyed the way the `badges` tag names it — `moderator/1`, `subscriber/0` — so a
@@ -257,6 +347,22 @@ export interface ChatBadge {
   id: string
   url: string
   title: string
+}
+/**
+ * One tier of a cheermote: the amount it starts at, the colour Twitch writes that amount in, and
+ * the image standing for it. A body says `Cheer100`, and the tier applying is the highest
+ * `minBits` the amount reaches.
+ */
+export interface CheermoteTier {
+  minBits: number
+  /** Twitch's own tier colour, `#rrggbb`. It is the whole grammar of a cheer: grey, purple, gold. */
+  color: string
+  url: string
+}
+/** A cheer prefix and its tiers: Twitch's own `Cheer`, and each channel's — `Kappa`, `uni`. */
+export interface Cheermote {
+  prefix: string
+  tiers: CheermoteTier[]
 }
 export type EmoteSource = '7tv' | 'bttv' | 'ffz'
 export interface ThirdPartyEmote {
@@ -335,7 +441,28 @@ export interface TwichatAPI {
   twitchEmotes(roomId: string): Promise<TwitchEmote[]>
   /** The badge images of a room: Twitch's own sets, with the channel's over them. */
   twitchBadges(roomId: string): Promise<ChatBadge[]>
-  discover(language: string, refresh?: boolean): Promise<StreamSummary[]>
+  /** The cheer prefixes of a room, Twitch's own and the channel's: one call carries both. */
+  cheermotes(roomId: string): Promise<Cheermote[]>
+  /**
+   * The catalog in a language, or — with `gameId` — the same catalog narrowed to one category by
+   * Twitch itself. `after` is the cursor of the page before: the explorer asks for the next one as
+   * the reader reaches the bottom, rather than stopping at the hundred it opened with.
+   */
+  discover(language: string, refresh?: boolean, gameId?: string, after?: string): Promise<StreamPage>
+  /** Twitch's categories matching a name, so the box can answer "category" and not only "channel". */
+  searchCategories(query: string): Promise<CategoryMatch[]>
+  /** Twitch's categories by audience: the explorer's own front door onto what exists, a page at a time. */
+  topCategories(refresh?: boolean, after?: string): Promise<CategoryPage>
+  /**
+   * The categories this account has opened, most recently first. Local to this machine and to this
+   * account: it is written to the database beside the rooms and the whispers, and sent nowhere.
+   */
+  visitedCategories(): Promise<CategoryMatch[]>
+  /**
+   * Notes a category as opened, and answers the list as it now stands. `scope` is the account the
+   * window believed it was under: a visit that lags a switch is dropped, not written to the next.
+   */
+  visitCategory(category: CategoryMatch, scope: string): Promise<CategoryMatch[]>
   followed(refresh?: boolean): Promise<FollowedChannels>
   /**
    * Searches Twitch by channel name — logins and display names — rather than filtering the
@@ -398,6 +525,36 @@ export interface TwichatAPI {
   onPreferences(callback: (scoped: ScopedPreferences) => void): () => void
   /** The main process's Settings menu, on the platform's own accelerator. */
   onSettings(callback: () => void): () => void
+  /**
+   * What the token may do, when that changes. It rides its own channel rather than the
+   * preferences, because the change this exists for does not move the scope: signing in again as
+   * the same account to grant a new permission leaves every preference exactly where it was.
+   */
+  onAccountScopes(callback: (scopes: AccountScopes) => void): () => void
+  /**
+   * Everyone this account has blocked on Twitch. Read once per account and kept: Twitch keeps
+   * sending a blocked person's messages down the chat socket, so the list is what hides them.
+   * Refused with `blocksScopeMissing` when the token predates the scope.
+   */
+  blockedUsers(refresh?: boolean): Promise<BlockedUser[]>
+  /**
+   * Blocks someone, for real and on Twitch. Answers the list as it stands afterwards, re-read
+   * rather than assumed. `userId` is Twitch's, as the card carries it: a login is not enough.
+   */
+  blockUser(login: string, userId: string): Promise<BlockedUser[]>
+  /** Undoes it. The same road back, from the same place. */
+  unblockUser(login: string, userId: string): Promise<BlockedUser[]>
+  /**
+   * The colour the account's own name is written in, `#rrggbb`, or empty when Twitch derives one
+   * from the name. Readable by any token: only setting it needs the scope.
+   */
+  chatColor(): Promise<string>
+  /**
+   * Sets it: one of the fifteen names Twitch offers everybody, or a `#rrggbb` — which Twitch
+   * accepts from Turbo and Prime accounts alone and refuses to the rest with a bare 400.
+   * Answers the colour Twitch now has.
+   */
+  setChatColor(color: string): Promise<string>
   /**
    * The back and forward the system reports as a command rather than as a key press: the mouse's
    * side buttons and a keyboard's browser keys, on the platforms where the window sees them

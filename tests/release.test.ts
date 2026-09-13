@@ -94,7 +94,7 @@ test('every host the application calls is listed in the privacy notice', () => {
   // A network call added without a line in that table makes the document a claim rather than a
   // list, which is the only thing that makes it worth anything.
   const listed = read('PRIVACY.md')
-  const sources = ['src/main/twitch-data.ts', 'src/main/streams.ts', 'src/main/updates.ts', 'src/main/third-party-emotes.ts', 'src/main/twitch-emotes.ts', 'src/main/eventsub.ts', 'src/main/irc.ts']
+  const sources = ['src/main/twitch-data.ts', 'src/main/streams.ts', 'src/main/updates.ts', 'src/main/third-party-emotes.ts', 'src/main/twitch-emotes.ts', 'src/main/twitch-cheermotes.ts', 'src/main/blocks.ts', 'src/main/chat-color.ts', 'src/main/eventsub.ts', 'src/main/irc.ts']
   const called = new Set(sources.flatMap(file => [...read(file).matchAll(/\b(?:https|wss):\/\/([a-z0-9.-]+\.[a-z]{2,})/g)].map(match => match[1])))
   // Documentation links the application opens in a browser are not calls it makes.
   const browsed = new Set(['dev.twitch.tv', 'www.twitch.tv', 'github.com'])
@@ -104,6 +104,23 @@ test('every host the application calls is listed in the privacy notice', () => {
     if (browsed.has(host)) continue
     assert.ok(listed.includes(host), `${host} is called but not named in PRIVACY.md`)
   }
+})
+
+test('every scope the sign-in asks of Twitch is named in the privacy notice', () => {
+  // The twin of the test above, and it closes the same failure on the other axis: the hosts were
+  // guarded, the scopes were not, and the notice went on naming four of them while the sign-in
+  // asked for eight — two of which write to the account. A permission the reader is not told
+  // about is the one thing a privacy notice cannot afford to leave out.
+  const source = read('server/app.mjs')
+  // Read from the two declarations rather than from the whole file: `node:crypto` and its like
+  // have the shape of a scope, and the point is to follow what the sign-in actually sends.
+  const declared = [...source.matchAll(/const (?:required|login)Scopes = \[([^\]]*)\]/g)].map(match => match[1])
+  assert.equal(declared.length, 2, 'the sign-in no longer declares its scopes where this test reads them')
+  const asked = new Set(declared.flatMap(body => [...body.matchAll(/'([a-z_]+:[a-z_:]+)'/g)].map(match => match[1])))
+  // Without this the test passes on a regex that stopped matching anything.
+  assert.ok(asked.size >= 8, `only found ${asked.size} scopes: ${[...asked]}`)
+  const listed = read('PRIVACY.md')
+  for (const scope of asked) assert.ok(listed.includes(scope), `${scope} is asked of Twitch but not named in PRIVACY.md`)
 })
 
 test('the release workflow refuses a missing installer rather than shipping without it', () => {

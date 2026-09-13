@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { isWireError, wireErrorToError } from '../shared/wire'
-import type { BufferMode, ChatEvent, ScopedPreferences, TwichatAPI, UpdateNotice, Whisper } from '../shared/types'
+import type { AccountScopes, BufferMode, ChatEvent, ScopedPreferences, TwichatAPI, UpdateNotice, Whisper } from '../shared/types'
 
 /**
  * Every invocation goes through here: the main process returns its known errors as an envelope
@@ -37,9 +37,14 @@ const api: TwichatAPI = {
   thirdPartyEmotes: (channel, roomId) => invoke('emotes:third-party', channel, roomId),
   twitchEmotes: roomId => invoke('emotes:twitch', roomId),
   twitchBadges: roomId => invoke('badges:twitch', roomId),
-  discover: (language, refresh) => invoke('discover:streams', language, refresh),
+  cheermotes: roomId => invoke('cheermotes:twitch', roomId),
+  discover: (language, refresh, gameId, after) => invoke('discover:streams', language, refresh, gameId, after),
   followed: refresh => invoke('discover:followed', refresh),
   searchChannels: query => invoke('discover:search', query),
+  searchCategories: query => invoke('discover:categories', query),
+  topCategories: (refresh, after) => invoke('discover:top-categories', refresh, after),
+  visitedCategories: () => invoke('categories:visited'),
+  visitCategory: (category, scope) => invoke('categories:visit', category, scope),
   resolveStream: (channel, quality) => invoke('stream:resolve', channel, quality),
   stopStream: () => invoke('stream:stop'),
   detachPlayer: (channel, quality, play) => invoke('player:detach', channel, quality, play),
@@ -101,6 +106,16 @@ const api: TwichatAPI = {
     ipcRenderer.on('app:settings', listener)
     return () => ipcRenderer.removeListener('app:settings', listener)
   },
+  onAccountScopes: callback => {
+    const listener = (_event: unknown, scopes: AccountScopes) => callback(scopes)
+    ipcRenderer.on('app:scopes', listener)
+    return () => ipcRenderer.removeListener('app:scopes', listener)
+  },
+  blockedUsers: refresh => invoke('blocks:list', refresh ?? false),
+  blockUser: (login, userId) => invoke('blocks:set', login, userId, true),
+  unblockUser: (login, userId) => invoke('blocks:set', login, userId, false),
+  chatColor: () => invoke('chat:color'),
+  setChatColor: color => invoke('chat:set-color', color),
   onNavigate: callback => {
     const listener = (_event: unknown, direction: 'back' | 'forward') => callback(direction)
     ipcRenderer.on('app:navigate', listener)

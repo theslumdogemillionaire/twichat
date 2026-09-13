@@ -25,6 +25,9 @@ function twitchLabel(emote: TwitchEmote): string {
   if (emote.type === 'subscriptions') return m.composer.twitchSubscribers
   if (emote.type === 'follower') return m.composer.twitchFollowers
   if (emote.type === 'bitstier') return m.composer.twitchBits
+  // An account emote of any other kind — Prime, Turbo, a Hype Train — is named by whose it is
+  // rather than by what earned it: the tab it sits in has already said the rest.
+  if (emote.scope === 'account') return `Twitch · ${m.composer.twitchAccountEmote}`
   return 'Twitch'
 }
 export function twitchEntries(twitch: readonly TwitchEmote[] | undefined, scope: TwitchEmote['scope']): PickerEntry[] {
@@ -41,9 +44,13 @@ export function thirdPartyEntries(emotes: ReadonlyMap<string, ThirdPartyEmote> |
     kind: 'emote' as const, value: emote.code, label: emote.code, url: emote.url, source: SOURCE_LABELS[emote.source] ?? emote.source
   }))
 }
-/** Everything that can be written as an emote right here, whatever it came from. */
+/**
+ * Everything that can be written as an emote right here, whatever it came from. The account's own
+ * set is in it, and has to be: this list is what the composer completes from and what the search
+ * ranks, so an emote only reachable through its tab would be one you cannot type the name of.
+ */
 export function everyEmote(emotes: ReadonlyMap<string, ThirdPartyEmote> | undefined, twitch: readonly TwitchEmote[] | undefined): PickerEntry[] {
-  return [...twitchEntries(twitch, 'channel'), ...thirdPartyEntries(emotes), ...twitchEntries(twitch, 'global')]
+  return [...twitchEntries(twitch, 'channel'), ...twitchEntries(twitch, 'account'), ...thirdPartyEntries(emotes), ...twitchEntries(twitch, 'global')]
 }
 const emojiEntry = (emoji: Emoji): PickerEntry => ({ kind: 'emoji', value: emoji.char, label: `:${emoji.name}:`, source: emoji.group })
 
@@ -67,6 +74,13 @@ export interface EmotePickerParts {
    * offers the sets that belong to no channel. Only the wording changes — the panel is the same.
    */
   scope: 'channel' | 'global'
+  /**
+   * Whether this account's token was granted `user:read:emotes`. Absent where the question does
+   * not arise. It is read rather than inferred from an empty set, because the two have nothing to
+   * say to each other: an account with no subscriptions and an account whose token predates the
+   * scope both come back with nothing, and only one of them has anything to do about it.
+   */
+  ownEmotesGranted?(): boolean
 }
 
 /**
@@ -103,7 +117,8 @@ export function createEmotePicker(parts: EmotePickerParts) {
   }
   const tabLabel = (id: string) => id === 'recent' ? m.composer.recent
     : id === 'channel' ? (parts.scope === 'channel' ? m.composer.channel : m.composer.emotes)
-      : id === 'twitch' ? 'Twitch' : (m.emoji.groups as Record<string, string>)[id] ?? id
+      : id === 'yours' ? m.composer.yours
+        : id === 'twitch' ? 'Twitch' : (m.emoji.groups as Record<string, string>)[id] ?? id
 
   function readRecents(): string[] {
     try { return (JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]') as unknown[]).filter((item): item is string => typeof item === 'string').slice(0, RECENT_LIMIT) }
@@ -140,8 +155,11 @@ export function createEmotePicker(parts: EmotePickerParts) {
 
   function renderTabs() {
     tabs.replaceChildren()
-    for (const name of ['recent', 'channel', 'twitch', ...EMOJI_GROUPS]) {
+    for (const name of ['recent', 'channel', 'yours', 'twitch', ...EMOJI_GROUPS]) {
       if (name === 'recent' && !recents.length) continue
+      // The account's own tab belongs to a room, where "yours" means something beside "this
+      // channel's". A conversation window has no channel to be beside, so it is not offered one.
+      if (name === 'yours' && parts.scope !== 'channel') continue
       const button = document.createElement('button')
       button.type = 'button'
       button.className = 'picker-tab'
@@ -231,6 +249,20 @@ export function createEmotePicker(parts: EmotePickerParts) {
       for (const entry of entries) grouped.set(entry.source, [...(grouped.get(entry.source) ?? []), entry])
       for (const [source, list] of grouped) section(`${source} · ${list.length}`, list.slice(0, 300))
       if (!fromChannel.length && !entries.length) emptyState(parts.scope === 'channel' ? m.composer.noChannelEmotes : m.composer.noEmotes)
+      return
+    }
+    if (tab === 'yours') {
+      const entries = twitchEntries(parts.twitch(), 'account')
+      if (entries.length) section(m.composer.yourEmotes(entries.length), entries)
+      // Two silences, and they are not the same one. A token that was never granted the scope is
+      // told what to do about it; an account that simply carries nothing is told what would show
+      // up here. The retry button of the shared empty state fits neither, so this one is written out.
+      else {
+        const empty = document.createElement('p')
+        empty.className = 'picker-empty'
+        empty.textContent = parts.ownEmotesGranted?.() === false ? m.composer.accountEmotesScope : m.composer.noAccountEmotes
+        results.append(empty)
+      }
       return
     }
     if (tab === 'twitch') {

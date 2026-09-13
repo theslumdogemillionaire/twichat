@@ -20,6 +20,8 @@ export interface ComposerHooks {
   avatar(login: string): string | undefined
   error(failure: unknown): void
   reload(): Promise<void>
+  /** Whether the account's token carries `user:read:emotes`: the picker says so where it does not. */
+  ownEmotesGranted(): boolean
 }
 
 interface Suggestion {
@@ -56,7 +58,8 @@ export function createComposer(hooks: ComposerHooks) {
     refocus: () => input.focus(),
     emotes: () => hooks.emotes(),
     twitch: () => hooks.twitch(),
-    reload: () => hooks.reload()
+    reload: () => hooks.reload(),
+    ownEmotesGranted: () => hooks.ownEmotesGranted()
   })
   const suggestList = $('#composer-suggest')
   const replyBar = $('#composer-reply')

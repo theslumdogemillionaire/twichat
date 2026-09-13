@@ -23,7 +23,12 @@ A free desktop Twitch client that lets you arrange chat and video your way. Make
 - **Detachable video**: move the player into its own window, resize it on the stream's own ratio, pin it above your other windows. It keeps following the room (same channel, same controls, same stops), and the choice is saved per account, in the settings or from the dock.
 - **Twitch, 7TV, BetterTTV and FFZ emotes** rendered natively in the chat, with the GIFs of Twitch's GIPHY keyboard. Links in a message open in your browser, after a confirmation you can turn off.
 - **The channel's own badges**, read from Twitch rather than drawn here: its subscriber tiers and bit levels beside the global ones.
+- **Cheers** written with the channel's own prefixes as well as Twitch's, each shown at the tier its amount reaches and in Twitch's colour for that tier.
+- **Your own emotes, everywhere**: what your subscriptions, Prime and Turbo give you, offered in every room rather than only in the channels that publish them.
 - A **name written with an at sign** opens that viewer's card, wherever it appears in a message.
+- **Blocking, and unblocking**, from that card. The block is Twitch's own, so it holds wherever you read chat; here their messages stop showing at once.
+- **The colour of your name**, chosen from Twitch's list — or any hex code, which Twitch keeps for Turbo and Prime accounts.
+- **Raids, either direction**: a card when a channel is raided, and — when the channel you are watching raids another — the room you land in opens and takes over, the one you left staying in your list.
 - Nested **reply threads** and highlighted **mentions**.
 - **Multiple accounts**: automatic reconnection to the last account used, or anonymous viewing.
 - **Live stats** (viewers, uptime) and an explorer: the top of the directory or the channels you follow, filtered by category or by tag.
@@ -124,6 +129,8 @@ npm run test:settings  # playback settings and per-account scoping
 npm run test:detach    # detached video window, reattaching, remembered size
 npm run test:nav       # the back/forward trail: pages visited, both dead ends, a channel left
 npm run test:header    # the room header: followers, tags, and what still fits at the narrowest width
+npm run test:raid      # the raid card, in both languages: avatar, deduplication, reduced motion
+npm run test:sidebar   # the sidebar: aligned avatars, one scroll owner, dormant channels by keyboard
 ```
 
 ## Icons and logo

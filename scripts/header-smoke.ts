@@ -3,13 +3,14 @@ import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 
-// The room header says what the channel is: its followers, and the tags Twitch lists it under.
-// Both come from Helix and therefore need a signed-in account, which an automated run does not
-// have. What is checked here is everything else: the header no longer repeats the signed-in
-// account, the two elements exist and stay collapsed without an account, the follower line reads
-// the same in either state of the heart, and four tags plus a live audience still fit in the
-// header at the width where the window stops shrinking. The stream title, which only a live
-// channel has, takes the line under the name without pushing the header out of its 72 pixels.
+// The room header says what the channel is: its followers, the category it is listed in, and the
+// tags under it. All three come from Helix and therefore need a signed-in account, which an
+// automated run does not have. What is checked here is everything else: the header no longer
+// repeats the signed-in account, the three elements exist and stay collapsed without an account,
+// the follower line reads the same in either state of the heart, and a category plus four tags
+// plus a live audience still fit in the header at the width where the window stops shrinking. The
+// stream title, which only a live channel has, takes the line under the name without pushing the
+// header out of its 72 pixels.
 const channel = process.argv[2] ?? 'twitch'
 const artifacts = resolve('artifacts')
 await mkdir(artifacts, { recursive: true })
@@ -29,12 +30,13 @@ try {
   await page.waitForFunction(() => document.querySelector('#connection-dot')?.classList.contains('connected'))
 
   const wiring = await page.evaluate(() => {
-    const ids = ['channel-subtitle', 'channel-live', 'channel-stream-title', 'channel-followers', 'channel-tags']
+    const ids = ['channel-subtitle', 'channel-live', 'channel-stream-title', 'channel-followers', 'channel-category', 'channel-tags']
     return {
       missing: ids.filter(id => !document.getElementById(id)),
       subtitle: document.getElementById('channel-subtitle')!.textContent,
       streamTitle: (document.getElementById('channel-stream-title') as HTMLElement).hidden,
       followers: (document.getElementById('channel-followers') as HTMLElement).hidden,
+      category: (document.getElementById('channel-category') as HTMLElement).hidden,
       tags: (document.getElementById('channel-tags') as HTMLElement).hidden
     }
   })
@@ -42,7 +44,7 @@ try {
   // The account is on its own button and the connection on its own dot: a connected chat has
   // nothing to say on this line.
   if (wiring.subtitle) throw new Error(`The header repeats the connection: ${JSON.stringify(wiring.subtitle)}`)
-  if (!wiring.followers || !wiring.tags) throw new Error('Followers and tags show with no signed-in account.')
+  if (!wiring.followers || !wiring.category || !wiring.tags) throw new Error('Followers, category and tags show with no signed-in account.')
   // Off air, there is no title to show: the line is not an empty one, it is absent.
   if (!wiring.streamTitle) throw new Error('The stream title shows on a channel that is not live.')
 
@@ -62,6 +64,11 @@ try {
     followers.classList.add('is-following')
     followers.innerHTML = `${heart} 1,2 M followers`
     followers.hidden = false
+    // The longest category name the chip is likely to meet, so the fit check below is measured
+    // against a real one rather than a short word.
+    const category = document.getElementById('channel-category') as HTMLElement
+    category.textContent = 'Science & Technology'
+    category.hidden = false
     const tags = document.getElementById('channel-tags') as HTMLElement
     tags.replaceChildren()
     for (const label of ['Français', 'Speedrun', 'Chill', 'Interactif']) {
@@ -95,5 +102,5 @@ try {
   await page.locator('.room-header').screenshot({ path: resolve(artifacts, 'header-channel-unfollowed.png') })
 
   if (errors.length) throw new Error(`Renderer errors: ${errors.join(' | ')}`)
-  console.log(`Room header on #${channel}: no connection line, followers, tags and stream title collapsed without a live stream, and the filled header holds at 960 px in both directions.`)
+  console.log(`Room header on #${channel}: no connection line, followers, category, tags and stream title collapsed without a live stream, and the filled header holds at 960 px in both directions.`)
 } finally { await app.close() }

@@ -163,6 +163,22 @@ The caches are keyed by room and by nothing else, deliberately — these emote s
 channel and to Twitch, not to the viewer, so they survive an account change without leaking
 anything across it.
 
+There is one exception, and the reasoning above is exactly what does **not** transfer to it.
+`chat/emotes/user` answers the set the *viewer* carries — its subscriptions to other channels, its
+Prime and Turbo emotes — so that cache is keyed by the account id and emptied outright on every
+sign-in and sign-out, from `account-session.ts` where the rest of the switch happens. Both halves
+matter: the emptying cannot reach a request already in flight, and the key is what stops its answer
+from landing in the next account's picker. The set is merged **under** the room's own, so a
+subscription to the channel being watched still reads as that channel's.
+
+The cheermotes (`twitch-cheermotes.ts`) ride the same rails — one Helix call per room, which
+carries Twitch's own prefixes and the channel's together, then the cache and the parser next
+door. What they may not share is the moment of substitution. Twitch's `emotes` tag announces its
+images as code-point offsets into the body as it was typed, cheer tokens included, and
+`messageFragments` spends those offsets first; the cheers are cut out of the text it hands back,
+never out of the body. Reversed, replacing a `Cheer100` would move every range behind it and the
+message would be painted with the wrong emotes.
+
 ## What is stored, and where
 
 Everything sits in Electron's per-user data directory (`~/Library/Application Support/Twichat` on

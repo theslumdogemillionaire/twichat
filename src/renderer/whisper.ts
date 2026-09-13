@@ -39,7 +39,10 @@ const lines: Whisper[] = []
 /** Whispers that landed while the thread was still being read: held, then played in order. */
 const pending: Whisper[] = []
 let ready = false
-let chat: ChatPreferences = { links: true, confirm: true, gifs: true, font: 'default' }
+// `timestamps` rides along because the two windows share the type; this one never reads it.
+// Its dates are day separators rather than a column, and hiding them would leave a thread
+// with no chronology at all.
+let chat: ChatPreferences = { links: true, confirm: true, gifs: true, font: 'default', timestamps: true }
 let thirdParty: ReadonlyMap<string, ThirdPartyEmote> | undefined
 let twitchEmotes: readonly TwitchEmote[] | undefined
 let twitchNames: ReadonlyMap<string, string> | undefined

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import { IrcFramer, messageId, parseIrc, replyReference, stripReplyMention, userNoticeSummary } from './irc-parser'
+import { IrcFramer, incomingRaid, messageId, parseIrc, replyReference, sharedChatSource, stripReplyMention, userNoticeSummary } from './irc-parser'
 import { channelName, chatText, CONCURRENT_ROOMS } from '../shared/validation'
 import type { ChatEvent, ChatMessage, Connection, ReplyReference } from '../shared/types'
 import { fail } from '../shared/errors'
@@ -29,6 +29,13 @@ export class TwitchIrc extends EventEmitter {
   readonly roomStates = new Map<string, Record<string, string>>()
   // Same for USERSTATE: the account badges in each room tell who may post despite followers-only mode.
   readonly userBadges = new Map<string, string[]>()
+  /**
+   * `room-id` back to the room's name, kept as the ROOMSTATEs arrive. A shared-chat message names
+   * its source channel by id alone, and this is the only way to put a name to one without asking
+   * Twitch: it therefore only answers for rooms this session has joined, which is the whole of
+   * what it promises.
+   */
+  private readonly roomNames = new Map<string, string>()
   status: Connection = 'offline'
   private socket?: WebSocket
   private timer?: ReturnType<typeof setTimeout>
@@ -118,6 +125,7 @@ export class TwitchIrc extends EventEmitter {
     if (command === 'ROOMSTATE') {
       const merged = { ...this.roomStates.get(channel), ...tags }
       this.roomStates.set(channel, merged)
+      if (/^\d{1,30}$/.test(merged['room-id'] ?? '')) this.roomNames.set(merged['room-id'], channel)
       this.publish({ type: 'roomstate', channel, tags: merged })
     }
     if (command === 'USERSTATE') {
@@ -131,14 +139,33 @@ export class TwitchIrc extends EventEmitter {
       const raw = params[1] ?? ''
       const action = raw.startsWith('\x01ACTION ') && raw.endsWith('\x01')
       const reply = replyReference(tags)
+      const shared = sharedChatSource(tags)
+      const bits = /^\d{1,9}$/.test(tags.bits ?? '') ? Number(tags.bits) : 0
       const body = action ? raw.slice(8, -1) : raw
       const { text, emotes, gifs } = reply
         ? stripReplyMention(body, tags.emotes || '', tags.gifs || '', reply.user, reply.login)
         : { text: body, emotes: tags.emotes || '', gifs: tags.gifs || '' }
       this.publish({ type: 'message', message: {
         id: tags.id || randomUUID(), channel, login: prefix.split('!')[0], user: tags['display-name'] || prefix.split('!')[0],
-        text, action, color: tags.color || '', badges: badgePairs(tags.badges),
-        time: Number(tags['tmi-sent-ts']) || Date.now(), emotes, ...(gifs ? { gifs } : {}), ...(reply ? { reply } : {})
+        // A shared-chat message is wearing the wrong sets until this line: `badges` is what the
+        // viewer holds *here*, `source-badges` what they hold where they actually wrote.
+        text, action, color: tags.color || '', badges: badgePairs(shared?.badgeTag ?? tags.badges),
+        time: Number(tags['tmi-sent-ts']) || Date.now(), emotes, ...(gifs ? { gifs } : {}), ...(reply ? { reply } : {}),
+        // Twitch counts this per channel, not per account: somebody writing here for the first
+        // time may have been on the platform for years. It is a welcome, not a warning.
+        ...(tags['first-msg'] === '1' ? { firstMessage: true } : {}),
+        // The channel-points "highlight my message" redemption. `custom-reward-id` rides along on
+        // the same frame and is deliberately dropped: naming or picturing a reward needs
+        // `channel:read:redemptions`, which only the broadcaster can grant, so anything written
+        // next to that id here would be invented.
+        ...(tags['msg-id'] === 'highlighted-message' ? { highlighted: true } : {}),
+        // The name is only there for a room this session has also joined. Nothing resolves an id
+        // for free otherwise, and a reader has no use for `71092938`: the label says the message
+        // comes from elsewhere and stops there.
+        ...(shared ? { source: { roomId: shared.roomId, channel: this.roomNames.get(shared.roomId) ?? '' } } : {}),
+        // What the message cheered, all tokens together. It is carried for one reason: without
+        // it nothing separates a cheer from somebody writing `Cheer100` as five characters.
+        ...(bits > 0 ? { bits } : {})
       } })
     }
     if (command === 'USERNOTICE') {
@@ -148,10 +175,11 @@ export class TwitchIrc extends EventEmitter {
       const id = tags.id || randomUUID()
       const time = Number(tags['tmi-sent-ts']) || Date.now()
       const summary = userNoticeSummary(tags)
+      const raid = incomingRaid(tags)
       const text = params[1] ?? ''
       if (summary) this.publish({ type: 'message', message: {
         id: `${id}:event`, channel, user: 'Twitch', login: 'twitch', text: summary,
-        time, color: '', badges: [], action: false, system: true
+        time, color: '', badges: [], action: false, system: true, ...(raid ? { raid } : {})
       } })
       if (text) this.publish({ type: 'message', message: {
         id, channel, login: tags.login || '', user: tags['display-name'] || tags.login || '', text,
@@ -187,6 +215,7 @@ export class TwitchIrc extends EventEmitter {
     this.channels.delete(channel); this.confirmed.delete(channel)
     this.joinQueue = this.joinQueue.filter(room => room !== channel)
     this.settleJoin(channel)
+    this.roomNames.delete(this.roomStates.get(channel)?.['room-id'] ?? '')
     this.roomStates.delete(channel); this.userBadges.delete(channel); this.write(`PART #${channel}`)
   }
   private queueJoin(channel: string) {

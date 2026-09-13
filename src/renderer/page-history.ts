@@ -12,8 +12,21 @@
  * order the sidebar happens to be in has nothing to do with the order they were opened in.
  */
 
-/** A page the buttons can return to. `channel` is set for, and only for, a room. */
-export interface Page { view: 'room' | 'discover' | 'settings'; channel?: string }
+/**
+ * A page the buttons can return to. `channel` is set for, and only for, a room.
+ *
+ * The explorer is not one page but several: its lists are destinations one chooses, and a
+ * category opened from one of them is a step further in. Recording only "the explorer" is what
+ * made "back" leave it altogether from inside a category, when what was behind was the list the
+ * category was opened from. `origin` names that list, so the way out can be labelled with it.
+ */
+export interface Page {
+  view: 'room' | 'discover' | 'settings'
+  channel?: string
+  scope?: string
+  category?: { id: string; name: string }
+  origin?: string
+}
 
 /**
  * Long enough that no session reaches it by hand, short enough that a window left open for a
@@ -21,7 +34,10 @@ export interface Page { view: 'room' | 'discover' | 'settings'; channel?: string
  */
 export const HISTORY_LIMIT = 50
 
-const same = (a: Page, b: Page) => a.view === b.view && a.channel === b.channel
+// Two pages of the explorer are the same page only if the same list is on screen, and — in a
+// category — the same category. The name is not compared: Twitch renaming one is not a move.
+const same = (a: Page, b: Page) =>
+  a.view === b.view && a.channel === b.channel && a.scope === b.scope && a.category?.id === b.category?.id
 
 export class PageHistory {
   private pages: Page[] = []

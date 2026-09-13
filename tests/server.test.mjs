@@ -112,7 +112,11 @@ test('exchanges a Twitch code for a single-use ticket bound to the device', asyn
   assert.equal(start.status, 302)
   const authorization = new URL(start.headers.get('location'))
   assert.equal(authorization.origin, 'https://id.example')
-  assert.equal(authorization.searchParams.get('scope'), 'chat:read chat:edit user:read:follows user:manage:whispers')
+  // What the browser round-trip asks Twitch for. Every optional scope past the first two was added
+  // after accounts were already stored on machines, which is why none of them is ever *required*:
+  // widening `requiredScopes` would lock out every one of those accounts at its next validation.
+  assert.equal(authorization.searchParams.get('scope'),
+    'chat:read chat:edit user:read:follows user:manage:whispers user:read:emotes user:read:blocked_users user:manage:blocked_users user:manage:chat_color')
   assert.equal(authorization.searchParams.get('force_verify'), 'true')
   const state = authorization.searchParams.get('state')
 
@@ -307,7 +311,7 @@ test('editorial pages have reciprocal languages, unique metadata, working links 
       assert.equal((await fetch(`${context.origin}${link}`, { method: 'HEAD' })).status, 200, `${path} links to ${link}`)
     }
   }
-  assert.equal((xml.match(/<loc>/g) ?? []).length, 14)
+  assert.equal((xml.match(/<loc>/g) ?? []).length, (CONTENT.length + 1) * LOCALES.length)
   assert.equal((await fetch(`${context.origin}/404.html`)).status, 404)
 })
 

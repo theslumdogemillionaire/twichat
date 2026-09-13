@@ -87,7 +87,10 @@ export function chatFont(value: unknown): ChatFont {
  */
 export function chatPreferences(value: unknown): ChatPreferences {
   const input = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>
-  return { links: input.links !== false, confirm: input.confirm !== false, gifs: input.gifs !== false, font: chatFont(input.font) }
+  return {
+    links: input.links !== false, confirm: input.confirm !== false, gifs: input.gifs !== false,
+    font: chatFont(input.font), timestamps: input.timestamps !== false
+  }
 }
 
 /** Wide bounds: they rule out the absurd values of a damaged file, the display tightens them afterwards. */
@@ -172,6 +175,28 @@ export function whisperText(input: unknown): string {
   if (!text) fail('whisperEmpty')
   if ([...text].length > WHISPER_LIMIT) fail('whisperTooLong')
   return text
+}
+
+/**
+ * The fifteen names Twitch accepts from any account, spelled the way its own reference spells
+ * them — lower case, underscores. They are not colours we chose and not colours we may extend:
+ * a sixteenth would be refused by Twitch with a 400 that reads like a bug on our side.
+ *
+ * A `#rrggbb` is the other half, and the half Twitch reserves for Turbo and Prime. It is accepted
+ * here and refused there, on purpose: this side cannot know whether the account has Turbo — no
+ * endpoint says so — and guessing would take the choice away from someone entitled to it.
+ */
+export const CHAT_COLORS = [
+  'blue', 'blue_violet', 'cadet_blue', 'chocolate', 'coral', 'dodger_blue', 'firebrick',
+  'golden_rod', 'green', 'hot_pink', 'orange_red', 'red', 'sea_green', 'spring_green', 'yellow_green'
+] as const
+
+export function chatColorChoice(value: unknown): string {
+  if (typeof value !== 'string') fail('chatColorInvalid')
+  const choice = value.trim().toLowerCase()
+  if ((CHAT_COLORS as readonly string[]).includes(choice)) return choice
+  if (/^#[0-9a-f]{6}$/.test(choice)) return choice
+  return fail('chatColorInvalid')
 }
 
 /**

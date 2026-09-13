@@ -26,7 +26,7 @@ test('restricts video URLs strictly to Twitch CDNs', () => {
 test('validates preferences and deduplicates channels', () => {
   assert.deepEqual(validatePreferences({ channels: ['One', '#one', 'two'], active: 'two', quality: 'best' }), {
     channels: ['one', 'two'], active: 'two', quality: 'best', theme: 'system', language: '', layout: { playerWidth: 0, sidebarCollapsed: false, hideIdleChannels: true, idleChannelHours: 168 },
-    playback: { buffer: 'balanced', autoplay: true, detached: false, volume: 1, muted: false }, notifications: { mentions: true, whispers: true }, chat: { links: true, confirm: true, gifs: true, font: 'default' }
+    playback: { buffer: 'balanced', autoplay: true, detached: false, volume: 1, muted: false }, notifications: { mentions: true, whispers: true }, chat: { links: true, confirm: true, gifs: true, font: 'default', timestamps: true }
   })
   assert.throws(() => qualityName('4k'))
   assert.equal(validatePreferences({ channels: [], active: '', quality: 'best', theme: 'light' }).theme, 'light')
@@ -39,19 +39,20 @@ test('playback and notifications fall back on the behavior from before the setti
   const silent = validatePreferences({ channels: ['zerator'], active: 'zerator', quality: 'best' })
   assert.deepEqual(silent.playback, { buffer: 'balanced', autoplay: true, detached: false, volume: 1, muted: false })
   assert.deepEqual(silent.notifications, { mentions: true, whispers: true })
-  assert.deepEqual(silent.chat, { links: true, confirm: true, gifs: true, font: 'default' })
+  assert.deepEqual(silent.chat, { links: true, confirm: true, gifs: true, font: 'default', timestamps: true })
   assert.equal(bufferMode('live'), 'live')
   assert.equal(bufferMode('énorme'), 'balanced')
   assert.deepEqual(playbackPreferences({ buffer: 'comfort', autoplay: false, detached: false, volume: .4, muted: true }), { buffer: 'comfort', autoplay: false, detached: false, volume: .4, muted: true })
   assert.deepEqual(notificationPreferences({ mentions: false }), { mentions: false, whispers: true })
   assert.deepEqual(notificationPreferences({ whispers: false }), { mentions: true, whispers: false })
-  assert.deepEqual(chatPreferences({ links: false }), { links: false, confirm: true, gifs: true, font: 'default' })
-  assert.deepEqual(chatPreferences({ confirm: false }), { links: true, confirm: false, gifs: true, font: 'default' })
-  assert.deepEqual(chatPreferences({ gifs: false }), { links: true, confirm: true, gifs: false, font: 'default' })
+  assert.deepEqual(chatPreferences({ links: false }), { links: false, confirm: true, gifs: true, font: 'default', timestamps: true })
+  assert.deepEqual(chatPreferences({ confirm: false }), { links: true, confirm: false, gifs: true, font: 'default', timestamps: true })
+  assert.deepEqual(chatPreferences({ gifs: false }), { links: true, confirm: true, gifs: false, font: 'default', timestamps: true })
+  assert.deepEqual(chatPreferences({ timestamps: false }), { links: true, confirm: true, gifs: true, font: 'default', timestamps: false })
   // Only an explicit false switches it off: a dubious value must not disable a setting behind the account's back.
   assert.deepEqual(playbackPreferences({ buffer: 42, autoplay: 'non', volume: 'fort' }), { buffer: 'balanced', autoplay: true, detached: false, volume: 1, muted: false })
   assert.deepEqual(notificationPreferences('oui'), { mentions: true, whispers: true })
-  assert.deepEqual(chatPreferences({ links: 'non' }), { links: true, confirm: true, gifs: true, font: 'default' })
+  assert.deepEqual(chatPreferences({ links: 'non' }), { links: true, confirm: true, gifs: true, font: 'default', timestamps: true })
 })
 
 test('the typeface of the conversations falls back on the shipped one rather than failing', () => {
@@ -74,5 +75,5 @@ test('a broken setting does not take the channels down with it', () => {
   assert.deepEqual(saved.channels, ['zerator', 'antoinedaniel'])
   assert.deepEqual(saved.playback, { buffer: 'balanced', autoplay: true, detached: false, volume: 1, muted: false })
   assert.deepEqual(saved.notifications, { mentions: true, whispers: true })
-  assert.deepEqual(saved.chat, { links: true, confirm: true, gifs: true, font: 'default' })
+  assert.deepEqual(saved.chat, { links: true, confirm: true, gifs: true, font: 'default', timestamps: true })
 })

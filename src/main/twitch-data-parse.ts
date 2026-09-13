@@ -1,8 +1,8 @@
 import { channelName } from '../shared/validation'
-import type { RoomProfile, StreamSummary, UserCard } from '../shared/types'
+import type { CategoryMatch, RoomProfile, StreamSummary, UserCard } from '../shared/types'
 
 export interface HelixStream {
-  id?: unknown; user_id?: unknown; user_login?: unknown; user_name?: unknown; title?: unknown; game_name?: unknown
+  id?: unknown; user_id?: unknown; user_login?: unknown; user_name?: unknown; title?: unknown; game_name?: unknown; game_id?: unknown
   viewer_count?: unknown; tags?: unknown; language?: unknown; started_at?: unknown; thumbnail_url?: unknown
 }
 export interface HelixUser {
@@ -88,7 +88,11 @@ export function combineHelix(streamsInput: unknown, usersInput: unknown): Stream
         id: cleanText(stream.id, 80), channel, displayName: cleanText(stream.user_name, 50) || channel,
         avatarUrl: avatars.get(String(stream.user_id ?? '')) ?? '', thumbnailUrl: safeThumbnail(stream.thumbnail_url),
         title: cleanText(stream.title, 140),
-        game: cleanText(stream.game_name, 80), viewers, tags: Array.isArray(stream.tags) ? stream.tags.map(tag => cleanText(tag, 40)).filter(Boolean).slice(0, 10) : [],
+        game: cleanText(stream.game_name, 80),
+        // The name names the category, the id browses it. Answered empty unless it is a plain
+        // number, exactly as `channelCategory` does: a card then filters where it cannot go.
+        gameId: /^\d{1,30}$/.test(String(stream.game_id ?? '')) ? String(stream.game_id) : '',
+        viewers, tags: Array.isArray(stream.tags) ? stream.tags.map(tag => cleanText(tag, 40)).filter(Boolean).slice(0, 10) : [],
         language: cleanText(stream.language, 10), startedAt: cleanText(stream.started_at, 40)
       }]
     } catch { return [] }
@@ -126,6 +130,43 @@ export function parseChannelSearch(input: unknown): SearchedChannel[] {
       return [{ id, channel, displayName: cleanText(row.display_name, 50) || channel, avatarUrl: safeAvatar(row.thumbnail_url) }]
     } catch { return [] }
   })
+}
+
+/**
+ * The cursor a paged Helix answer carries, or an empty string when there is no page after this
+ * one. Opaque to us — Twitch's own position in a ranking — so it is only ever checked for being a
+ * plausible token: a string, of the alphabet a cursor is written in, short enough to put in a URL.
+ * Anything else is read as the end of the list, which costs a page and never a malformed query.
+ */
+export function pageCursor(payload: unknown): string {
+  const cursor = (payload as { pagination?: { cursor?: unknown } } | null)?.pagination?.cursor
+  return typeof cursor === 'string' && /^[A-Za-z0-9+/=_.-]{1,500}$/.test(cursor) ? cursor : ''
+}
+
+export interface HelixCategory { id?: unknown; name?: unknown; box_art_url?: unknown }
+
+/**
+ * The rows of a list of categories, whichever endpoint wrote it: `search/categories` matches a
+ * name, `games/top` ranks by audience, and both answer the same three fields.
+ *
+ * The id is what the browse is made of, so a row without a usable one is dropped rather than
+ * carded: a card that cannot be opened is worse than one that is not there. The box art is asked
+ * for at its own shape — Twitch substitutes whatever is written into the template, and the
+ * catalog's 440x248 would ask it for a stretched stream preview.
+ *
+ * Capped here rather than trusted to the caller's `first`: both callers ask for a hundred at most,
+ * and the ceiling is what keeps that true of the next one.
+ */
+export function parseCategories(input: unknown): CategoryMatch[] {
+  const rows = Array.isArray(input) ? input as HelixCategory[] : []
+  const seen = new Set<string>()
+  return rows.flatMap(row => {
+    const id = String(row.id ?? '')
+    const name = cleanText(row.name, 80)
+    if (!/^\d{1,30}$/.test(id) || !name || seen.has(id)) return []
+    seen.add(id)
+    return [{ id, name, boxArtUrl: safeThumbnail(row.box_art_url, 144, 192) }]
+  }).slice(0, 100)
 }
 
 export interface HelixFollowedChannel { broadcaster_id?: unknown; broadcaster_login?: unknown; broadcaster_name?: unknown }
@@ -176,8 +217,12 @@ export function helixUserToCard(usersInput: unknown): UserCard | null {
   try {
     const login = channelName(user.login)
     const type = cleanText(user.broadcaster_type, 20)
+    // Kept rather than dropped: blocking someone takes Twitch's id for them, and this payload is
+    // the only place the card ever sees one.
+    const id = String(user.id ?? '')
     return {
       login,
+      userId: /^\d{1,30}$/.test(id) ? id : '',
       displayName: cleanText(user.display_name, 50) || login,
       avatarUrl: safeAvatar(user.profile_image_url),
       description: cleanText(user.description, 300),
@@ -215,4 +260,23 @@ export function channelTags(payload: unknown): string[] {
   if (!Array.isArray(row?.tags)) return []
   const tags = row.tags.map(tag => cleanText(tag, 40)).filter(Boolean)
   return [...new Set(tags)].slice(0, 8)
+}
+
+/**
+ * The category the channel is listed under, read from the same `helix/channels` payload as the
+ * tags. It is the one source that survives the stream ending: `helix/streams` answers nothing at
+ * all off air, and the category is what a room still says about itself the morning after.
+ *
+ * The id travels with the name because it is what browsing that category is made of — Twitch
+ * takes a `game_id` there and never a name — and it is answered empty unless it is a plain
+ * number, so a payload without one costs the browse rather than sending Twitch a malformed query.
+ *
+ * The name is capped like the catalog's own `game`, so the two say the same thing about the same
+ * category.
+ */
+export function channelCategory(payload: unknown): { id: string; name: string } {
+  const rows = (payload as { data?: unknown } | null)?.data
+  const row = Array.isArray(rows) ? rows[0] as { game_id?: unknown; game_name?: unknown } : undefined
+  const id = String(row?.game_id ?? '')
+  return { id: /^\d{1,30}$/.test(id) ? id : '', name: cleanText(row?.game_name, 80) }
 }

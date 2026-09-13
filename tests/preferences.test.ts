@@ -36,6 +36,34 @@ test('window geometry is clamped, and forgotten when it is incomplete', () => {
   assert.equal(validatePreferences({ ...base, window: { width: 0, height: 0 } }).window, undefined)
 })
 
+test('the categories opened are kept per account, newest first, and nothing blanks what is known', async () => {
+  const preferences = await store()
+  const art = 'https://static-cdn.jtvnw.net/ttv-boxart/509658-144x192.jpg'
+  preferences.markCategoryVisit('zerator', { id: '509658', name: 'Just Chatting', boxArtUrl: art }, 1_700_000_000_000)
+  preferences.markCategoryVisit('zerator', { id: '32982', name: 'Grand Theft Auto V', boxArtUrl: '' }, 1_700_000_100_000)
+  preferences.markCategoryVisit('antoinedaniel', { id: '21779', name: 'League of Legends', boxArtUrl: '' }, 1_700_000_200_000)
+
+  // The last one opened leads, which is the order somebody can predict from their own browsing.
+  assert.deepEqual(preferences.categoryVisits('zerator').map(row => row.name), ['Grand Theft Auto V', 'Just Chatting'])
+  assert.deepEqual(preferences.categoryVisits('antoinedaniel').map(row => row.name), ['League of Legends'])
+
+  // A visit from a room header knows the name and not the picture: it must not blank the picture
+  // a visit from the grid had already written down.
+  preferences.markCategoryVisit('zerator', { id: '509658', name: 'Just Chatting', boxArtUrl: '' }, 1_700_000_300_000)
+  const [first] = preferences.categoryVisits('zerator')
+  assert.deepEqual([first.id, first.boxArtUrl], ['509658', art])
+
+  // A category id that is not a plain number is not a category: nothing is written down.
+  preferences.markCategoryVisit('zerator', { id: 'drop table', name: 'Nope', boxArtUrl: '' }, 1_700_000_400_000)
+  assert.equal(preferences.categoryVisits('zerator').length, 2)
+  assert.equal(preferences.categoryVisits('zerator', 1).length, 1)
+
+  // Forgetting an account takes its browsing with it, the way the cascade takes its rooms.
+  preferences.forget('zerator')
+  assert.deepEqual(preferences.categoryVisits('zerator'), [])
+  preferences.close()
+})
+
 test('activity dates belong to one account and survive saving the rooms', async () => {
   const preferences = await store()
   await preferences.patch('zerator', current => ({ ...current, channels: ['zerator', 'twitch'], active: 'zerator' }))
@@ -73,6 +101,17 @@ test('the typeface of the conversations round-trips through the database', async
   // The column is read back through the validator: a name this build does not know reads as the shipped font.
   await preferences.patch('zerator', current => ({ ...current, chat: { ...current.chat, font: 'wingdings' as never } }))
   assert.equal((await preferences.load('zerator')).chat.font, 'default')
+  preferences.close()
+})
+
+test('hiding the message times round-trips, and stays with the account that asked', async () => {
+  const preferences = await store()
+  // Shown is the state the log has always been in: a row written before the column existed,
+  // and an account that has never touched the setting, both have to come back showing them.
+  assert.equal((await preferences.load('zerator')).chat.timestamps, true)
+  await preferences.patch('zerator', current => ({ ...current, chat: { ...current.chat, timestamps: false } }))
+  assert.equal((await preferences.load('zerator')).chat.timestamps, false)
+  assert.equal((await preferences.load('antoinedaniel')).chat.timestamps, true)
   preferences.close()
 })
 
@@ -237,7 +276,7 @@ test('a database from before the whispers and the address book catches up, keepi
   before.close()
 
   const rolled = new DatabaseSync(path)
-  rolled.exec('DROP TABLE contacts; DROP TABLE whispers; ALTER TABLE scopes DROP COLUMN notify_whispers; ALTER TABLE scopes DROP COLUMN chat_font; PRAGMA user_version = 10')
+  rolled.exec('DROP TABLE contacts; DROP TABLE whispers; DROP TABLE category_visits; ALTER TABLE scopes DROP COLUMN notify_whispers; ALTER TABLE scopes DROP COLUMN chat_font; ALTER TABLE scopes DROP COLUMN chat_timestamps; PRAGMA user_version = 10')
   rolled.close()
 
   const after = new PreferencesStore(path)
@@ -246,10 +285,14 @@ test('a database from before the whispers and the address book catches up, keepi
   assert.equal(preferences.active, 'studio_nova')
   assert.equal(preferences.quality, '720p60,720p,best')
   assert.deepEqual(after.channelActivity('alice'), { studio_nova: 1_757_160_000_000 })
+  // The browsing history arrives empty, which is what a database that never recorded one has.
+  assert.deepEqual(after.categoryVisits('alice'), [])
   // The switch arrives on, so a whisper is not silently swallowed by a setting nobody chose.
   assert.equal(preferences.notifications.whispers, true)
   // And the typeface arrives as the one shipped: an update must not redraw a chat nobody asked to change.
   assert.equal(preferences.chat.font, 'default')
+  // Same rule for the times: they were on screen before the setting existed, so they stay on it.
+  assert.equal(preferences.chat.timestamps, true)
   // And the two tables are there, empty, ready for the first whisper and the first contact.
   assert.deepEqual(after.contacts.list('alice'), [])
   assert.deepEqual(after.whispers.thread('alice', 'cat_on_keyboard'), [])

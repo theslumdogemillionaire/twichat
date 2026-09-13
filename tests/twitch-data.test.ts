@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { channelTags, combineHelix, followerTotal, helixUsersToProfiles, helixUserToCard, offlineFollowed, parseChannelSearch, parseFollowedChannels, parsePublicProfile, safeThumbnail } from '../src/main/twitch-data-parse'
+import { channelCategory, channelTags, combineHelix, parseCategories, followerTotal, helixUsersToProfiles, helixUserToCard, offlineFollowed, parseChannelSearch, parseFollowedChannels, parsePublicProfile, safeThumbnail } from '../src/main/twitch-data-parse'
 
 // Pages saved from www.twitch.tv on 2026-09-06, trimmed to the tags the parser reads.
 const page = (name: string) => readFileSync(join(import.meta.dirname, 'fixtures', name), 'utf8')
@@ -81,8 +81,8 @@ test('takes nothing from a Twitch route a login happens to spell', () => {
 
 test('assembles and sorts the Helix catalog with tags and viewer counts', () => {
   const streams = combineHelix([
-    { id: '1', user_id: 'u1', user_login: 'petitchat', user_name: 'PetitChat', title: 'On discute', game_name: 'Just Chatting', viewer_count: 42, tags: ['Français', 'Discussion'], language: 'fr', started_at: '2026-09-04T18:00:00Z', thumbnail_url: 'https://static-cdn.jtvnw.net/previews-ttv/live_user_petitchat-{width}x{height}.jpg' },
-    { id: '2', user_id: 'u2', user_login: 'grandchat', user_name: 'GrandChat', title: 'Très actif', game_name: 'Talk Shows', viewer_count: 113000, tags: ['Français'], language: 'fr', started_at: '2026-09-04T17:00:00Z' }
+    { id: '1', user_id: 'u1', user_login: 'petitchat', user_name: 'PetitChat', title: 'On discute', game_name: 'Just Chatting', game_id: '509658', viewer_count: 42, tags: ['Français', 'Discussion'], language: 'fr', started_at: '2026-09-04T18:00:00Z', thumbnail_url: 'https://static-cdn.jtvnw.net/previews-ttv/live_user_petitchat-{width}x{height}.jpg' },
+    { id: '2', user_id: 'u2', user_login: 'grandchat', user_name: 'GrandChat', title: 'Très actif', game_name: 'Talk Shows', game_id: 'not-a-number', viewer_count: 113000, tags: ['Français'], language: 'fr', started_at: '2026-09-04T17:00:00Z' }
   ], [
     { id: 'u1', profile_image_url: 'https://static-cdn.jtvnw.net/avatar-one.png' },
     { id: 'u2', profile_image_url: 'https://static-cdn.jtvnw.net/avatar-two.png' }
@@ -92,6 +92,9 @@ test('assembles and sorts the Helix catalog with tags and viewer counts', () => 
   assert.equal(streams[0].avatarUrl, 'https://static-cdn.jtvnw.net/avatar-two.png')
   assert.equal(streams[1].thumbnailUrl, 'https://static-cdn.jtvnw.net/previews-ttv/live_user_petitchat-440x248.jpg')
   assert.equal(streams[0].thumbnailUrl, '')
+  // The card browses by id and names by name. A row whose id is not a plain number keeps the name
+  // and loses the road: the button filters the loaded catalogue instead of querying Twitch.
+  assert.deepEqual(streams.map(stream => [stream.game, stream.gameId]), [['Talk Shows', ''], ['Just Chatting', '509658']])
 })
 
 test('substitutes the thumbnail dimensions before validating its domain', () => {
@@ -122,9 +125,11 @@ test('builds a profile card and discards hostile fields', () => {
     description: 'Je\u0000 parle\n de tout', broadcaster_type: 'partner', created_at: '2013-04-12T10:00:00Z'
   }])
   assert.deepEqual(card, {
-    login: 'ponce', displayName: 'Ponce', avatarUrl: 'https://static-cdn.jtvnw.net/ponce.png',
+    login: 'ponce', userId: '42', displayName: 'Ponce', avatarUrl: 'https://static-cdn.jtvnw.net/ponce.png',
     description: 'Je  parle  de tout', broadcasterType: 'partner', createdAt: '2013-04-12T10:00:00Z', live: false
   })
+  // Blocking takes an id, and a payload that carries an unusable one must not pass it on as text.
+  assert.equal(helixUserToCard([{ id: 'nope', login: 'x' }])?.userId, '')
   assert.equal(helixUserToCard([{ login: 'x', profile_image_url: 'https://evil.example/pic.png' }])?.avatarUrl, '')
   assert.equal(helixUserToCard([{ login: 'x', broadcaster_type: 'staff' }])?.broadcasterType, '')
   assert.equal(helixUserToCard([{ login: 'nom invalide' }]), null)
@@ -184,6 +189,46 @@ test('reads the tags of a channel, whether or not it is on air', () => {
   assert.deepEqual(channelTags({ data: [{ tags: ['Chill\u0007', '', 42, 'Chill', null] }] }), ['Chill'])
   assert.equal(channelTags({ data: [{ tags: Array.from({ length: 30 }, (_, index) => `tag${index}`) }] }).length, 8)
   assert.equal(channelTags({ data: [{ tags: ['x'.repeat(80)] }] })[0].length, 40)
+})
+
+test('reads the category of a channel from the same payload as the tags', () => {
+  assert.deepEqual(channelCategory({ data: [{ broadcaster_id: '1', game_id: '509658', game_name: 'Just Chatting', tags: ['Chill'] }] }), { id: '509658', name: 'Just Chatting' })
+  // A channel that has never streamed is listed under nothing, and Twitch says so with empty
+  // fields: the header drops the chip rather than painting a blank one.
+  assert.deepEqual(channelCategory({ data: [{ broadcaster_id: '1', game_id: '', game_name: '' }] }), { id: '', name: '' })
+  assert.deepEqual(channelCategory({ data: [{ broadcaster_id: '1' }] }), { id: '', name: '' })
+  assert.deepEqual(channelCategory({ data: [] }), { id: '', name: '' })
+  assert.deepEqual(channelCategory(null), { id: '', name: '' })
+  assert.deepEqual(channelCategory({ data: [{ game_name: 42 }] }), { id: '', name: '' })
+  assert.deepEqual(channelCategory({ data: [{ game_name: 'Half\u0007Life' }] }), { id: '', name: 'Half Life' })
+  // Capped where the catalog caps its own `game`, so both name the same category the same way.
+  assert.equal(channelCategory({ data: [{ game_name: 'x'.repeat(120) }] }).name.length, 80)
+  // The id is what the browse query is made of: anything but a plain number is answered empty
+  // rather than sent to Twitch, and the name survives on its own — the chip filters, it browses.
+  assert.deepEqual(channelCategory({ data: [{ game_id: '509658; drop', game_name: 'Just Chatting' }] }), { id: '', name: 'Just Chatting' })
+  assert.equal(channelCategory({ data: [{ game_id: 509658, game_name: 'Just Chatting' }] }).id, '509658')
+})
+
+test('reads a category search, dropping the rows a browse could not be made from', () => {
+  const rows = parseCategories([
+    { id: '509658', name: 'Just Chatting', box_art_url: 'https://static-cdn.jtvnw.net/ttv-boxart/509658-{width}x{height}.jpg' },
+    // The name browses nothing: Twitch takes an id there. A row without a usable one is dropped
+    // rather than carded, since the card could only ever fail to open.
+    { id: 'abc', name: 'Broken' },
+    { id: '27471', name: '' },
+    // Twitch repeats a category across pages of a broad query: the row is carded once.
+    { id: '509658', name: 'Just Chatting' },
+    { id: '32982', name: 'Grand Theft Auto V', box_art_url: 'https://evil.example.com/art-{width}x{height}.jpg' }
+  ])
+  assert.deepEqual(rows, [
+    // The box art is asked for at its own shape: the catalog's 440x248 would ask Twitch for a
+    // category picture stretched to the size of a stream preview.
+    { id: '509658', name: 'Just Chatting', boxArtUrl: 'https://static-cdn.jtvnw.net/ttv-boxart/509658-144x192.jpg' },
+    { id: '32982', name: 'Grand Theft Auto V', boxArtUrl: '' }
+  ])
+  assert.deepEqual(parseCategories(null), [])
+  assert.deepEqual(parseCategories({ data: [] }), [])
+  assert.equal(parseCategories([{ id: '1', name: 'x'.repeat(120) }])[0].name.length, 80)
 })
 
 test('reads a channel search, keeping the ids the streams call is made with', () => {

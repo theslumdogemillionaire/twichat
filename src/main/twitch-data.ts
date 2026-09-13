@@ -1,8 +1,8 @@
 import { net } from 'electron'
 import { ExpiringCache } from './cache'
 import { channelName } from '../shared/validation'
-import type { ChannelInfo, ChannelSearch, FollowStatus, FollowedChannels, RoomProfile, StreamSummary, UserCard } from '../shared/types'
-import { channelTags, combineHelix, followerTotal, helixUsersToProfiles, helixUserToCard, offlineFollowed, parseChannelSearch, parseFollowedAt, parseFollowedChannels, parsePublicProfile, type FollowedChannel, type HelixStream, type HelixUser } from './twitch-data-parse'
+import type { CategoryMatch, CategoryPage, ChannelInfo, ChannelSearch, FollowStatus, FollowedChannels, RoomProfile, StreamPage, StreamSummary, UserCard } from '../shared/types'
+import { channelCategory, channelTags, combineHelix, pageCursor, parseCategories, followerTotal, helixUsersToProfiles, helixUserToCard, offlineFollowed, parseChannelSearch, parseFollowedAt, parseFollowedChannels, parsePublicProfile, type FollowedChannel, type HelixStream, type HelixUser } from './twitch-data-parse'
 import { fail, type ErrorKey } from '../shared/errors'
 import { locale } from '../shared/i18n'
 
@@ -29,7 +29,10 @@ const UNKNOWN_IDENTITY_TTL = 5 * 60_000
 const LIVE_TTL = 60_000
 const CARD_TTL = 10 * 60_000
 // A follower count and a list of tags move on the scale of a stream, not of a poll: this one is
-// read when a room opens, and the lifetime is what keeps a walk through the rooms from asking again.
+// read when a room opens, and the lifetime is what keeps a walk through the rooms from asking
+// again. The category rides in the same entry and does not keep that scale — a streamer leaving
+// Just Chatting for a game changes it mid-broadcast — so the header can name the previous one for
+// as long as ten minutes. Shortening this would cost the follower call at the same rate.
 const CHANNEL_INFO_TTL = 10 * 60_000
 // An answer with nothing in it costs the same three calls as a full one, and the open room asks
 // again every two minutes: below that, every tick would be a miss and every tick a fresh set of
@@ -137,17 +140,30 @@ export async function getHelixProfiles(input: unknown, token: string, clientId: 
   return logins.map(profileOf)
 }
 
-// An empty language browses every locale; otherwise Helix narrows the catalog itself.
-export async function getHelixStreams(token: string, clientId: string, language = ''): Promise<StreamSummary[]> {
+/**
+ * The catalog: the hundred largest audiences Twitch is carrying right now.
+ *
+ * An empty language browses every locale; otherwise Helix narrows the catalog itself. A `gameId`
+ * narrows it to one category, which is the only honest way to answer "who is playing this" —
+ * sifting the global hundred for a category name finds whoever happens to be large enough to be
+ * in it, and nobody else. Twitch applies both server-side, so a category in one language is one
+ * call like any other.
+ */
+export async function getHelixStreams(token: string, clientId: string, language = '', gameId = '', after = ''): Promise<StreamPage> {
   const headers = { Authorization: `Bearer ${token}`, 'Client-Id': clientId }
   const streamsQuery = new URLSearchParams({ first: '100' })
   if (language) streamsQuery.set('language', language)
+  if (gameId) streamsQuery.set('game_id', gameId)
+  if (after) streamsQuery.set('after', after)
   const response = await net.fetch(`https://api.twitch.tv/helix/streams?${streamsQuery}`, { headers, signal: AbortSignal.timeout(12000) })
   if (response.status === 401) fail('twitchSessionExpired')
   if (!response.ok) fail('twitchCatalogUnavailable')
   const payload = await response.json() as { data?: HelixStream[] }
+  const cursor = pageCursor(payload)
   const ids = (payload.data ?? []).map(stream => String(stream.user_id ?? '')).filter(Boolean).slice(0, 100)
-  if (!ids.length) return []
+  // A page with nothing in it ends the walk whatever cursor came with it: asking again would
+  // answer the same nothing, and the reader would scroll into an endless spinner.
+  if (!ids.length) return { streams: [], cursor: '' }
   const query = new URLSearchParams()
   for (const id of ids) query.append('id', id)
   const usersResponse = await net.fetch(`https://api.twitch.tv/helix/users?${query}`, { headers, signal: AbortSignal.timeout(12000) })
@@ -158,7 +174,7 @@ export async function getHelixStreams(token: string, clientId: string, language 
     rememberIdentity(stream.channel, { displayName: stream.displayName, avatarUrl: stream.avatarUrl })
     rememberLive(stream.channel, { live: true, viewers: stream.viewers, title: stream.title || undefined, startedAt: stream.startedAt || undefined })
   }
-  return streams
+  return { streams, cursor }
 }
 
 /**
@@ -209,6 +225,45 @@ export async function searchHelixChannels(query: string, { token, clientId }: He
  * most of them off air: the list under the grid is a way to reach a name, not a second catalog.
  */
 const OFFLINE_SEARCH_RESULTS = 12
+
+/**
+ * The same query, asked of Twitch's categories rather than of its channels. One call and no
+ * second one: `search/categories` answers the id, the name and the box art together, and the id
+ * is all a browse needs.
+ *
+ * A refusal here is its own — the caller keeps the channels it found. This is the half of the
+ * search box that was promised by its placeholder and never delivered.
+ */
+/**
+ * Twitch's categories by audience — the front door the explorer never had. Until now the only way
+ * in was to already know what you were looking for: a name typed in the box, or a category read
+ * off a room you had joined. This is the list you read when you do not.
+ *
+ * One call, and the same three fields the search answers, so it cards the same way.
+ */
+export async function getTopCategories(token: string, clientId: string, after = ''): Promise<CategoryPage> {
+  const headers = { Authorization: `Bearer ${token}`, 'Client-Id': clientId }
+  const query = new URLSearchParams({ first: '100' })
+  if (after) query.set('after', after)
+  const response = await net.fetch(`https://api.twitch.tv/helix/games/top?${query}`, { headers, signal: AbortSignal.timeout(12000) })
+  if (response.status === 401) fail('twitchSessionExpired')
+  if (!response.ok) fail('twitchCatalogUnavailable')
+  const payload = await response.json() as { data?: unknown }
+  const categories = parseCategories(payload.data)
+  // As above: an empty page is the end, whatever Twitch says about a page after it.
+  return { categories, cursor: categories.length ? pageCursor(payload) : '' }
+}
+
+export async function searchHelixCategories(query: string, { token, clientId }: HelixAuth): Promise<CategoryMatch[]> {
+  const headers = { Authorization: `Bearer ${token}`, 'Client-Id': clientId }
+  // Asked for exactly what the row can show: the row scrolls, so nothing fetched is out of reach.
+  const searchQuery = new URLSearchParams({ query, first: '12' })
+  const response = await net.fetch(`https://api.twitch.tv/helix/search/categories?${searchQuery}`, { headers, signal: AbortSignal.timeout(12000) })
+  if (response.status === 401) fail('twitchSessionExpired')
+  if (!response.ok) fail('twitchSearchUnavailable')
+  const payload = await response.json() as { data?: unknown }
+  return parseCategories(payload.data)
+}
 
 // Twitch pages followed channels a hundred at a time: three pages cover real lists
 // without letting an outsized collection stall the explorer.
@@ -370,11 +425,12 @@ export async function getUserCard(input: unknown, auth: HelixAuth): Promise<User
 
 /**
  * What the room header says about the channel itself, rather than about the connection that
- * brought it: how many people follow it, and the tags it is listed under. Both hold while the
- * channel is offline, which is why neither comes from `helix/streams`.
+ * brought it: how many people follow it, and the category and tags it is listed under. All three
+ * hold while the channel is offline, which is why none of them comes from `helix/streams`.
  *
  * Two independent calls: a channel with no tags still has followers, and an endpoint this token
- * cannot reach costs its own line and nothing else.
+ * cannot reach costs its own line and nothing else. The category rides along with the tags —
+ * `helix/channels` carries both in the one payload, so it costs no third call.
  */
 export async function getChannelInfo(input: unknown, hint: unknown, auth: HelixAuth): Promise<ChannelInfo> {
   const channel = channelName(input)
@@ -382,19 +438,25 @@ export async function getChannelInfo(input: unknown, hint: unknown, auth: HelixA
   if (known) return known
   const headers = { Authorization: `Bearer ${auth.token}`, 'Client-Id': auth.clientId }
   const id = await broadcasterId(channel, typeof hint === 'string' ? hint : '', headers)
-  const [followers, tags] = await Promise.all([getFollowerTotal(id, auth), getChannelTags(id, headers)])
+  const [followers, listing] = await Promise.all([getFollowerTotal(id, auth), getChannelListing(id, headers)])
+  const { game, gameId, tags } = listing
   // Both calls swallow their own failure, so an answer with nothing in it is as likely to be a
-  // token that has just expired as a channel with no tags: it is held for two minutes, not for
-  // ten, or the header would stay empty long after the session renewed itself.
-  const empty = followers === undefined && !tags.length
-  return channelInfos.set(channel, { channel, followers, tags }, empty ? EMPTY_CHANNEL_INFO_TTL : CHANNEL_INFO_TTL)
+  // token that has just expired as a channel with no category and no tags: it is held for two
+  // minutes, not for ten, or the header would stay empty long after the session renewed itself.
+  const empty = followers === undefined && !tags.length && !game
+  return channelInfos.set(channel, { channel, followers, game: game || undefined, gameId: gameId || undefined, tags }, empty ? EMPTY_CHANNEL_INFO_TTL : CHANNEL_INFO_TTL)
 }
 
-async function getChannelTags(broadcasterId: string, headers: Record<string, string>): Promise<string[]> {
+/** One call, two answers: `helix/channels` names the category and lists the tags in the same row. */
+async function getChannelListing(broadcasterId: string, headers: Record<string, string>): Promise<{ game: string; gameId: string; tags: string[] }> {
+  const none = { game: '', gameId: '', tags: [] }
   try {
     const response = await net.fetch(`https://api.twitch.tv/helix/channels?broadcaster_id=${broadcasterId}`, {
       headers, signal: AbortSignal.timeout(10000)
     })
-    return response.ok ? channelTags(await response.json()) : []
-  } catch { return [] }
+    if (!response.ok) return none
+    const payload = await response.json()
+    const category = channelCategory(payload)
+    return { game: category.name, gameId: category.id, tags: channelTags(payload) }
+  } catch { return none }
 }

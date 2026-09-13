@@ -6,6 +6,31 @@ const room = (channel: string): Page => ({ view: 'room', channel })
 const discover: Page = { view: 'discover' }
 const settings: Page = { view: 'settings' }
 
+const list = (scope: string): Page => ({ view: 'discover', scope })
+const inCategory = (id: string, name: string, origin = 'categories'): Page =>
+  ({ view: 'discover', scope: 'category', category: { id, name }, origin })
+
+test('the lists of the explorer are pages, and a category is a step inside one', () => {
+  const history = new PageHistory()
+  history.push(list('top'))
+  history.push(list('categories'))
+  history.push(inCategory('509658', 'Just Chatting'))
+  // What the back button is expected to do from inside a category: return to the list it was
+  // opened from, rather than leaving the explorer because all of it was one page.
+  assert.deepEqual(history.back(), list('categories'))
+  assert.deepEqual(history.back(), list('top'))
+  assert.deepEqual(history.forward(), list('categories'))
+
+  // Two categories are two pages; the same one twice is not a move.
+  history.push(inCategory('509658', 'Just Chatting'))
+  history.push(inCategory('32982', 'Grand Theft Auto V'))
+  history.push(inCategory('32982', 'Grand Theft Auto V'))
+  assert.deepEqual(history.back(), inCategory('509658', 'Just Chatting'))
+  // Twitch renaming a category is not a move either: the id is what a page is addressed by.
+  history.push(inCategory('509658', 'Just Chatting (renamed)'))
+  assert.deepEqual(history.current(), inCategory('509658', 'Just Chatting'))
+})
+
 test('a fresh trail goes nowhere', () => {
   const history = new PageHistory()
   assert.equal(history.current(), undefined)

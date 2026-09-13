@@ -1,6 +1,8 @@
-import type { ThirdPartyEmote } from '../shared/types'
+import type { Cheermote, ThirdPartyEmote } from '../shared/types'
+import { cheerSegments } from './cheers'
+import { numbers } from '../shared/i18n'
 import { messageFragments } from './emotes'
-import { channelSegments, handleSegments, linkSegments } from './links'
+import { channelFromUrl, channelSegments, handleSegments, linkSegments } from './links'
 import { mentionSegments } from './mentions'
 
 export interface MessageBodyOptions {
@@ -11,10 +13,18 @@ export interface MessageBodyOptions {
   thirdParty?: ReadonlyMap<string, ThirdPartyEmote>
   /** Names to images, for a body carrying no tag of its own: the only way left to match one. */
   twitchNames?: ReadonlyMap<string, string>
+  /**
+   * The room's cheer prefixes, keyed lowercase. Handed over only for a message that carries a
+   * `bits` tag: without one, `Cheer100` in a body is five characters somebody typed, and Twitch
+   * counted nothing.
+   */
+  cheermotes?: ReadonlyMap<string, Cheermote>
   links?: boolean
   /**
-   * Whether `#a_channel` written in a body becomes a way in. On where a message names rooms one
-   * may not have joined; off in the room itself, where the sidebar already holds them.
+   * Whether a channel named in a body becomes a way in — `#a_channel`, and the `twitch.tv`
+   * address that says the same thing. On everywhere a message is read: a room named in a chat is
+   * almost always one the reader has not joined, which is the whole point of a shoutout. What the
+   * sidebar already holds is beside the question; it is the rest that needs the door.
    */
   channels?: boolean
   /**
@@ -78,15 +88,58 @@ export function paintMessageBody(target: HTMLElement, text: string, options: Mes
       const room = document.createElement('button')
       room.type = 'button'; room.className = 'message-channel'; room.dataset.channel = segment.channel
       room.textContent = segment.text
+      // Out of the tab order in the room, for the reason the handles and the links are: the
+      // virtualised log would stand hundreds of stops between the reader and the composer.
+      if (!options.focusableLinks) room.tabIndex = -1
       target.append(room)
+    }
+  }
+  /**
+   * The cheers, cut out of what is left of a text fragment. The position in this chain matters
+   * far less than the position against `messageFragments` below, which has already read the
+   * `emotes` and `gifs` offsets off the untouched body — see `cheers.ts`. A cheer token holds no
+   * `@`, no `#` and no address, so the splits it passes through leave it whole either way.
+   */
+  const appendBody = (value: string) => {
+    if (!options.cheermotes?.size) { appendText(value); return }
+    for (const segment of cheerSegments(value, options.cheermotes)) {
+      if (!segment.cheer) { appendText(segment.text); continue }
+      const { prefix, bits, tier } = segment.cheer
+      const image = document.createElement('img')
+      image.className = 'message-cheer'
+      // The prefix alone: the amount is written beside the image, so an alternative text carrying
+      // it too would have a screen reader say the number twice.
+      image.alt = prefix; image.title = segment.text
+      image.loading = 'lazy'; image.decoding = 'async'
+      // Same fallback as an emote that fails: the word Twitch wrote takes the image's place, and
+      // the amount beside it puts the token back together.
+      image.addEventListener('error', () => image.replaceWith(document.createTextNode(prefix)), { once: true })
+      image.src = tier.url
+      const amount = document.createElement('b')
+      amount.className = 'message-cheer-amount'; amount.textContent = numbers.format(bits)
+      // Twitch's own tier colour, which is the whole grammar of a cheer. Validated on the way out
+      // of the network, so what reaches a style property here can only be `#rrggbb`.
+      if (tier.color) amount.style.setProperty('--cheer', tier.color)
+      target.append(image, amount)
     }
   }
   for (const fragment of messageFragments(text, options.emoteTag ?? '', options.thirdParty, options.twitchNames, options.gifTag ?? '')) {
     if (fragment.type === 'text') {
-      if (!options.links) { appendText(fragment.text); continue }
+      if (!options.links) { appendBody(fragment.text); continue }
       // The links are cut out first: a nickname underlined inside an address would break it in two.
       for (const segment of linkSegments(fragment.text)) {
-        if (!segment.url) { appendText(segment.text); continue }
+        if (!segment.url) { appendBody(segment.text); continue }
+        // A `twitch.tv` address is a room rather than somewhere to send the reader: it opens in
+        // place, like `#studio_nova`, and asks none of the questions a departure asks.
+        const named = options.channels ? channelFromUrl(segment.url) : ''
+        if (named) {
+          const room = document.createElement('button')
+          room.type = 'button'; room.className = 'message-channel'; room.dataset.channel = named
+          room.textContent = segment.text
+          if (!options.focusableLinks) room.tabIndex = -1
+          target.append(room)
+          continue
+        }
         const link = document.createElement('a')
         link.className = 'message-link'; link.href = segment.url; link.textContent = segment.text
         // The address in full, on hover: what is written is not always where the click leads.

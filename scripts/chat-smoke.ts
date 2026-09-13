@@ -22,7 +22,10 @@ try {
   await page.getByLabel('Nom de la chaîne', { exact: true }).fill(channel)
   await page.getByRole('button', { name: 'Rejoindre', exact: true }).click()
   await page.waitForFunction(() => document.querySelector('#connection-label')?.textContent === 'Chat connecté', undefined, { timeout: 15000 })
-  await page.waitForSelector('.message', { timeout: 20000 })
+  // Scoped to the log: the settings panel carries a static font preview built from the same
+  // `.message` classes, and being hidden it measures 0x0 — an unscoped wait for a visible
+  // first match would sit on that node while the room fills up behind it.
+  await page.waitForSelector('#chat-log .message', { timeout: 20000 })
   await page.waitForFunction(() => Number(document.querySelector('#message-count')?.textContent?.match(/\d+/)?.[0] ?? 0) >= 20, undefined, { timeout: 30000 })
   // Third-party packs arrive alongside chat; their absence must never block the room.
   await page.waitForSelector('.message-emote', { timeout: 12000 }).catch(() => {})
@@ -33,7 +36,7 @@ try {
   await page.waitForSelector('#room-view:not([hidden])')
   await page.waitForFunction(previous => Number(document.querySelector('#message-count')?.textContent?.match(/\d+/)?.[0] ?? 0) >= previous, beforeTrip)
   const result = await page.evaluate(() => ({
-    count: document.querySelectorAll('.message').length,
+    count: document.querySelectorAll('#chat-log .message').length,
     emptyHidden: (document.querySelector('#chat-empty') as HTMLElement)?.hidden,
     state: document.querySelector('#join-state')?.textContent,
     resumeHidden: (document.querySelector('#resume') as HTMLElement)?.hidden,

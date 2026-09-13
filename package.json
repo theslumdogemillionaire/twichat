@@ -1,6 +1,6 @@
 {
   "name": "twichat",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "homepage": "https://twichat.theslumdogemillionaire.com",
   "repository": {
     "type": "git",
@@ -32,6 +32,8 @@
     "test:desktop": "npm run build && tsx scripts/smoke.ts",
     "test:chat": "npm run build && tsx scripts/chat-smoke.ts",
     "test:reply": "npm run build && tsx scripts/reply-smoke.ts",
+    "test:raid": "npm run build && tsx scripts/raid-smoke.ts && tsx scripts/raid-smoke.ts en",
+    "test:sidebar": "npm run build && tsx scripts/sidebar-smoke.ts",
     "test:lifecycle": "npm run build && tsx scripts/stream-lifecycle-smoke.ts",
     "test:video": "npm run build && tsx scripts/video-smoke.ts",
     "test:layout": "npm run build && tsx scripts/layout-smoke.ts",

@@ -12,16 +12,24 @@ import { commandKey, platformKeys } from './keys'
  * The values come from the catalog, never from user input: `innerHTML` serves there only to
  * keep the `<br>` of a sentence written across two lines.
  */
-function lookup(key: string): string | undefined {
-  // The HTML keys are relative to the `ui` section: that is the one describing the document.
-  let node: unknown = m.ui
+function walk(root: unknown, key: string): string | undefined {
+  let node: unknown = root
   for (const part of key.split('.')) {
     if (!node || typeof node !== 'object') return undefined
     node = (node as Record<string, unknown>)[part]
   }
+  return typeof node === 'string' ? node : undefined
+}
+
+function lookup(key: string): string | undefined {
+  // The HTML keys are relative to the `ui` section: that is the one describing the document. The
+  // conversation window is the exception — its section sits beside `ui` rather than under it, and
+  // `whisper.html` names it from the root, so a key `ui` has not got is looked up there as well.
+  // Without that second read its eight sentences stayed as the markup wrote them, in every language.
+  const value = walk(m.ui, key) ?? walk(m, key)
   // The catalogs write a shortcut the way a Mac does, `⌘ K`. On a platform whose command key is
   // Ctrl, that glyph names a modifier the keyboard does not have.
-  return typeof node === 'string' ? platformKeys(node, commandKey()) : undefined
+  return value === undefined ? undefined : platformKeys(value, commandKey())
 }
 
 function paint(element: HTMLElement, value: string) {

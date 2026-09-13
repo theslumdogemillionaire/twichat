@@ -58,10 +58,11 @@ deleting the directory.
 | Host | Why |
 | --- | --- |
 | `id.twitch.tv` | Checking the access token is still alive. |
-| `api.twitch.tv` | Helix: channel and user profiles, followed channels, the live list, emote sets. |
+| `api.twitch.tv` | Helix: channel and user profiles, followed channels, the live list, emote sets, chat badges, cheermotes. |
 | `gql.twitch.tv`, `usher.ttvnw.net`, and a `*.ttvnw.net` video server | Resolving and playing a stream, the way the web player does. |
 | `irc-ws.chat.twitch.tv`, `eventsub.wss.twitch.tv` | Chat, and the raid notice chat does not carry. |
-| `static-cdn.jtvnw.net` | Twitch emote and profile images. |
+| `static-cdn.jtvnw.net` | Twitch emote, badge and profile images. |
+| `d3aqoihi2n8ty8.cloudfront.net` | The cheermote images, requested only for a message that cheered. |
 | `api.frankerfacez.com`, `cdn.frankerfacez.com` | FrankerFaceZ emotes. |
 | `api.betterttv.net`, `cdn.betterttv.net` | BetterTTV emotes. |
 | `7tv.io`, `cdn.7tv.app` | 7TV emotes. |
@@ -118,8 +119,18 @@ addresses; the absence of application analytics does not describe their infrastr
 
 `chat:read` and `chat:edit`, which are what reading and writing chat require, plus
 `user:read:follows` for the followed-channels list and `user:manage:whispers` for receiving and
-sending whispers. These permissions do not let the application manage subscriptions or follow
-channels. Access can be revoked from the Twitch account's connections settings.
+sending whispers. `user:read:emotes` carries the emotes the account itself may type, so the picker
+offers them in every channel rather than only in the ones that publish them.
+`user:read:blocked_users` and `user:manage:blocked_users` are the two halves of blocking, and only
+both make it usable: a block that cannot be read back is a block that cannot be undone.
+`user:manage:chat_color` sets the colour the account is written in — reading that colour back needs
+no permission, which is why only the writing half is asked for.
+
+These permissions do not let the application manage subscriptions or follow channels. The two that
+write — the blocked list and the nickname colour — change nothing unless asked from the interface.
+An account signed in before these were requested keeps working; the application names the
+permissions it is missing rather than failing quietly. Access can be revoked from the Twitch
+account's connections settings.
 
 ## When this changes
 

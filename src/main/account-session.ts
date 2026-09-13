@@ -41,6 +41,21 @@ export interface AccountSessionParts {
   switchScope(login: string | null): Promise<void>
   /** The raid subscription authenticates as the account: it is remade on every change. */
   refreshWatches(): void
+  /**
+   * The account's own emote set, dropped. It belongs to the viewer rather than to a channel — the
+   * one Twitch cache in this application that does — so it cannot be left standing across a
+   * change the way a room's set is.
+   */
+  forgetUserEmotes(): void
+  /**
+   * What this token may do, sent to the window.
+   *
+   * It has a road of its own rather than riding on the preferences, because the change it exists
+   * for does not move the scope: signing in again as the same account — which is the only way an
+   * account already on this machine gains these permissions — loads no new preferences and would
+   * therefore announce nothing at all.
+   */
+  announceScopes(): void
   /** The line the chat shows when the session was renewed, or ended. */
   announce(outcome: 'renewed' | 'expired'): void
   /** Caches the account's profile picture, so the chooser draws before any Twitch call. */
@@ -52,6 +67,11 @@ export interface AccountSessionParts {
   streams: AccountDataParts['streams']
   followed: AccountDataParts['followed']
   search: AccountDataParts['search']
+  searchCategories: AccountDataParts['searchCategories']
+  topCategories: AccountDataParts['topCategories']
+  blocked: AccountDataParts['blocked']
+  block: AccountDataParts['block']
+  unblock: AccountDataParts['unblock']
   now?: AccountDataParts['now']
   timers?: SessionTimers
 }
@@ -85,14 +105,27 @@ export function createAccountSession(parts: AccountSessionParts) {
   // the scope. The flag says so, so the application offers the sign-in again instead of showing
   // a silence that looks like nobody writing.
   let whispers = false
+  // The three below follow the same rule as the two above, and for the same reason: each was
+  // added to the sign-in after accounts were already stored on machines, so a saved account
+  // carries a token that predates it. Twitch answers all three endpoints with a 401 to a token
+  // that lacks the scope — never a 403 — which is exactly the status a dead session gets, so the
+  // grant is read here, where the validation states it, and never inferred from a refusal.
+  let emotes = false
+  let blocks = false
+  let chatColor = false
   let generation = 0
 
   /** What Twitch is streaming, and what the account follows: cached, and dropped with the account. */
   const data = createAccountData({
-    session: () => ({ token, clientId, userId, follows, generation }),
+    session: () => ({ token, clientId, userId, follows, blocks, generation }),
     streams: parts.streams,
     followed: parts.followed,
     search: parts.search,
+    searchCategories: parts.searchCategories,
+    topCategories: parts.topCategories,
+    blocked: parts.blocked,
+    block: parts.block,
+    unblock: parts.unblock,
     now: parts.now
   })
 
@@ -108,7 +141,13 @@ export function createAccountSession(parts: AccountSessionParts) {
     return {
       login: channelName(result.login), clientId: result.client_id, userId: /^\d{1,30}$/.test(id) ? id : '',
       follows: !!result.scopes?.includes('user:read:follows'),
-      whispers: !!result.scopes?.includes('user:manage:whispers'), expiresIn: result.expires_in ?? 0
+      whispers: !!result.scopes?.includes('user:manage:whispers'),
+      emotes: !!result.scopes?.includes('user:read:emotes'),
+      // Reading the list and changing it are two grants, asked for together at sign-in. Only both
+      // make the feature whole: a block that cannot be seen afterwards cannot be undone either.
+      blocks: !!result.scopes?.includes('user:read:blocked_users') && !!result.scopes?.includes('user:manage:blocked_users'),
+      chatColor: !!result.scopes?.includes('user:manage:chat_color'),
+      expiresIn: result.expires_in ?? 0
     }
   }
 
@@ -155,7 +194,15 @@ export function createAccountSession(parts: AccountSessionParts) {
     userId = null
     follows = false
     whispers = false
+    emotes = false
+    blocks = false
+    chatColor = false
     data.clear()
+    // The account's own emotes are not in `data`: they are cached beside the channels' sets, in
+    // the module that fetches all three. Dropped here all the same, and for the stronger reason —
+    // a channel's set is the same for everybody, this one *is* the account.
+    parts.forgetUserEmotes()
+    parts.announceScopes()
     guard.stop()
   }
 
@@ -182,6 +229,10 @@ export function createAccountSession(parts: AccountSessionParts) {
     // what was already granted, and must never be left true from the outgoing token.
     follows = validated.follows
     whispers = validated.whispers
+    emotes = validated.emotes
+    blocks = validated.blocks
+    chatColor = validated.chatColor
+    parts.announceScopes()
     parts.chat.renewToken(credentials.accessToken)
     // The token changed under EventSub: its subscription is remade with the new one, or the raids
     // stay silent until the next room change.
@@ -217,7 +268,18 @@ export function createAccountSession(parts: AccountSessionParts) {
     userId = validated.userId || null
     follows = validated.follows
     whispers = validated.whispers
+    emotes = validated.emotes
+    blocks = validated.blocks
+    chatColor = validated.chatColor
     data.clear()
+    // Before anything is fetched under the new account, and before the window is told what it may
+    // do: the emote set cached for the outgoing one is exactly what must not be served here.
+    parts.forgetUserEmotes()
+    parts.announceScopes()
+    // The blocked list is loaded rather than waited for. Nothing asks it a question — the messages
+    // do, as they arrive — so it has to be in memory before the first of them is, and signing in
+    // is the last moment at which that is still true.
+    data.preloadBlocked()
     void parts.switchScope(login).catch(error => console.warn('Unable to load the account preferences:', error instanceof Error ? error.message : 'unknown error'))
     parts.chat.connect({ login, token: credentials.accessToken })
     void parts.rememberAvatar(login, { token: credentials.accessToken, clientId: validated.clientId })
@@ -246,7 +308,9 @@ export function createAccountSession(parts: AccountSessionParts) {
 
   return {
     /** Read afresh at each call: nothing holds a copy of a token across a wait. */
-    credentials: () => ({ token, clientId, userId, whispers }),
+    credentials: () => ({ token, clientId, userId, whispers, emotes, blocks, chatColor }),
+    /** What the token was granted beyond chat, as the window needs to read it. */
+    scopes: () => ({ emotes, blocks, chatColor }),
     /** The current generation, and the way to open a new one. A second counter would be a bug. */
     generation: () => generation,
     nextGeneration: () => ++generation,

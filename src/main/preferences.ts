@@ -13,7 +13,7 @@ export const defaultPreferences: Preferences = {
   channels: [], active: '', quality: '480p,best', theme: 'system', language: '',
   layout: { playerWidth: 0, sidebarCollapsed: false, hideIdleChannels: true, idleChannelHours: DEFAULT_IDLE_HOURS },
   playback: { buffer: 'balanced', autoplay: true, detached: false, volume: 1, muted: false }, notifications: { mentions: true, whispers: true },
-  chat: { links: true, confirm: true, gifs: true, font: 'default' }
+  chat: { links: true, confirm: true, gifs: true, font: 'default', timestamps: true }
 }
 
 export function validatePreferences(input: unknown): Preferences {
@@ -43,7 +43,7 @@ export function scopeName(login: string | null): string {
 interface ScopeRow {
   active: string; quality: string; theme: string; language: string
   player_width: number; sidebar_collapsed: number
-  buffer: string; autoplay: number; notify_mentions: number; notify_whispers: number; video_detached: number; chat_links: number; chat_link_confirm: number; chat_gifs: number; chat_font: string
+  buffer: string; autoplay: number; notify_mentions: number; notify_whispers: number; video_detached: number; chat_links: number; chat_link_confirm: number; chat_gifs: number; chat_font: string; chat_timestamps: number
   window_width: number | null; window_height: number | null
   window_x: number | null; window_y: number | null; window_maximized: number
   player_window_width: number | null; player_window_height: number | null
@@ -79,7 +79,7 @@ function rowToPreferences(row: ScopeRow, channels: string[]): Preferences {
     },
     playback: { buffer: row.buffer, autoplay: bool(row.autoplay), detached: bool(row.video_detached), volume: row.volume / 100, muted: bool(row.muted) },
     notifications: { mentions: bool(row.notify_mentions), whispers: bool(row.notify_whispers) },
-    chat: { links: bool(row.chat_links), confirm: bool(row.chat_link_confirm), gifs: bool(row.chat_gifs), font: row.chat_font },
+    chat: { links: bool(row.chat_links), confirm: bool(row.chat_link_confirm), gifs: bool(row.chat_gifs), font: row.chat_font, timestamps: bool(row.chat_timestamps) },
     ...(window ? { window } : {}),
     ...(playerWindow ? { playerWindow } : {})
   })
@@ -122,8 +122,8 @@ export class PreferencesStore {
           scope, active, quality, theme, language, player_width, sidebar_collapsed, buffer, autoplay, notify_mentions, notify_whispers,
           window_width, window_height, window_x, window_y, window_maximized,
           player_window_width, player_window_height, player_window_x, player_window_y, player_window_pinned, volume, muted, video_detached,
-          hide_idle, idle_hours, chat_links, chat_link_confirm, chat_gifs, chat_font, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          hide_idle, idle_hours, chat_links, chat_link_confirm, chat_gifs, chat_font, chat_timestamps, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(scope) DO UPDATE SET
           active = excluded.active, quality = excluded.quality, theme = excluded.theme, language = excluded.language,
           player_width = excluded.player_width, sidebar_collapsed = excluded.sidebar_collapsed,
@@ -137,7 +137,7 @@ export class PreferencesStore {
           volume = excluded.volume, muted = excluded.muted, video_detached = excluded.video_detached,
           hide_idle = excluded.hide_idle, idle_hours = excluded.idle_hours,
           chat_links = excluded.chat_links, chat_link_confirm = excluded.chat_link_confirm, chat_gifs = excluded.chat_gifs,
-          chat_font = excluded.chat_font,
+          chat_font = excluded.chat_font, chat_timestamps = excluded.chat_timestamps,
           updated_at = excluded.updated_at`).run(
         scope, preferences.active, preferences.quality, preferences.theme, preferences.language,
         preferences.layout.playerWidth, flag(preferences.layout.sidebarCollapsed),
@@ -149,6 +149,7 @@ export class PreferencesStore {
         Math.round(preferences.playback.volume * 100), flag(preferences.playback.muted), flag(preferences.playback.detached),
         flag(preferences.layout.hideIdleChannels), preferences.layout.idleChannelHours,
         flag(preferences.chat.links), flag(preferences.chat.confirm), flag(preferences.chat.gifs), preferences.chat.font,
+        flag(preferences.chat.timestamps),
         Date.now()
       )
       // Rewrite the whole list: the order of the rooms is part of the preference.
@@ -200,6 +201,43 @@ export class PreferencesStore {
       const mark = this.database.prepare(`INSERT INTO channel_activity (scope, channel, last_active_at) VALUES (?, ?, ?)
         ON CONFLICT(scope, channel) DO UPDATE SET last_active_at = excluded.last_active_at`)
       for (const channel of channels) mark.run(scope, channelName(channel), at)
+      this.database.exec('COMMIT')
+    } catch (error) { this.database.exec('ROLLBACK'); throw error }
+  }
+
+  /**
+   * The categories this account has opened, the most recent first.
+   *
+   * Ordered by the last visit rather than by how often: that is the order somebody can predict
+   * from their own behaviour — you keep going back, it keeps being at the top — and it is the one
+   * that puts a category opened for the first time where its owner just left it. The count is
+   * written down beside it for the day a better order is worth the constant it would need.
+   */
+  categoryVisits(scope: string, limit = 12): { id: string; name: string; boxArtUrl: string }[] {
+    const rows = this.database.prepare(`SELECT game_id, name, box_art_url FROM category_visits
+      WHERE scope = ? ORDER BY last_visit_at DESC LIMIT ?`)
+      .all(scope, Math.max(1, Math.min(50, limit))) as { game_id: string; name: string; box_art_url: string }[]
+    return rows.map(row => ({ id: row.game_id, name: row.name, boxArtUrl: row.box_art_url }))
+  }
+
+  /**
+   * Notes that a category was opened. The name and the picture are only ever written over by a
+   * value that has something in it: a visit from a room header knows the name and not the box art,
+   * and must not blank what a visit from the grid had already stored.
+   */
+  markCategoryVisit(scope: string, category: { id: string; name: string; boxArtUrl: string }, at = Date.now()): void {
+    if (!/^\d{1,30}$/.test(category.id)) return
+    this.database.exec('BEGIN IMMEDIATE')
+    try {
+      this.database.prepare('INSERT INTO scopes (scope, updated_at) VALUES (?, ?) ON CONFLICT(scope) DO NOTHING').run(scope, at)
+      this.database.prepare(`INSERT INTO category_visits (scope, game_id, name, box_art_url, visits, last_visit_at)
+        VALUES (?, ?, ?, ?, 1, ?)
+        ON CONFLICT(scope, game_id) DO UPDATE SET
+          name = CASE WHEN excluded.name = '' THEN category_visits.name ELSE excluded.name END,
+          box_art_url = CASE WHEN excluded.box_art_url = '' THEN category_visits.box_art_url ELSE excluded.box_art_url END,
+          visits = category_visits.visits + 1,
+          last_visit_at = excluded.last_visit_at`)
+        .run(scope, category.id, category.name.slice(0, 80), category.boxArtUrl, at)
       this.database.exec('COMMIT')
     } catch (error) { this.database.exec('ROLLBACK'); throw error }
   }

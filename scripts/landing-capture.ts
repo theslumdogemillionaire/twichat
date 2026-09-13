@@ -61,7 +61,9 @@ const VERIFIED = '<path d="M12 3l7 3v5.5c0 4.3-2.9 7.7-7 9-4.1-1.3-7-4.7-7-9V6Z"
 const GLYPHS: Record<string, string> = {
   people: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 1 0 7.8"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
-  heartFull: '<path fill="currentColor" d="M12 20s-7-4.4-9-8.5A5 5 0 0 1 12 6a5 5 0 0 1 9 5.5C19 15.6 12 20 12 20Z"/>'
+  heartFull: '<path fill="currentColor" d="M12 20s-7-4.4-9-8.5A5 5 0 0 1 12 6a5 5 0 0 1 9 5.5C19 15.6 12 20 12 20Z"/>',
+  bolt: '<path d="m13 2-9 12h7l-1 8 10-13h-7Z"/>',
+  arrow: '<path d="M5 12h14m-6-6 6 6-6 6"/>'
 }
 
 /**
@@ -75,13 +77,30 @@ const BADGES: Record<string, { url: string; title: string }> = {
   SUB: { url: 'https://static-cdn.jtvnw.net/badges/v1/5d9f2208-5dd8-11e7-8513-2ff4adfae661/3', title: 'Subscriber' },
   PRIME: { url: 'https://static-cdn.jtvnw.net/badges/v1/bbbe0db0-a598-423e-86d0-f9fb98ca1933/3', title: 'Prime Gaming' }
 }
+/** The formatter `src/shared/i18n` installs: a crowd and a cheer are counted as the application counts them. */
+const counts = new Intl.NumberFormat(locale)
+
+/**
+ * A cheer, under Twitch's own `Cheer` prefix at its 1000 tier — the dark animated 2× file, the one
+ * `twitch-cheermotes-parse.ts` picks. The colour is the tier's: `.message-cheer-amount` reads it
+ * from `--cheer` and falls back to amber when nothing sets it.
+ */
+const CHEER = {
+  prefix: 'Cheer',
+  bits: 1000,
+  amount: counts.format(1000),
+  url: 'https://d3aqoihi2n8ty8.cloudfront.net/actions/cheer/dark/animated/1000/2.gif',
+  color: '#1db2a5'
+}
+
 const glyph = (name: string) =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${GLYPHS[name]}</svg>`
 
 /** The signed-in account, shared by both captured screens. */
 const ACCOUNT = { login: 'mila_pixel', avatar: 11 }
 
-type Part = string | { emote: string } | { mention: string } | { link: string } | { gif: { url: string; label: string } }
+type Cheer = { prefix: string; bits: number; amount: string; url: string; color: string }
+type Part = string | { emote: string } | { mention: string } | { link: string } | { gif: { url: string; label: string } } | { cheer: Cheer }
 interface DemoMessage {
   user: string
   avatar: number
@@ -95,6 +114,8 @@ interface DemoMessage {
   mention?: boolean
   system?: boolean
   quote?: { user: string; text: string }
+  /** An incoming raid: the row is the card the application builds, not a line of chat. */
+  raid?: { login: string; displayName: string; viewers: number; avatar: number }
 }
 
 /**
@@ -111,9 +132,10 @@ const CONVERSATIONS: Record<string, DemoMessage[]> = {
     { user: 'turbo_clio_2004', avatar: 3, color: '#6cb8ff', badges: [], time: '22:44', parts: ['ça part en drum & bass ou je rêve ', { emote: 'monkaS' }] },
     { user: 'dj_marmotte', avatar: 10, color: '#ffb066', badges: ['MOD'], time: '22:45', action: true, parts: ['lance le vote pour le prochain morceau'] },
     { user: 'NekoNoSignal', avatar: 4, color: '#cf8cff', badges: ['SUB'], time: '22:46', parts: ['le synthé qui décroche à la fin, c’est voulu ? ', { emote: 'WAYTOODANK' }] },
-    { user: 'ChienPolaire', avatar: 8, color: '#72d7d0', badges: [], time: '22:47', parts: ['WOOOOOO ', { emote: 'SourPls' }, ' ', { emote: 'SourPls' }, ' ', { emote: 'SourPls' }] },
+    { user: 'ChienPolaire', avatar: 8, color: '#72d7d0', badges: [], time: '22:47', parts: ['WOOOOOO ce set vaut bien ça ', { cheer: CHEER }, ' ', { emote: 'SourPls' }] },
     { user: 'Sombre_Baguette', avatar: 9, color: '#ff756e', badges: [], time: '22:48', parts: ['le pack d’emotes de la chaîne est incroyable ', { emote: 'CatBag' }, ' ', { emote: 'Clap' }] },
     { user: '', avatar: 0, color: '', badges: [], time: '22:48', system: true, parts: ['La chaîne passe en mode lent · 3 secondes entre deux messages.'] },
+    { user: 'LaTaniere', avatar: 6, color: '#8be3c9', badges: [], time: '22:48', raid: { login: 'lataniere', displayName: 'LaTanière', viewers: 1248, avatar: 6 }, parts: ['LaTanière débarque en raid avec sa communauté.'] },
     { user: 'mila_pixel', avatar: 11, color: '#b9f568', badges: ['SUB'], time: '22:49', own: true, quote: { user: 'NekoNoSignal', text: 'le synthé qui décroche à la fin, c’est voulu ?' }, parts: ['c’est un delay en feedback, je remonte le mix ', { emote: 'Kappa' }] },
     { user: 'ChevalierDuLag', avatar: 7, color: '#d2d1ca', badges: [], time: '22:50', mention: true, parts: [{ mention: '@mila_pixel' }, ' tu repartages le preset après le live ? ', { emote: 'FeelsGoodMan' }] },
     { user: 'mila_pixel', avatar: 11, color: '#b9f568', badges: ['SUB'], time: '22:51', own: true, parts: ['le preset est là si ça intéresse quelqu’un : ', { link: 'https://studio-nova.fr/patch-42' }] },
@@ -126,14 +148,21 @@ const CONVERSATIONS: Record<string, DemoMessage[]> = {
     { user: 'turbo_clio_2004', avatar: 3, color: '#6cb8ff', badges: [], time: '22:44', parts: ['is this going drum & bass or am I dreaming ', { emote: 'monkaS' }] },
     { user: 'dj_marmotte', avatar: 10, color: '#ffb066', badges: ['MOD'], time: '22:45', action: true, parts: ['starts the vote for the next track'] },
     { user: 'NekoNoSignal', avatar: 4, color: '#cf8cff', badges: ['SUB'], time: '22:46', parts: ['the synth drifting at the end, is that on purpose? ', { emote: 'WAYTOODANK' }] },
-    { user: 'ChienPolaire', avatar: 8, color: '#72d7d0', badges: [], time: '22:47', parts: ['WOOOOOO ', { emote: 'SourPls' }, ' ', { emote: 'SourPls' }, ' ', { emote: 'SourPls' }] },
+    { user: 'ChienPolaire', avatar: 8, color: '#72d7d0', badges: [], time: '22:47', parts: ['WOOOOOO this set is worth it ', { cheer: CHEER }, ' ', { emote: 'SourPls' }] },
     { user: 'Sombre_Baguette', avatar: 9, color: '#ff756e', badges: [], time: '22:48', parts: ['this channel emote pack is unreal ', { emote: 'CatBag' }, ' ', { emote: 'Clap' }] },
     { user: '', avatar: 0, color: '', badges: [], time: '22:48', system: true, parts: ['The channel switched to slow mode · 3 seconds between messages.'] },
+    { user: 'LaTaniere', avatar: 6, color: '#8be3c9', badges: [], time: '22:48', raid: { login: 'lataniere', displayName: 'LaTanière', viewers: 1248, avatar: 6 }, parts: ['LaTanière is here with their community.'] },
     { user: 'mila_pixel', avatar: 11, color: '#b9f568', badges: ['SUB'], time: '22:49', own: true, quote: { user: 'NekoNoSignal', text: 'the synth drifting at the end, is that on purpose?' }, parts: ['it is a feedback delay, I am bringing the mix back up ', { emote: 'Kappa' }] },
     { user: 'ChevalierDuLag', avatar: 7, color: '#d2d1ca', badges: [], time: '22:50', mention: true, parts: [{ mention: '@mila_pixel' }, ' will you share the preset after the stream? ', { emote: 'FeelsGoodMan' }] },
     { user: 'mila_pixel', avatar: 11, color: '#b9f568', badges: ['SUB'], time: '22:51', own: true, parts: ['the preset is here if anyone wants it: ', { link: 'https://studio-nova.fr/patch-42' }] },
     { user: 'cat_on_keyboard', avatar: 0, color: '#f49d70', badges: [], time: '22:52', parts: ['mrrrrp ', { gif: { url: 'https://media.giphy.com/media/vFKqnCdLPNOKc/giphy.gif', label: '[rolling kitten GIF]' } }] }
   ]
+}
+
+/** The raid card's wording, as `src/shared/i18n` spells it. */
+const RAID = {
+  fr: { label: 'Raid entrant', arrival: 'débarque avec sa communauté !', welcome: 'Bienvenue à vous !', viewers: 'spectateurs', profile: 'Voir le profil' },
+  en: { label: 'Incoming raid', arrival: 'is here with their community!', welcome: 'Welcome, raiders!', viewers: 'viewers', profile: 'View profile' }
 }
 
 /** The sidebar channels: live stream, unread, mentions in alert and the active channel. */
@@ -422,13 +451,18 @@ try {
 
   /** A second window laid over the room, where the system would have put it. */
   const shootFloating = async (name: string, floating: Surface) => {
+    // The room is captured at one image pixel per CSS pixel — `setViewportSize` pins it there — while
+    // a window nobody resized keeps the screen's own ratio, two pixels per point on this machine.
+    // Laid over the room as it comes back, a 420 point window would cover a third of it: the overlay
+    // is drawn at the size it has on screen, not at the size of its file.
+    const ratio = await floating.evaluate(() => devicePixelRatio)
     for (const theme of ['dark', 'light'] as const) {
       const png = resolve(assets, `${name}${theme === 'light' ? '-light' : ''}.${locale}.png`)
       await wearTheme(theme, [floating])
       await freezeVideo()
       const room = (await page.screenshot()).toString('base64')
       const overlaid = (await floating.screenshot()).toString('base64')
-      const composed = await page.evaluate(async ({ room, overlaid }) => {
+      const composed = await page.evaluate(async ({ room, overlaid, ratio }) => {
         const load = async (data: string) => { const image = new Image(); image.src = `data:image/png;base64,${data}`; await image.decode(); return image }
         const base = await load(room)
         const overlay = await load(overlaid)
@@ -436,12 +470,16 @@ try {
         canvas.width = base.naturalWidth; canvas.height = base.naturalHeight
         const paint = canvas.getContext('2d')!
         paint.drawImage(base, 0, 0)
+        const width = overlay.naturalWidth / ratio
+        const height = overlay.naturalHeight / ratio
         // Bottom right, over the dock: where the window opens, and where it hides no message.
         paint.shadowColor = 'rgba(0, 0, 0, .55)'; paint.shadowBlur = 48; paint.shadowOffsetY = 16
-        paint.drawImage(overlay, canvas.width - overlay.naturalWidth - 46, canvas.height - overlay.naturalHeight - 52)
-        return canvas.toDataURL('image/png').split(',')[1]
-      }, { room, overlaid })
-      await writeFile(png, Buffer.from(composed, 'base64'))
+        paint.drawImage(overlay, canvas.width - width - 46, canvas.height - height - 52, width, height)
+        return { data: canvas.toDataURL('image/png').split(',')[1], share: width / canvas.width }
+      }, { room, overlaid, ratio })
+      // A window covering half the room is not floating over it any more, it is hiding it.
+      if (composed.share > 0.5) throw new Error(`The floating window covers ${Math.round(composed.share * 100)} % of the room's width.`)
+      await writeFile(png, Buffer.from(composed.data, 'base64'))
       await encode(png, png.replace(/\.png$/, '.webp'))
     }
   }
@@ -528,7 +566,7 @@ try {
   await page.waitForTimeout(1200)
   await page.evaluate(() => window.twichat.stopStream())
 
-  await page.evaluate(({ stream, emotes, badges, messages, rooms, idle, card, verified, account, chrome, icons }) => {
+  await page.evaluate(({ stream, emotes, badges, messages, rooms, idle, card, verified, account, chrome, icons, raid }) => {
     const one = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!
     // The renderer icons are already hydrated in the page: copy them rather than duplicate their paths.
     const iconOf = (name: string) => {
@@ -607,6 +645,48 @@ try {
     for (const message of messages) {
       const row = document.createElement('article')
       row.className = `message${message.action ? ' action' : ''}${message.own ? ' own' : ''}${message.system ? ' system' : ''}${message.mention ? ' mention' : ''}`
+      if (message.raid) {
+        // A raid lands in the log as its own card: no avatar column, no message body. The shape and
+        // the wording are the application's, from `src/renderer/raid-message.ts`.
+        row.className = 'message raid-message'
+        // Built here with the rest of the thread, shown later: the card is three rows tall, and the
+        // room screen is the one that has to stay dense. It is the detached view, chat on its own
+        // over the full width, that gets the raid — `hidden` keeps it out of the layout until then.
+        row.hidden = true
+        row.setAttribute('aria-label', message.parts.filter(part => typeof part === 'string').join(''))
+        const card = document.createElement('div'); card.className = 'raid-card'
+        const heading = document.createElement('div'); heading.className = 'raid-heading'
+        const label = document.createElement('span'); label.className = 'raid-label'
+        label.innerHTML = icons.bolt; label.append(document.createTextNode(raid.label))
+        const stamp = document.createElement('time'); stamp.className = 'message-time'; stamp.textContent = message.time
+        heading.append(label, stamp)
+        const body = document.createElement('div'); body.className = 'raid-body'
+        const face = document.createElement('span'); face.className = 'raid-avatar'
+        face.textContent = [...message.raid.displayName][0]
+        // The card fills that square with the raider's portrait once Twitch answers for it. The demo
+        // faces are a sprite, so the crop takes the image's place and the rules written for it.
+        const portrait = document.createElement('span')
+        portrait.setAttribute('style', `position:absolute;inset:0;${message.raid.avatar}`)
+        face.append(portrait)
+        const identity = document.createElement('div'); identity.className = 'raid-identity'
+        const raider = document.createElement('strong'); raider.className = 'raid-name'; raider.textContent = message.raid.displayName
+        const arrival = document.createElement('p'); arrival.textContent = raid.arrival
+        identity.append(raider, arrival)
+        const crowd = document.createElement('div'); crowd.className = 'raid-crowd'
+        const head = document.createElement('strong'); head.textContent = message.raid.viewers
+        const viewers = document.createElement('span'); viewers.textContent = raid.viewers
+        crowd.append(head, viewers)
+        body.append(face, identity, crowd)
+        const footer = document.createElement('div'); footer.className = 'raid-footer'
+        const welcome = document.createElement('span'); welcome.textContent = raid.welcome
+        const profile = document.createElement('button'); profile.type = 'button'; profile.className = 'raid-profile'
+        profile.tabIndex = -1; profile.textContent = raid.profile
+        const arrow = document.createElement('span'); arrow.innerHTML = icons.arrow; profile.append(arrow)
+        footer.append(welcome, profile)
+        card.append(heading, body, footer); row.append(card)
+        space.append(row); rows.push(row)
+        continue
+      }
       const avatar = document.createElement('span'); avatar.className = 'message-avatar demo'
       if (!message.system) avatar.setAttribute('style', message.avatar)
       const main = document.createElement('div'); main.className = 'message-main'
@@ -627,6 +707,15 @@ try {
           const link = document.createElement('a'); link.className = 'message-link'; link.href = part.link
           link.textContent = part.link; link.title = part.link; link.rel = 'noreferrer noopener'; link.tabIndex = -1
           text.append(link); continue
+        }
+        if ('cheer' in part) {
+          // A cheer is the image and its amount side by side, in the colour of the tier reached.
+          const image = document.createElement('img'); image.className = 'message-cheer'
+          image.alt = part.cheer.prefix; image.title = `${part.cheer.prefix}${part.cheer.bits}`
+          image.decoding = 'async'; image.src = part.cheer.url
+          const amount = document.createElement('b'); amount.className = 'message-cheer-amount'
+          amount.textContent = part.cheer.amount; amount.style.setProperty('--cheer', part.cheer.color)
+          text.append(image, amount); continue
         }
         if ('gif' in part) {
           // The address goes in whole, as Twitch hands it over from the GIPHY keyboard.
@@ -729,9 +818,15 @@ try {
     one('#composer-hint').hidden = false
   }, {
     stream, emotes: EMOTES, badges: BADGES, verified: VERIFIED, card: CARD, chrome: TEXT,
-    icons: { people: glyph('people'), clock: glyph('clock'), heartFull: glyph('heartFull') },
+    icons: { people: glyph('people'), clock: glyph('clock'), heartFull: glyph('heartFull'), bolt: glyph('bolt'), arrow: glyph('arrow') },
+    raid: RAID[locale],
     account: { login: ACCOUNT.login, avatar: avatarStyle(ACCOUNT.avatar) },
-    messages: MESSAGES.map(message => ({ ...message, avatar: avatarStyle(message.avatar) })),
+    messages: MESSAGES.map(message => ({
+      ...message,
+      avatar: avatarStyle(message.avatar),
+      // The crowd is counted here: the page receives what it has to paint, never a formatter.
+      raid: message.raid && { ...message.raid, avatar: avatarStyle(message.raid.avatar), viewers: counts.format(message.raid.viewers) }
+    })),
     rooms: ROOMS.map(room => ({ ...room, avatar: avatarStyle(room.avatar) })),
     idle: TEXT.idle.map((channel, index) => ({ channel, avatar: avatarStyle(index === 0 ? 7 : 10) }))
   })
@@ -754,10 +849,15 @@ try {
 
   // An emote missing from the CDN would go unnoticed and freeze a broken capture onto the landing.
   await page.waitForFunction(() => {
-    const images = [...document.querySelectorAll<HTMLImageElement>('.message-emote, .message-gif')]
+    const images = [...document.querySelectorAll<HTMLImageElement>('.message-emote, .message-gif, .message-cheer')]
     return images.length > 0 && images.every(image => image.complete)
   }, undefined, { timeout: 20000 })
-  const broken = await page.evaluate(() => [...document.querySelectorAll<HTMLImageElement>('.message-emote, .message-gif')].filter(image => !image.naturalWidth).map(image => image.src))
+  // Only the cheer is checked here: the raid row is built hidden, and that it truly shows is what
+  // the detached screen asserts further down, once it has been revealed.
+  const cheers = await page.evaluate(() => document.querySelectorAll('#chat-log .message-cheer-amount').length)
+  if (cheers !== 1) throw new Error(`The cheer is missing from the conversation: ${cheers} amounts in the log.`)
+
+  const broken = await page.evaluate(() => [...document.querySelectorAll<HTMLImageElement>('.message-emote, .message-gif, .message-cheer')].filter(image => !image.naturalWidth).map(image => image.src))
   if (broken.length) throw new Error(`Emotes failed to load: ${broken.join(', ')}`)
 
   // A GIF has no size before it loads: the rows were measured without it. Now that every image
@@ -861,7 +961,13 @@ try {
           ]
         }),
         openLink: async () => {},
-        external: async () => {}
+        external: async () => {},
+        // The conversation window follows the chat font chosen in the settings, and asks the main
+        // process for the peer's picture. Both are subscriptions the page makes on its own, and a
+        // missing one takes the whole thread down with it.
+        onChatFont: noop,
+        whisperProfile: async () => ({ avatarUrl: '', displayName: 'xX_Grenouille_Xx' }),
+        openChannel: async () => {}
       }
     })
   }, {
@@ -926,6 +1032,28 @@ try {
     one<HTMLButtonElement>('#detached-fullscreen').disabled = false
     one<HTMLSelectElement>('#detached-quality').value = '720p60,720p,best'
   }, { frame: stream, view: VIEW_TEXT })
+  // The raid joins the thread now: the video has left the room, the conversation holds the whole
+  // width, and the card reads at the size the application gives it there.
+  const arrived = await page.evaluate(() => {
+    const space = document.querySelector<HTMLElement>('#virtual-space')!
+    const raid = space.querySelector<HTMLElement>('.raid-message')
+    if (!raid) return 0
+    raid.hidden = false
+    let top = 0
+    for (const row of space.children) {
+      const element = row as HTMLElement
+      element.style.transform = `translateY(${top}px)`
+      top += element.offsetHeight
+    }
+    space.style.height = `${top}px`
+    const log = document.querySelector<HTMLElement>('#chat-log')!
+    log.scrollTop = log.scrollHeight
+    const view = log.getBoundingClientRect()
+    const bounds = raid.getBoundingClientRect()
+    // Wholly inside the log, or the card shows up sliced at the top of the capture.
+    return bounds.top >= view.top && bounds.bottom <= view.bottom ? 1 : 0
+  })
+  if (!arrived) throw new Error('The raid card is missing from the detached view, or cut off by the top of the log.')
   await shootDetached('app-detached', playerWindow)
 
   // Fifth screen: exploring the channels, one page of the catalog.
@@ -1042,11 +1170,16 @@ try {
   await shoot('app-discover')
 
 
-  // Sixth screen: the settings. Nothing to stage — the panel says what it holds on its own.
+  // Sixth screen: the settings. Nothing to stage — the panel says what it holds on its own. It is
+  // only scrolled: the chat section, with the font of the conversations, sits below the first fold.
   await page.evaluate(note => {
     document.querySelector<HTMLElement>('#discover')!.hidden = true
     document.querySelector<HTMLElement>('#settings')!.hidden = false
     document.querySelector('#app .titlebar-note')!.textContent = note
+    // The channel preview belongs to the previous screen: it is pinned to the viewport, and left
+    // alone it would hang over the settings it has nothing to do with.
+    document.querySelector<HTMLElement>('#rail-tip')!.hidden = true
+    document.querySelector('#chat-font-label')!.scrollIntoView({ block: 'center' })
   }, VIEW_TEXT.titlebarSettings)
   await page.waitForTimeout(400)
   await shoot('app-settings')

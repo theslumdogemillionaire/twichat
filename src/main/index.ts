@@ -13,14 +13,18 @@ import { AccountStore } from './accounts'
 import { createAccountSession } from './account-session'
 import { AvatarStore } from './avatars'
 import { StreamResolver, withoutAds } from './streams'
-import { getChannelInfo, getFollowStatus, getFollowedChannels, getHelixProfiles, getHelixStreams, getRoomProfiles, getUserCard, knownStreamTitle, searchHelixChannels } from './twitch-data'
+import { safeThumbnail } from './twitch-data-parse'
+import { getChannelInfo, getFollowStatus, getFollowedChannels, getHelixProfiles, getHelixStreams, getRoomProfiles, getTopCategories, getUserCard, knownStreamTitle, searchHelixCategories, searchHelixChannels } from './twitch-data'
 import { getGlobalThirdPartyEmotes, getThirdPartyEmotes } from './third-party-emotes'
 import { sendWhisper, whisperRecipientId } from './whisper-send'
-import { getGlobalTwitchEmotes, getTwitchEmotes } from './twitch-emotes'
+import { forgetUserEmotes, getGlobalTwitchEmotes, getTwitchEmotes } from './twitch-emotes'
+import { blockUser, getBlockedUsers, unblockUser } from './blocks'
+import { getChatColor, setChatColor } from './chat-color'
 import { getTwitchBadges } from './twitch-badges'
+import { getCheermotes } from './twitch-cheermotes'
 import { applyUpdate, watchUpdates } from './updates'
-import { bufferMode, channelName, chatReply, mediaUrl, PLAYER_WINDOW_MIN_HEIGHT, PLAYER_WINDOW_MIN_WIDTH, qualityName, whisperText, WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH } from '../shared/validation'
-import type { ChatEvent, ChatFont, CommandKey, DetachedContext, MentionNotice, Preferences, Whisper, WhisperContext } from '../shared/types'
+import { bufferMode, channelName, chatColorChoice, chatReply, mediaUrl, PLAYER_WINDOW_MIN_HEIGHT, PLAYER_WINDOW_MIN_WIDTH, qualityName, whisperText, WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH } from '../shared/validation'
+import type { AccountScopes, ChatEvent, ChatFont, CommandKey, DetachedContext, MentionNotice, Preferences, Whisper, WhisperContext } from '../shared/types'
 import { AppError, errorKey, fail, serializeError, type ErrorKey } from '../shared/errors'
 import { locale as activeLocale, m, resolveLocale, setLocale } from '../shared/i18n'
 
@@ -130,6 +134,11 @@ function queue(event: ChatEvent) {
     accountSession?.disconnected()
     eventSub.stop()
   }
+  // Blocking someone on Twitch does not stop their messages reaching this socket: Twitch governs
+  // what they may do to the account, not what the account is shown. So the line is dropped here,
+  // before it is ever sent to the window — the one place every message goes past, and out of the
+  // renderer's way. A system line is kept whatever it says: it is the room speaking, not them.
+  if (event.type === 'message' && !event.message.system && accountSession?.data.isBlocked(event.message.login.toLowerCase())) return
   // Drop oldest chat traffic under extreme load, never control/moderation events
   // nor the system lines (subscriptions, raids, announcements): those are what matter during a flood.
   if (events.length >= 600) {
@@ -165,6 +174,22 @@ function refreshWatches() {
 }
 /** The token a missing whisper scope was already named for: once per account, not per room change. */
 let whisperScopeReported: string | null = null
+
+const NO_SCOPES: AccountScopes = { emotes: false, blocks: false, chatColor: false }
+/** What the signed-in token may do beyond chat. Anonymous may do none of it. */
+function accountScopes(): AccountScopes {
+  return accountSession?.scopes() ?? NO_SCOPES
+}
+/**
+ * Tells the window what changed about that. Sent on its own channel rather than with the
+ * preferences, because the case this exists for is signing in again as the account already
+ * connected — which changes no preference and moves no scope, and would therefore be announced
+ * by nothing else. It is exactly the gesture that grants these permissions.
+ */
+function announceScopes() {
+  if (!window || window.isDestroyed()) return
+  window.webContents.send('app:scopes', accountScopes())
+}
 eventSub.on('raid', (raid: RaidNotice) => {
   // The same sentence as an incoming raid, seen from the other side: the channel, where it goes, who follows.
   irc.system(raid.from, m.chat.raidOutgoing(raid.toDisplayName, raid.viewers))
@@ -416,7 +441,7 @@ function commandKey(): CommandKey {
 }
 
 /** The keys Helix answers a dead token with, whichever section made the call. */
-const SESSION_EXPIRED = new Set<ErrorKey>(['twitchSessionExpired', 'emotesSessionExpired', 'badgesSessionExpired'])
+const SESSION_EXPIRED = new Set<ErrorKey>(['twitchSessionExpired', 'emotesSessionExpired', 'badgesSessionExpired', 'cheermotesSessionExpired'])
 
 // The avatar is cached on disk so the session chooser can show it before any Twitch call.
 async function rememberAvatar(login: string, auth: { token: string; clientId: string }) {
@@ -582,13 +607,20 @@ app.whenReady().then(async () => {
     fetch: (url, init) => net.fetch(url, init),
     switchScope,
     refreshWatches,
+    forgetUserEmotes,
+    announceScopes,
     announce: outcome => irc.system(preferences.active, outcome === 'renewed' ? m.chat.sessionRenewed : m.chat.sessionExpired),
     rememberAvatar,
     forgetAvatar: login => avatarStore.forget(login),
     forgetPreferences: login => store.forget(scopeName(login)),
-    streams: (token, clientId, language) => getHelixStreams(token, clientId, language),
+    streams: (token, clientId, language, gameId, after) => getHelixStreams(token, clientId, language, gameId, after),
     followed: (userId, auth) => getFollowedChannels(userId, auth),
-    search: (query, auth) => searchHelixChannels(query, auth)
+    search: (query, auth) => searchHelixChannels(query, auth),
+    searchCategories: (query, auth) => searchHelixCategories(query, auth),
+    topCategories: (token, clientId, after) => getTopCategories(token, clientId, after),
+    blocked: (userId, auth) => getBlockedUsers(userId, auth),
+    block: (targetId, auth) => blockUser(targetId, auth),
+    unblock: (targetId, auth) => unblockUser(targetId, auth)
   })
   accountSession = account
   // The previous version knew nothing of accounts: its file is taken over by the account that
@@ -689,7 +721,7 @@ app.whenReady().then(async () => {
   handle('app:init', async () => {
     initialAccountRestore ??= account.restore()
     await initialAccountRestore
-    return { preferences, scope: activeScope, locale: activeLocale, commandKey: commandKey(), insetWindowControls: process.platform === 'darwin', status: irc.status, account: irc.login, savedAccounts: await accountStore.list(), savedAvatars: await avatarStore.all(), channelAvatars: await channelAvatarStore.all(), roomStates: Object.fromEntries(irc.roomStates), userBadges: Object.fromEntries(irc.userBadges) }
+    return { preferences, scope: activeScope, locale: activeLocale, commandKey: commandKey(), insetWindowControls: process.platform === 'darwin', status: irc.status, account: irc.login, savedAccounts: await accountStore.list(), savedAvatars: await avatarStore.all(), channelAvatars: await channelAvatarStore.all(), roomStates: Object.fromEntries(irc.roomStates), userBadges: Object.fromEntries(irc.userBadges), scopes: accountScopes() }
   })
   handle('account:avatars', () => avatarStore.all())
   handle('chat:join', (channel: string) => irc.join(channel))
@@ -764,16 +796,82 @@ app.whenReady().then(async () => {
   })
   handle('emotes:twitch', (roomId: unknown) => {
     if (typeof roomId !== 'string' || !/^\d{1,30}$/.test(roomId)) fail('roomIdInvalid')
-    return getTwitchEmotes(roomId, accountAuth('needAccountForEmotes'))
+    // The account's own set rides along with the room's rather than costing a call of its own:
+    // the picker wants all three at once, and one of them missing must not cost the others.
+    const { userId, emotes } = accountSession?.credentials() ?? { userId: null, emotes: false }
+    return getTwitchEmotes(roomId, { ...accountAuth('needAccountForEmotes'), userId: userId ?? '', emotes })
+  })
+  /**
+   * Everyone this account has blocked on Twitch, and the two ways to change that.
+   *
+   * The list is read once per account and held, because it is what hides a blocked person's
+   * messages: Twitch goes on delivering them. Blocking is refused out loud when the token was
+   * never granted the scope — an account saved before this existed — rather than failing at
+   * Twitch with a 401 that would read as a dead session.
+   */
+  handle('blocks:list', (refresh = false) => {
+    if (typeof refresh !== 'boolean') fail('refreshRequestInvalid')
+    return account.data.blocked(refresh)
+  })
+  handle('blocks:set', async (login: unknown, userId: unknown, blocked: unknown) => {
+    const name = channelName(login)
+    if (typeof userId !== 'string' || !/^\d{1,30}$/.test(userId)) fail('twitchAccountGone')
+    if (typeof blocked !== 'boolean') fail('blockRequestInvalid')
+    // Against the id, because the id is what reaches Twitch: the login beside it is only what the
+    // rooms are emptied of afterwards, and a check on it would not be checking the call being made.
+    if (userId === accountSession?.credentials().userId) fail('blockRefused')
+    const users = await account.data.setBlocked(userId, blocked)
+    // Their messages are already on screen, and a block that leaves them there has not taken.
+    // The window is told the way Twitch's own moderation tells it — the event a CLEARCHAT makes —
+    // so the log empties of them without this reaching into how a message is drawn.
+    if (blocked) for (const channel of irc.channels) queue({ type: 'clear', channel, user: name })
+    return users
+  })
+  /**
+   * The colour the account's own name is written in. Reading takes no scope — Twitch answers any
+   * valid token — which is why the setting can show what is set even where it cannot change it.
+   */
+  handle('chat:color', () => {
+    const { token, clientId, userId } = accountSession?.credentials() ?? { token: null, clientId: null, userId: null }
+    if (!token || !clientId || !userId) fail('chatColorNoAccount')
+    return getChatColor(userId, { token, clientId })
+  })
+  handle('chat:set-color', async (input: unknown) => {
+    const color = chatColorChoice(input)
+    const { token, clientId, userId, chatColor } = accountSession?.credentials() ?? { token: null, clientId: null, userId: null, chatColor: false }
+    if (!token || !clientId || !userId) fail('chatColorNoAccount')
+    if (!chatColor) fail('chatColorScopeMissing')
+    await setChatColor(userId, color, { token, clientId })
+    // Read back rather than echoed: a named colour is stored by Twitch as a hex, and what the
+    // setting must show is the value the chat will actually carry.
+    return getChatColor(userId, { token, clientId })
   })
   handle('badges:twitch', (roomId: unknown) => {
     if (typeof roomId !== 'string' || !/^\d{1,30}$/.test(roomId)) fail('roomIdInvalid')
     return getTwitchBadges(roomId, accountAuth('needAccountForBadges'))
   })
-  handle('discover:streams', async (language: unknown = '', refresh = false) => {
+  handle('cheermotes:twitch', (roomId: unknown) => {
+    if (typeof roomId !== 'string' || !/^\d{1,30}$/.test(roomId)) fail('roomIdInvalid')
+    return getCheermotes(roomId, accountAuth('needAccountForCheermotes'))
+  })
+  /**
+   * The cursor a window asks the next page by. Empty means the first page and is the default; a
+   * string that is not a cursor is refused rather than passed on, the way an unusable `gameId` is.
+   * Twitch writes them in base64 with its url-safe variants, and never anywhere near this long.
+   */
+  function pageAfter(value: unknown): string {
+    if (value === undefined || value === '') return ''
+    if (typeof value !== 'string' || !/^[A-Za-z0-9+/=_.-]{1,500}$/.test(value)) fail('pageCursorInvalid')
+    return value
+  }
+
+  // A category narrows the same catalog: Twitch takes `game_id` next to `language` on the one
+  // endpoint, so browsing one is this call with an id rather than a view of its own.
+  handle('discover:streams', async (language: unknown = '', refresh = false, gameId: unknown = '', after: unknown = '') => {
     if (typeof language !== 'string' || (language && !/^[a-z]{2}$/.test(language))) fail('languageInvalid')
     if (typeof refresh !== 'boolean') fail('refreshRequestInvalid')
-    return account.data.streams(language, refresh)
+    if (typeof gameId !== 'string' || (gameId && !/^\d{1,30}$/.test(gameId))) fail('categoryInvalid')
+    return account.data.streams(language, refresh, gameId, pageAfter(after))
   })
   handle('discover:followed', async (refresh = false) => {
     if (typeof refresh !== 'boolean') fail('refreshRequestInvalid')
@@ -786,6 +884,41 @@ app.whenReady().then(async () => {
     const trimmed = query.trim().slice(0, 100)
     if (trimmed.length < 3) fail('searchQueryInvalid')
     return account.data.search(trimmed)
+  })
+  // The same floor as the channel search above: the box asks both at once, and a query too short
+  // for one is too short for the other.
+  /**
+   * The categories this account has opened. It never leaves the machine: it is written to the
+   * local database under the account that did the browsing, and there is no call anywhere that
+   * sends it on. Twitch is not told, and neither is anybody else.
+   */
+  handle('categories:visited', async () => store.categoryVisits(activeScope))
+  handle('categories:visit', async (category: unknown, scope: unknown) => {
+    // The scope moves here before the window is told of it, so a visit sent an instant before a
+    // switch would be written under whoever signed in — and this table records what somebody
+    // browses. Carried and compared, the way a preferences save is: it is dropped, never moved.
+    if (typeof scope !== 'string' || scope !== activeScope) return store.categoryVisits(activeScope)
+    const value = category as { id?: unknown; name?: unknown; boxArtUrl?: unknown } | null
+    const id = String(value?.id ?? '')
+    if (!/^\d{1,30}$/.test(id)) fail('categoryInvalid')
+    // The window is handing back a picture the main process gave it, but it is checked again all
+    // the same: nothing that arrives over the bridge is trusted for having been sent from here.
+    store.markCategoryVisit(activeScope, {
+      id,
+      name: typeof value?.name === 'string' ? value.name.replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 80) : '',
+      boxArtUrl: safeThumbnail(value?.boxArtUrl, 144, 192)
+    })
+    return store.categoryVisits(activeScope)
+  })
+  handle('discover:top-categories', async (refresh = false, after: unknown = '') => {
+    if (typeof refresh !== 'boolean') fail('refreshRequestInvalid')
+    return account.data.topCategories(refresh, pageAfter(after))
+  })
+  handle('discover:categories', async (query: unknown) => {
+    if (typeof query !== 'string') fail('searchQueryInvalid')
+    const trimmed = query.trim().slice(0, 100)
+    if (trimmed.length < 3) fail('searchQueryInvalid')
+    return account.data.searchCategories(trimmed)
   })
   // Twichat reads the follow, it never sets it: Twitch closed its "follow" endpoints on 27 July 2021.
   // What this answer allows is to say why a room refuses a message, and when it will accept one.

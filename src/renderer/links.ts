@@ -89,14 +89,26 @@ export interface ChannelSegment {
   channel?: string
 }
 
-// The lookbehind keeps `C#` and `n#1` from opening a channel, the lookahead keeps
-// `#studio_nova_bis` from being cut down to a shorter name that exists.
-const CHANNEL = /(?<![\p{L}\p{N}_#])#([a-z0-9_]{1,25})(?![\p{L}\p{N}_])/giu
+/**
+ * Twitch's own pages that are not a channel. They are few, and every one of them reads exactly
+ * like a login: `twitch.tv/directory` would otherwise open a room by that name and find nobody.
+ */
+const RESERVED = new Set(['directory', 'downloads', 'drops', 'friends', 'inventory', 'jobs',
+  'login', 'moderator', 'p', 'payments', 'popout', 'prime', 'products', 'search', 'settings',
+  'signup', 'store', 'subscriptions', 'turbo', 'u', 'videos', 'wallet'])
+
+// Two ways a chat names a room, and a shoutout bot uses both. On the `#` form the lookbehind
+// keeps `C#` and `n#1` out, and the lookahead keeps `#studio_nova_bis` from being cut down to a
+// shorter name that exists. On the address form the lookbehind refuses anything already inside a
+// path or a host — `https://twitch.tv/x` is a link, cut out well before this, and
+// `mirror.twitch.tv/x` is not Twitch — and `(?!\/\S)` refuses a page under the channel.
+const CHANNEL = /(?<![\p{L}\p{N}_#])#([a-z0-9_]{1,25})(?![\p{L}\p{N}_])|(?<![\p{L}\p{N}_@\/.])(?:www\.|m\.)?twitch\.tv\/([a-z0-9_]{1,25})(?![\p{L}\p{N}_])(?!\/\S)/giu
 /**
  * `#1` is a rank far more often than a channel, so digits alone name nothing here. What stays
  * ambiguous is a hex colour: `#ff8800` is a perfectly ordinary Twitch login, and nothing in the
  * text tells the two apart. It is left as a channel — the cost of being wrong is a room you did
  * not mean to open, which closes.
+ */
 
 /**
  * Cuts a body around the channels named in it. Twitch logins are lowercase, so `#Studio_Nova`
@@ -104,18 +116,43 @@ const CHANNEL = /(?<![\p{L}\p{N}_#])#([a-z0-9_]{1,25})(?![\p{L}\p{N}_])/giu
  * what was written.
  */
 export function channelSegments(text: string): ChannelSegment[] {
-  if (!text.includes('#')) return [{ text }]
+  if (!text.includes('#') && !/twitch\.tv\//i.test(text)) return [{ text }]
   const segments: ChannelSegment[] = []
   let cursor = 0
   CHANNEL.lastIndex = 0
   for (let match = CHANNEL.exec(text); match; match = CHANNEL.exec(text)) {
-    if (/^\d+$/.test(match[1])) continue
+    const hash = match[1]
+    const name = hash ?? match[2]!
+    // `#1` is a rank; `twitch.tv/1` is a room, and only the address form says which it meant.
+    if (hash !== undefined && /^\d+$/.test(hash)) continue
+    if (hash === undefined && RESERVED.has(name.toLowerCase())) continue
     if (match.index > cursor) segments.push({ text: text.slice(cursor, match.index) })
-    segments.push({ text: match[0], channel: match[1].toLowerCase() })
+    segments.push({ text: match[0], channel: name.toLowerCase() })
     cursor = match.index + match[0].length
   }
   if (cursor < text.length) segments.push({ text: text.slice(cursor) })
   return segments.length ? segments : [{ text }]
+}
+
+/**
+ * The channel a `twitch.tv` address names, or an empty string where it names none. A shoutout is
+ * written this way far more often than with a `#`: the bots that post them link the channel
+ * rather than naming it.
+ *
+ * Only a bare channel page counts — one path segment, a login inside it. `/videos/1234` and
+ * `/popout/studio_nova/chat` name pages the application has nothing to open, and they stay links.
+ */
+export function channelFromUrl(url: string): string {
+  let parsed: URL
+  try { parsed = new URL(url) } catch { return '' }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return ''
+  if (!/^(?:www\.|m\.)?twitch\.tv$/.test(parsed.hostname)) return ''
+  const segments = parsed.pathname.split('/').filter(Boolean)
+  if (segments.length !== 1) return ''
+  // `URL` lowercases the host and leaves the path alone, so `/Studio_Nova` arrives as written.
+  const channel = segments[0]!.toLowerCase()
+  if (RESERVED.has(channel)) return ''
+  return /^[a-z0-9_]{1,25}$/.test(channel) ? channel : ''
 }
 
 /** A viewer named in a message: `@studio_nova`, the way a chat addresses someone. */

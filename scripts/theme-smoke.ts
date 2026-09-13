@@ -90,20 +90,27 @@ try {
     await paint(theme)
     await window.screenshot({ path: resolve(artifacts, `theme-settings-${theme}.png`) })
   }
-  // The account opens its menu, and it is that menu which leads to the sign-in dialog.
+  // The account opens its menu, and it is that menu which leads back out of an anonymous session.
   await window.locator('#account-button').click()
   await window.waitForSelector('#account-menu:not([hidden])')
   for (const theme of themes) {
     await paint(theme)
     await window.screenshot({ path: resolve(artifacts, `theme-account-menu-${theme}.png`) })
   }
-  await window.locator('#account-menu-connect').click()
+  // The way back to the sign-in screen: without it, a session entered anonymously never reaches
+  // the saved accounts again. The dialog opens from there, as it does on the way in.
+  await window.locator('#account-menu-home').click()
+  await window.waitForSelector('#session-gate:not([hidden])')
+  if (!await window.locator('#app').isHidden()) throw new Error('The workspace stayed open behind the sign-in screen.')
+  await window.locator('#connect-session').click()
   await window.waitForTimeout(200)
   for (const theme of themes) {
     await paint(theme)
     await window.screenshot({ path: resolve(artifacts, `theme-dialog-${theme}.png`) })
   }
   await window.locator('#auth-form .dialog-footer [data-close]').click()
+  await window.locator('#anonymous-session').click()
+  await window.waitForSelector('#app:not([hidden])')
   await window.getByRole('button', { name: /rejoindre une chaîne/i }).click()
   await window.getByLabel('Nom de la chaîne', { exact: true }).fill('twitch')
   await window.getByRole('button', { name: 'Rejoindre', exact: true }).click()
