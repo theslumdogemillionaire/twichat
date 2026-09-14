@@ -2,6 +2,7 @@ import type { ThirdPartyEmote, TwitchEmote } from '../shared/types'
 import { EMOJIS, EMOJI_GROUPS, searchEmojis, type Emoji } from './emoji'
 import { twitchEmoteUrl } from './emotes'
 import { rankByTerm } from './composer-text'
+import { readRecents, rememberRecent, splitRecent } from './recent-emotes'
 import { composing } from './keys'
 import { icon } from './icons'
 import { m } from '../shared/i18n'
@@ -14,8 +15,6 @@ export interface PickerEntry {
   source: string
 }
 
-const RECENT_KEY = 'twichat.recent-emotes'
-const RECENT_LIMIT = 30
 const SOURCE_LABELS: Record<string, string> = { '7tv': '7TV', bttv: 'BetterTTV', ffz: 'FrankerFaceZ', twitch: 'Twitch' }
 const EMOJI_BY_CHAR = new Map(EMOJIS.map(emoji => [emoji.char, emoji]))
 
@@ -120,15 +119,8 @@ export function createEmotePicker(parts: EmotePickerParts) {
       : id === 'yours' ? m.composer.yours
         : id === 'twitch' ? 'Twitch' : (m.emoji.groups as Record<string, string>)[id] ?? id
 
-  function readRecents(): string[] {
-    try { return (JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]') as unknown[]).filter((item): item is string => typeof item === 'string').slice(0, RECENT_LIMIT) }
-    catch { return [] }
-  }
-  function rememberRecent(entry: PickerEntry) {
-    const key = `${entry.kind}:${entry.value}`
-    recents = [key, ...recents.filter(item => item !== key)].slice(0, RECENT_LIMIT)
-    try { localStorage.setItem(RECENT_KEY, JSON.stringify(recents)) } catch { /* private mode keeps the session-only list */ }
-  }
+  /** The list is shared with every other window: it is asked for again rather than remembered. */
+  function syncRecents() { recents = readRecents() }
 
   const known = () => everyEmote(parts.emotes(), parts.twitch())
 
@@ -137,9 +129,9 @@ export function createEmotePicker(parts: EmotePickerParts) {
     const all = known()
     const entries: PickerEntry[] = []
     for (const key of recents) {
-      const separator = key.indexOf(':')
-      const kind = key.slice(0, separator)
-      const value = key.slice(separator + 1)
+      const pick = splitRecent(key)
+      if (!pick) continue
+      const { kind, value } = pick
       if (kind === 'emoji') {
         const emoji = EMOJI_BY_CHAR.get(value)
         entries.push(emoji ? emojiEntry(emoji) : { kind: 'emoji', value, label: value, source: m.composer.emoji })
@@ -195,7 +187,7 @@ export function createEmotePicker(parts: EmotePickerParts) {
       button.addEventListener('mouseenter', () => showPreview(entry))
       button.addEventListener('focus', () => showPreview(entry))
       button.addEventListener('click', () => {
-        rememberRecent(entry)
+        recents = rememberRecent(entry.kind, entry.value)
         parts.insert(entry.value)
         renderTabs()
       })
@@ -240,7 +232,15 @@ export function createEmotePicker(parts: EmotePickerParts) {
       if (!emotes.length && !emojis.length) emptyState(m.composer.noResult)
       return
     }
-    if (tab === 'recent') { section(m.composer.recentlyUsed, recentEntries()); return }
+    if (tab === 'recent') {
+      // A recent emote of another channel cannot be drawn here: nothing in this room's sets says
+      // what it looks like. The tab stays — the list is not lost, it comes back where it resolves
+      // — but it says so rather than hanging a heading over an empty shelf.
+      const entries = recentEntries()
+      if (entries.length) section(m.composer.recentlyUsed, entries)
+      else emptyState(m.composer.noResult)
+      return
+    }
     if (tab === 'channel') {
       const fromChannel = twitchEntries(parts.twitch(), 'channel')
       const entries = thirdPartyEntries(parts.emotes())
@@ -276,6 +276,7 @@ export function createEmotePicker(parts: EmotePickerParts) {
 
   function open() {
     if (parts.blocked()) return
+    syncRecents()
     if (tab === 'recent' && !recents.length) tab = 'channel'
     translate()
     panel.hidden = false
@@ -310,7 +311,7 @@ export function createEmotePicker(parts: EmotePickerParts) {
     open,
     close,
     isOpen: () => !panel.hidden,
-    /** The sets changed under it: the tabs and, if it is open, what they show. */
-    refresh() { renderTabs(); if (!panel.hidden) render() }
+    /** The sets or the recents changed under it: the tabs and, if it is open, what they show. */
+    refresh() { syncRecents(); renderTabs(); if (!panel.hidden) render() }
   }
 }

@@ -22,6 +22,17 @@ export interface IncomingRaid {
   viewers: number | null
   avatarUrl: string
 }
+export interface GiftRecipient { login: string; displayName: string }
+export interface SubscriptionGift {
+  kind: 'community' | 'single'
+  login: string
+  displayName: string
+  anonymous: boolean
+  plan: string
+  count: number | null
+  months: number | null
+  recipient?: GiftRecipient
+}
 export interface ChatMessage {
   id: string
   channel: string
@@ -38,6 +49,9 @@ export interface ChatMessage {
   pending?: boolean
   system?: boolean
   raid?: IncomingRaid
+  gift?: SubscriptionGift
+  /** Presentation only: raw recipient notices remain in the room history. */
+  giftRecipients?: GiftRecipient[]
   /** The `msg-id` of a Twitch NOTICE. Stable where its text is translated and reworded. */
   notice?: string
   emotes?: string

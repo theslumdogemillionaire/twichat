@@ -36,7 +36,7 @@ export class VirtualLog {
     })
     this.viewportObserver = new ResizeObserver(() => {
       if (!this.visible) return
-      if (this.width !== viewport.clientWidth) { this.width = viewport.clientWidth; this.heights.clear() }
+      if (this.width !== viewport.clientWidth) { this.width = viewport.clientWidth; this.resetWidthMeasurements() }
       this.schedule()
     })
     this.viewportObserver.observe(viewport)
@@ -44,7 +44,12 @@ export class VirtualLog {
     viewport.addEventListener('wheel', markUserScroll, { passive: true })
     viewport.addEventListener('touchstart', () => { this.pointerScrolling = true }, { passive: true })
     viewport.addEventListener('touchend', () => { this.pointerScrolling = false; markUserScroll() }, { passive: true })
-    viewport.addEventListener('pointerdown', () => { this.pointerScrolling = true }, { passive: true })
+    viewport.addEventListener('pointerdown', event => {
+      // Expanding a card is not a request to stop following the chat. Its new height can
+      // trigger a scroll while the click's grace period is still active.
+      if ((event.target as Element).closest('button,a,input,select,textarea,summary')) return
+      this.pointerScrolling = true
+    }, { passive: true })
     window.addEventListener('pointerup', () => { if (this.pointerScrolling) { this.pointerScrolling = false; markUserScroll() } }, { passive: true })
     viewport.addEventListener('keydown', event => {
       if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) markUserScroll()
@@ -67,7 +72,7 @@ export class VirtualLog {
       this.frame = 0
       return
     }
-    if (this.width !== this.viewport.clientWidth) { this.width = this.viewport.clientWidth; this.heights.clear() }
+    if (this.width !== this.viewport.clientWidth) { this.width = this.viewport.clientWidth; this.resetWidthMeasurements() }
     this.render()
   }
   set(items: ChatMessage[], reset = false) {
@@ -79,6 +84,15 @@ export class VirtualLog {
         const height = this.heights.get(message.id) ?? 64
         if (top + height > this.viewport.scrollTop) { anchor = { id: message.id, offset: this.viewport.scrollTop - top }; break }
         top += height
+      }
+    }
+    // A gift card gains recipients as their separate notices arrive. Replace only changed
+    // rows; the existing observer measures their new height and preserves the scroll anchor.
+    const previous = new Map(this.items.map(item => [item.id, item]))
+    for (const item of items) {
+      const row = this.rows.get(item.id)
+      if (row && previous.get(item.id) !== item) {
+        this.observer.unobserve(row); row.remove(); this.rows.delete(item.id)
       }
     }
     this.items = [...items]
@@ -125,6 +139,16 @@ export class VirtualLog {
   remeasure() {
     this.heights.clear()
     this.refresh()
+  }
+  private resetWidthMeasurements() {
+    this.heights.clear()
+    // Row observers may already have delivered the new sizes before the viewport observer
+    // runs. Clearing those measurements would leave tall cards at the 64px estimate forever.
+    // Read the mounted rows at the new width; offscreen rows are measured when remounted.
+    for (const [id, row] of this.rows) {
+      const height = row.offsetHeight
+      if (height) this.heights.set(id, height)
+    }
   }
   /** Each move of our own becomes the new reference, so it never reads back as a user scroll. */
   private moveTo(top: number) { this.viewport.scrollTop = top; this.lastScrollTop = this.viewport.scrollTop }

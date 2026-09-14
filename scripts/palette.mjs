@@ -75,6 +75,7 @@ const HAND_TUNED = [
   ['--accent-wash-16', 'rgba(107,152,30,.20)'], ['--accent-wash-08', 'rgba(107,152,30,.13)'],
   ['--accent-wash-07', 'rgba(107,152,30,.11)'], ['--accent-wash-04', 'rgba(107,152,30,.07)'],
   ['--lime', toHex(fit(0.545, 0.135, 129))], ['--amber', toHex(fit(0.555, 0.125, 84))],
+  ['--gift', toHex(fit(0.555, 0.125, 84))],
 ]
 
 // The markers are comment text in style.css: they must match it word for word.

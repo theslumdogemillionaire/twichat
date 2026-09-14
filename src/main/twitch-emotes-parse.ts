@@ -24,7 +24,13 @@ export function parseTwitchEmotes(payload: unknown, scope: TwitchEmote['scope'])
     if (typeof id !== 'string' || typeof name !== 'string' || !ID.test(id) || !NAME.test(name) || seen.has(name)) continue
     seen.add(name)
     const type = typeof item?.emote_type === 'string' && TYPES.has(item.emote_type) ? item.emote_type : scope === 'global' ? 'globals' : 'other'
-    result.push({ id, name, scope, type })
+    // `chat/emotes/user` answers with everything the account may type, Twitch's own global set
+    // included. Those are global emotes that happen to be reachable — the picker sorts its tabs by
+    // scope, so filing them under the account would empty the Twitch tab of everything the person
+    // can actually write and fill "yours" with emotes nobody earned. Only the account scope is
+    // rewritten: a channel payload naming a type it has no business with stays where it came from.
+    const filed = scope === 'account' && (type === 'globals' || type === 'smilies') ? 'global' : scope
+    result.push({ id, name, scope: filed, type })
   }
   return result
 }

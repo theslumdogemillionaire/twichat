@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import { IrcFramer, incomingRaid, messageId, parseIrc, replyReference, sharedChatSource, stripReplyMention, userNoticeSummary } from './irc-parser'
+import { IrcFramer, incomingRaid, messageId, parseIrc, replyReference, sharedChatSource, stripReplyMention, subscriptionGift, userNoticeSummary } from './irc-parser'
 import { channelName, chatText, CONCURRENT_ROOMS } from '../shared/validation'
 import type { ChatEvent, ChatMessage, Connection, ReplyReference } from '../shared/types'
 import { fail } from '../shared/errors'
@@ -176,10 +176,11 @@ export class TwitchIrc extends EventEmitter {
       const time = Number(tags['tmi-sent-ts']) || Date.now()
       const summary = userNoticeSummary(tags)
       const raid = incomingRaid(tags)
+      const gift = subscriptionGift(tags)
       const text = params[1] ?? ''
       if (summary) this.publish({ type: 'message', message: {
         id: `${id}:event`, channel, user: 'Twitch', login: 'twitch', text: summary,
-        time, color: '', badges: [], action: false, system: true, ...(raid ? { raid } : {})
+        time, color: '', badges: [], action: false, system: true, ...(raid ? { raid } : {}), ...(gift ? { gift } : {})
       } })
       if (text) this.publish({ type: 'message', message: {
         id, channel, login: tags.login || '', user: tags['display-name'] || tags.login || '', text,

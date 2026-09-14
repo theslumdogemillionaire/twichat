@@ -4,6 +4,7 @@ import type { ChatMessage, ReplyReference, ThirdPartyEmote, TwitchEmote } from '
 import { inlineEmoteNodes } from './emotes'
 import { EMOJIS, searchEmojis } from './emoji'
 import { createEmotePicker, everyEmote as allEmotes } from './emote-picker'
+import { rememberRecent } from './recent-emotes'
 import { m } from '../shared/i18n'
 import { AppError } from '../shared/errors'
 
@@ -249,6 +250,10 @@ export function createComposer(hooks: ComposerHooks) {
   function accept(index = suggestIndex) {
     const suggestion = suggestions[index]
     if (!suggestQuery || !suggestion) return
+    // What the shelf is answering is not what was asked for: a colon opens the emotes and the
+    // emojis at once, so the row that was taken says what it was, not the query. A mention is
+    // nobody's recent anything.
+    if (!suggestion.login) rememberRecent(suggestion.char ? 'emoji' : 'emote', suggestion.value)
     const next = applyCompletion(input.value, suggestQuery, suggestion.value)
     closeSuggestions()
     input.focus()
@@ -315,8 +320,16 @@ export function createComposer(hooks: ComposerHooks) {
     // clears, are theirs — not those of whatever room is being read when Twitch answers.
     const room = channel
     const scope = memory.scope
+    // An emote is used by being written, and most of them are written by hand — the picker and
+    // the completion shelf are two ways in among several. So the line that was actually sent is
+    // what feeds the recent tab; anything in it the sets know as an emote counts as used. Read
+    // before the wait, against the sets of the room it was written in.
+    const written = tokenizeMessage(text, { emotes: emoteCodes(), emojiNames: EMOJI_NAMES })
+      .filter(token => token.kind === 'emote')
+      .map(token => token.text)
     try {
       await hooks.send(text, memory.reply(room))
+      for (const code of written) rememberRecent('emote', code)
       if (scope !== memory.scope) return
       memory.remember(room, text)
       memory.dropDraft(room)

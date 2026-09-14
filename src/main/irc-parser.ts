@@ -1,4 +1,4 @@
-import type { IncomingRaid, ReplyReference } from '../shared/types'
+import type { IncomingRaid, ReplyReference, SubscriptionGift } from '../shared/types'
 import { avatarSource } from './avatars'
 import { formatGifs, parseGifs } from '../shared/gifs'
 import { m, numbers } from '../shared/i18n'
@@ -51,6 +51,25 @@ export class IrcFramer {
   }
 }
 
+export function subscriptionGift(tags: Record<string, string>): SubscriptionGift | undefined {
+  const type = tags['msg-id']
+  if (!['subgift', 'submysterygift', 'anonsubgift', 'anonsubmysterygift'].includes(type)) return undefined
+  const handle = (value = '') => /^[a-z0-9_]{1,25}$/i.test(value) ? value.toLowerCase() : ''
+  const positive = (value = '') => /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null
+  const anonymous = type.startsWith('anon') || tags.login?.toLowerCase() === 'ananonymousgifter'
+  const login = anonymous ? '' : handle(tags.login)
+  const community = type.endsWith('mysterygift')
+  const recipientLogin = handle(tags['msg-param-recipient-user-name'] || tags['msg-param-recipient-name'])
+  return {
+    kind: community ? 'community' : 'single', login, anonymous,
+    displayName: anonymous ? m.chat.giftAnonymous : tags['display-name'] || login || m.chat.someone,
+    plan: ['1000', '2000', '3000'].includes(tags['msg-param-sub-plan']) ? tags['msg-param-sub-plan'] : '',
+    count: community ? positive(tags['msg-param-mass-gift-count']) : 1,
+    months: positive(tags['msg-param-gift-months']),
+    ...(!community ? { recipient: { login: recipientLogin, displayName: tags['msg-param-recipient-display-name'] || recipientLogin || m.chat.aViewer } } : {})
+  }
+}
+
 export function incomingRaid(tags: Record<string, string>): IncomingRaid | undefined {
   if (tags['msg-id'] !== 'raid') return undefined
   const login = (tags['msg-param-login'] || tags.login || '').toLowerCase()
@@ -74,8 +93,16 @@ export function userNoticeSummary(tags: Record<string, string>): string {
   switch (tags['msg-id']) {
     case 'sub': return m.chat.subscribed(name, plan)
     case 'resub': return m.chat.resubscribed(name, months, plan)
-    case 'subgift': return m.chat.giftedSub(name, plan, tags['msg-param-recipient-display-name'] || tags['msg-param-recipient-user-name'] || m.chat.aViewer)
-    case 'submysterygift': return m.chat.giftedSubs(name, number(tags['msg-param-mass-gift-count'] ?? ''))
+    case 'subgift':
+    case 'anonsubgift': {
+      const gift = subscriptionGift(tags)!
+      return m.chat.giftedSub(gift.displayName, plan, gift.recipient!.displayName)
+    }
+    case 'submysterygift':
+    case 'anonsubmysterygift': {
+      const gift = subscriptionGift(tags)!
+      return gift.count === null ? m.chat.giftUnknownCount(gift.displayName) : m.chat.giftedSubs(gift.displayName, gift.count)
+    }
     case 'giftpaidupgrade':
     case 'anongiftpaidupgrade': return m.chat.continuesGiftedSub(name)
     case 'raid': {

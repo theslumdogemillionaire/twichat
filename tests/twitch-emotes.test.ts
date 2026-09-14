@@ -82,6 +82,28 @@ test('the types this endpoint alone answers with are kept rather than flattened'
   assert.deepEqual(emotes.map(emote => emote.type), ['channelpoints', 'prime', 'other'])
 })
 
+test('the global set the account carries is filed as global, not as its own', () => {
+  // `chat/emotes/user` answers with everything the account may type, Twitch's own global set
+  // included. The picker sorts its tabs by scope: read as the account's, Kappa would leave the
+  // Twitch tab and sit under "yours" beside the emotes that were actually earned.
+  const emotes = parseUserEmotes({ data: [
+    { id: '25', name: 'Kappa', emote_type: 'globals' },
+    { id: '1', name: ':)', emote_type: 'smilies' },
+    { id: '77', name: 'zeratorLove', emote_type: 'subscriptions' }
+  ] }).emotes
+  assert.deepEqual(emotes.map(emote => [emote.name, emote.scope]), [['Kappa', 'global'], [':)', 'global'], ['zeratorLove', 'account']])
+  // Only the account scope is rewritten: a channel payload naming that type stays the channel's.
+  assert.equal(parseTwitchEmotes({ data: [{ id: '25', name: 'Kappa', emote_type: 'globals' }] }, 'channel')[0].scope, 'channel')
+})
+
+test('a global emote the account also carries stays in the Twitch tab', () => {
+  const merged = mergeTwitchEmotes(
+    parseTwitchEmotes({ data: [{ id: '25', name: 'Kappa', emote_type: 'globals' }] }, 'global'),
+    parseUserEmotes({ data: [{ id: '25', name: 'Kappa', emote_type: 'globals' }] }).emotes
+  )
+  assert.deepEqual(merged, [{ id: '25', name: 'Kappa', scope: 'global', type: 'globals' }])
+})
+
 test('the room own set wins a name collision with the account own', () => {
   // A subscriber emote of the channel being watched belongs under that channel, where the person
   // is writing. What the account set is for is the emotes of every *other* channel.

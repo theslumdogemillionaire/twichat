@@ -1,4 +1,5 @@
 const paths: Record<string, string> = {
+  gift: '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M5 12v9h14v-9M12 8v13"/><path d="M12 8H8a3 3 0 1 1 3-3l1 3Zm0 0h4a3 3 0 1 0-3-3l-1 3Z"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   hash: '<path d="m10 3-4 18M18 3l-4 18M4 8h17M2 16h17"/>',
   arrow: '<path d="M5 12h14m-6-6 6 6-6 6"/>',

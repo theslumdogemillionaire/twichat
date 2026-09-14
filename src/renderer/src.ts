@@ -7,6 +7,7 @@ import { hydrateIcons, icon } from './icons'
 import { ChatStore } from './chat-store'
 import { VirtualLog } from './virtual-log'
 import { createRaidMessage } from './raid-message'
+import { createGiftMessage } from './gift-message'
 import { StreamPlayer, type StreamPlayerState } from './player'
 import { cheermoteIndex } from './cheers'
 import { inlineEmoteNodes } from './emotes'
@@ -950,7 +951,7 @@ function activate(channel: string) {
   void refreshChannelInfo(channel)
   // The header shows the follow whatever the room's mode: the gate is no longer the only reader.
   void refreshFollowStatus(channel)
-  virtualLog.set(store.get(channel), true)
+  virtualLog.set(store.display(channel), true)
   renderRooms(); save()
   if (entering) restorePlayerWidth()
   if (entering) {
@@ -1119,7 +1120,9 @@ function localChatter(login: string) {
   const messages = store.get(active).filter(message => !message.system && message.login.toLowerCase() === login)
   const last = messages.at(-1)
   const raider = store.get(active).findLast(message => message.raid?.login === login)?.raid
-  return { count: messages.length, user: last?.user ?? raider?.displayName ?? '', color: last?.color && /^#[0-9a-f]{6}$/i.test(last.color) ? last.color : '' }
+  const gifter = store.get(active).findLast(message => message.gift?.login === login)?.gift
+  const recipient = store.get(active).findLast(message => message.gift?.recipient?.login === login)?.gift?.recipient
+  return { count: messages.length, user: last?.user ?? raider?.displayName ?? gifter?.displayName ?? recipient?.displayName ?? '', color: last?.color && /^#[0-9a-f]{6}$/i.test(last.color) ? last.color : '' }
 }
 
 function renderUserCard(login: string, card: UserCard | null, note: string) {
@@ -2529,6 +2532,15 @@ function badgeNode(channel: string, id: string) {
 }
 
 function createMessage(message: ChatMessage) {
+  if (message.gift) return createGiftMessage(message, {
+    account: state.account,
+    avatar: login => chatterAvatars.get(login) || state.channelAvatars[login] || '',
+    loadProfiles: async logins => {
+      const profiles = await (state.account ? window.twichat.chatterProfiles(logins) : window.twichat.profiles(logins))
+      for (const profile of profiles) if (profile.avatarUrl) chatterAvatars.set(profile.channel, profile.avatarUrl)
+      return profiles
+    }
+  })
   if (message.raid) {
     const login = message.raid.login
     return createRaidMessage(message, chatterAvatars.get(login) || state.channelAvatars[login], url => { if (login) chatterAvatars.set(login, url) })
@@ -2634,7 +2646,7 @@ function createMessage(message: ChatMessage) {
 }
 
 function updateCount() {
-  const count = store.get(active).length
+  const count = store.display(active).length
   $('#message-count').textContent = m.app.messageCount(count)
   $('#chat-empty').hidden = count > 0
 }
@@ -2899,7 +2911,7 @@ function handleEvents(events: ChatEvent[]) {
       }
     }
   }
-  if (updateActive) { updateCount(); virtualLog.set(store.get(active)) }
+  if (updateActive) { updateCount(); virtualLog.set(store.display(active)) }
   if (updateRooms) renderRooms()
 }
 
