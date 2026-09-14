@@ -1,4 +1,7 @@
 const paths: Record<string, string> = {
+  megaphone: '<path d="m4 10 15-6v16L4 14Z"/><path d="M4 10H2v4h2m4 2 1 5h3l-1-4M22 9v6"/>',
+  flame: '<path d="M12 2c2 5-4 6-2 10 2 0 3-2 3-4 5 3 7 6 5 10a7 7 0 0 1-12-1c-2-5 3-8 6-15Z"/>',
+  diamond: '<path d="m12 2 9 10-9 10L3 12Z"/><path d="M3 12h18M12 2l4 10-4 10-4-10Z"/>',
   gift: '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M5 12v9h14v-9M12 8v13"/><path d="M12 8H8a3 3 0 1 1 3-3l1 3Zm0 0h4a3 3 0 1 0-3-3l-1 3Z"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   hash: '<path d="m10 3-4 18M18 3l-4 18M4 8h17M2 16h17"/>',

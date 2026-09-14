@@ -30,10 +30,9 @@ try {
   }, sprite)
   await app.evaluate(({ ipcMain }, portraits) => {
     ipcMain.removeHandler('rooms:profiles')
-    const profile = (channel: string) => ({ channel, displayName: channel, avatarUrl: portraits[Array.from(channel).reduce((sum, char) => sum + char.charCodeAt(0), 0) % portraits.length], live: false })
-    ipcMain.handle('rooms:profiles', async (_event, channels: string[]) => channels.map(profile))
+    ipcMain.handle('rooms:profiles', async (_event, channels: string[]) => channels.map(channel => ({ channel, displayName: channel, avatarUrl: portraits[Array.from(channel).reduce((sum, char) => sum + char.charCodeAt(0), 0) % portraits.length], live: false })))
     ipcMain.removeHandler('chatters:profiles')
-    ipcMain.handle('chatters:profiles', async (_event, channels: string[]) => channels.map(profile))
+    ipcMain.handle('chatters:profiles', async (_event, channels: string[]) => channels.map(channel => ({ channel, displayName: channel, avatarUrl: portraits[Array.from(channel).reduce((sum, char) => sum + char.charCodeAt(0), 0) % portraits.length], live: false })))
     ipcMain.removeHandler('account:authenticate')
     ipcMain.handle('account:authenticate', async () => 'davloire')
   }, portraits)
@@ -91,13 +90,13 @@ try {
   await card.locator('.gift-expand').click()
   assert.equal(await card.locator('.gift-recipient').count(), 8)
   // Sign in through the regular UI against a test-only handler: no real account or token.
-  await page.evaluate(() => (document.querySelector('#account-dialog') as HTMLDialogElement).showModal())
+  await page.locator('#composer-login').click()
   await page.locator('.manual-auth summary').click()
   await page.locator('#token-input').fill('test-fixture')
   await page.locator('#auth-submit').click()
-  await card.locator('.gift-personal').waitFor()
-  assert.match(await card.locator('.gift-personal').innerText(), /Tu as reçu un abonnement|You received a subscription/)
-  assert.equal(await card.locator('.gift-avatar').first().getAttribute('data-card'), 'davloire')
+  await card.locator('.gift-tag').waitFor()
+  assert.match(await card.locator('.gift-tag').innerText(), /Tu as reçu un abonnement|You received a subscription/)
+  assert.equal(await card.locator('.gift-tag .gift-avatar').getAttribute('data-card'), 'davloire')
   await page.mouse.move(0, 0)
   await card.locator('.gift-card').screenshot({ path: resolve(artifacts, `gift-personal-${locale}.png`) })
   await page.emulateMedia({ reducedMotion: 'reduce' })
@@ -107,8 +106,8 @@ try {
   ])
   await page.locator('[data-id="anonymous:event"]').waitFor()
   assert.equal(await page.locator('[data-id="anonymous:event"] .gift-name').getAttribute('data-card'), null)
-  assert.equal(await page.locator('[data-id="anonymous:event"] .gift-personal').count(), 1)
-  assert.equal(await page.locator('[data-id="isolated:event"] .gift-personal').count(), 0)
+  assert.equal(await page.locator('[data-id="anonymous:event"] .gift-tag').count(), 1)
+  assert.equal(await page.locator('[data-id="isolated:event"] .gift-tag').count(), 0)
   assert.match(await page.locator('[data-id="isolated:event"] .gift-meta').innerText(), /3 (mois|months)/)
   assert.equal(await page.locator('[data-id="isolated:event"] .gift-card').evaluate(el => getComputedStyle(el).animationName), 'none')
   await page.locator('#chat-log').evaluate(el => { (el as HTMLElement).style.width = '300px' })
@@ -122,7 +121,8 @@ try {
   assert.deepEqual(errors, [])
   console.log(`Gifts (${locale}): progressive grouping, bot preserved, deduplication, expansion, profiles, isolated/anonymous gifts, themes and narrow layout passed.`)
 } catch (error) {
-  const page = await app.firstWindow()
-  console.log(await page.locator('#chat-log .message').evaluateAll(rows => rows.map(row => ({ id: (row as HTMLElement).dataset.id, top: row.getBoundingClientRect().top, height: row.getBoundingClientRect().height, measured: (row as HTMLElement).offsetHeight, transform: (row as HTMLElement).style.transform }))))
+  console.error(error)
+  const page = app.windows()[0]
+  if (page && !page.isClosed()) console.log(await page.locator('#chat-log .message').evaluateAll(rows => rows.map(row => ({ id: (row as HTMLElement).dataset.id, top: row.getBoundingClientRect().top, height: row.getBoundingClientRect().height, measured: (row as HTMLElement).offsetHeight, transform: (row as HTMLElement).style.transform }))))
   throw error
 } finally { await app.close() }

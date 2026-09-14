@@ -8,6 +8,7 @@ import { ChatStore } from './chat-store'
 import { VirtualLog } from './virtual-log'
 import { createRaidMessage } from './raid-message'
 import { createGiftMessage } from './gift-message'
+import { createCommunityMessage, decorateCheer } from './community-message'
 import { StreamPlayer, type StreamPlayerState } from './player'
 import { cheermoteIndex } from './cheers'
 import { inlineEmoteNodes } from './emotes'
@@ -1053,8 +1054,9 @@ function replyToMessage(message: ChatMessage) {
 }
 /** Jumps back to the quoted message, while it is still in the room history. */
 function revealMessage(id: string) {
-  if (!virtualLog.scrollTo(id)) { toast(m.app.messageGone); return }
-  const row = chatLog.querySelector<HTMLElement>(`.message[data-id="${CSS.escape(id)}"]`)
+  const rowId = store.display(active).find(message => message.noticeBody?.id === id)?.id ?? id
+  if (!virtualLog.scrollTo(rowId)) { toast(m.app.messageGone); return }
+  const row = chatLog.querySelector<HTMLElement>(`.message[data-id="${CSS.escape(rowId)}"]`)
   if (!row) return
   row.classList.remove('is-revealed')
   void row.offsetWidth // force le redémarrage de l’animation quand on recite le même message
@@ -1120,9 +1122,10 @@ function localChatter(login: string) {
   const messages = store.get(active).filter(message => !message.system && message.login.toLowerCase() === login)
   const last = messages.at(-1)
   const raider = store.get(active).findLast(message => message.raid?.login === login)?.raid
+  const community = store.get(active).findLast(message => message.communityNotice?.login === login)?.communityNotice
   const gifter = store.get(active).findLast(message => message.gift?.login === login)?.gift
   const recipient = store.get(active).findLast(message => message.gift?.recipient?.login === login)?.gift?.recipient
-  return { count: messages.length, user: last?.user ?? raider?.displayName ?? gifter?.displayName ?? recipient?.displayName ?? '', color: last?.color && /^#[0-9a-f]{6}$/i.test(last.color) ? last.color : '' }
+  return { count: messages.length, user: last?.user ?? raider?.displayName ?? community?.displayName ?? gifter?.displayName ?? recipient?.displayName ?? '', color: last?.color && /^#[0-9a-f]{6}$/i.test(last.color) ? last.color : '' }
 }
 
 function renderUserCard(login: string, card: UserCard | null, note: string) {
@@ -2532,6 +2535,11 @@ function badgeNode(channel: string, id: string) {
 }
 
 function createMessage(message: ChatMessage) {
+  if (message.communityNotice) return createCommunityMessage(message, {
+    avatar: login => chatterAvatars.get(login) || state.channelAvatars[login] || '',
+    requestAvatar: queueChatterAvatar,
+    paintBody: paintChatBody
+  })
   if (message.gift) return createGiftMessage(message, {
     account: state.account,
     avatar: login => chatterAvatars.get(login) || state.channelAvatars[login] || '',
@@ -2622,6 +2630,13 @@ function createMessage(message: ChatMessage) {
   }
   const time = document.createElement('time'); time.className = 'message-time'; time.dateTime = new Date(message.time).toISOString(); time.textContent = clock.format(message.time); meta.append(time)
   const text = document.createElement('p'); text.className = 'message-text'
+  paintChatBody(text, message)
+  main.append(meta, text); row.append(avatar, main)
+  decorateCheer(row, message)
+  return row
+}
+
+function paintChatBody(text: HTMLElement, message: ChatMessage) {
   // The `gifs` tag is only handed over when the setting allows it: withheld, the title Twitch
   // wrote in the body — `[… GIF by …]` — stays where the image would have been.
   paintMessageBody(text, message.text, {
@@ -2639,10 +2654,8 @@ function createMessage(message: ChatMessage) {
     channels: true,
     // A viewer named with an `@` opens the same card their author handle does.
     handles: true,
-    mention: mention ? { login: state.account, displayName: accountDisplayName } : undefined
+    mention: isMention(message, state.account, accountDisplayName) ? { login: state.account, displayName: accountDisplayName } : undefined
   })
-  main.append(meta, text); row.append(avatar, main)
-  return row
 }
 
 function updateCount() {
@@ -3554,7 +3567,8 @@ $('#room-context-leave').addEventListener('click', () => { if (contextRoom) void
 
 // Every row is recycled by the virtual log, so the chat listens once, at the viewport.
 chatLog.addEventListener('contextmenu', event => {
-  const id = (event.target as Element).closest<HTMLElement>('.message')?.dataset.id
+  const target = event.target as Element
+  const id = target.closest<HTMLElement>('[data-context-message]')?.dataset.contextMessage ?? target.closest<HTMLElement>('.message')?.dataset.id
   const message = id ? store.get(active).find(item => item.id === id) : undefined
   if (!message) return
   event.preventDefault()

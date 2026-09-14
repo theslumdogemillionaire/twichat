@@ -1,10 +1,11 @@
 import type { ChatMessage } from '../shared/types'
 import { groupGiftMessages } from './gift-groups'
+import { groupNoticeMessages } from './notice-groups'
 export const HISTORY_LIMIT = 500
 export class ChatStore {
   private rooms = new Map<string, ChatMessage[]>()
   get(channel: string): ChatMessage[] { return this.rooms.get(channel) ?? [] }
-  display(channel: string): ChatMessage[] { return groupGiftMessages(this.get(channel)) }
+  display(channel: string): ChatMessage[] { return groupNoticeMessages(groupGiftMessages(this.get(channel))) }
   add(message: ChatMessage) {
     const messages = this.get(message.channel)
     if (messages.some(item => item.id === message.id)) return

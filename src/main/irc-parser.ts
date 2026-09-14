@@ -1,4 +1,4 @@
-import type { IncomingRaid, ReplyReference, SubscriptionGift } from '../shared/types'
+import type { CommunityNotice, IncomingRaid, ReplyReference, SubscriptionGift } from '../shared/types'
 import { avatarSource } from './avatars'
 import { formatGifs, parseGifs } from '../shared/gifs'
 import { m, numbers } from '../shared/i18n'
@@ -49,6 +49,39 @@ export class IrcFramer {
     this.buffer = lines.pop() ?? ''
     return lines.filter(Boolean)
   }
+}
+
+export function communityNotice(tags: Record<string, string>): CommunityNotice | undefined {
+  const login = /^[a-z0-9_]{1,25}$/i.test(tags.login || '') ? tags.login.toLowerCase() : ''
+  const author = { login, displayName: tags['display-name'] || login || m.chat.someone }
+  const positive = (value = '') => /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null
+  switch (tags['msg-id']) {
+    case 'sub':
+    case 'resub': return {
+      ...author, kind: 'subscription', renewal: tags['msg-id'] === 'resub',
+      months: tags['msg-id'] === 'sub' ? 1 : positive(tags['msg-param-cumulative-months']),
+      plan: ['Prime', '1000', '2000', '3000'].includes(tags['msg-param-sub-plan']) ? tags['msg-param-sub-plan'] : ''
+    }
+    case 'announcement': return {
+      ...author, kind: 'announcement',
+      color: ['BLUE', 'GREEN', 'ORANGE', 'PURPLE'].includes(tags['msg-param-color']) ? tags['msg-param-color'] as 'BLUE' | 'GREEN' | 'ORANGE' | 'PURPLE' : 'PRIMARY'
+    }
+    case 'viewermilestone': {
+      const value = positive(tags['msg-param-value'])
+      if (tags['msg-param-category'] === 'watch-streak' && value) return { ...author, kind: 'watch-streak', value }
+      break
+    }
+    case 'bitsbadgetier': {
+      const value = positive(tags['msg-param-threshold'])
+      if (value) return { ...author, kind: 'bits-badge', value }
+      break
+    }
+    case 'modiversary': {
+      const value = positive(tags['msg-param-months'])
+      if (value) return { ...author, kind: 'modiversary', value }
+    }
+  }
+  return undefined
 }
 
 export function subscriptionGift(tags: Record<string, string>): SubscriptionGift | undefined {
@@ -115,6 +148,7 @@ export function userNoticeSummary(tags: Record<string, string>): string {
       ? m.chat.watchStreak(name, number(tags['msg-param-value'] ?? ''))
       : m.chat.loyaltyMilestone(name)
     case 'bitsbadgetier': return m.chat.bitsBadge(name, numbers.format(number(tags['msg-param-threshold'] ?? '')))
+    case 'modiversary': return m.chat.moderatorMilestone(name, number(tags['msg-param-months'] ?? ''))
     default: return (tags['system-msg'] || '').trim()
   }
 }

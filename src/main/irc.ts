@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import { IrcFramer, incomingRaid, messageId, parseIrc, replyReference, sharedChatSource, stripReplyMention, subscriptionGift, userNoticeSummary } from './irc-parser'
+import { IrcFramer, communityNotice, incomingRaid, messageId, parseIrc, replyReference, sharedChatSource, stripReplyMention, subscriptionGift, userNoticeSummary } from './irc-parser'
 import { channelName, chatText, CONCURRENT_ROOMS } from '../shared/validation'
 import type { ChatEvent, ChatMessage, Connection, ReplyReference } from '../shared/types'
 import { fail } from '../shared/errors'
@@ -171,16 +171,19 @@ export class TwitchIrc extends EventEmitter {
     if (command === 'USERNOTICE') {
       // Twitch sends the event line in the tags and, for a resub or an announcement, the viewer's
       // own message as the trailing param. Both are published separately: the `emotes` tag offsets
-      // refer to the trailing alone, and the renderer already knows how to style `system`.
+      // refer to the trailing alone. A presentation reference lets the renderer join them without
+      // changing the message id used by replies and moderation.
       const id = tags.id || randomUUID()
       const time = Number(tags['tmi-sent-ts']) || Date.now()
       const summary = userNoticeSummary(tags)
       const raid = incomingRaid(tags)
       const gift = subscriptionGift(tags)
       const text = params[1] ?? ''
+      const notice = communityNotice(tags)
       if (summary) this.publish({ type: 'message', message: {
         id: `${id}:event`, channel, user: 'Twitch', login: 'twitch', text: summary,
-        time, color: '', badges: [], action: false, system: true, ...(raid ? { raid } : {}), ...(gift ? { gift } : {})
+        time, color: '', badges: [], action: false, system: true, ...(raid ? { raid } : {}), ...(gift ? { gift } : {}),
+        ...(notice ? { communityNotice: { ...notice, ...(text ? { bodyId: id } : {}) } } : {})
       } })
       if (text) this.publish({ type: 'message', message: {
         id, channel, login: tags.login || '', user: tags['display-name'] || tags.login || '', text,

@@ -23,6 +23,11 @@ export interface IncomingRaid {
   avatarUrl: string
 }
 export interface GiftRecipient { login: string; displayName: string }
+export type CommunityNotice = { login: string; displayName: string; bodyId?: string } & (
+  | { kind: 'subscription'; renewal: boolean; months: number | null; plan: string }
+  | { kind: 'announcement'; color: 'PRIMARY' | 'BLUE' | 'GREEN' | 'ORANGE' | 'PURPLE' }
+  | { kind: 'watch-streak' | 'bits-badge' | 'modiversary'; value: number }
+)
 export interface SubscriptionGift {
   kind: 'community' | 'single'
   login: string
@@ -52,6 +57,9 @@ export interface ChatMessage {
   gift?: SubscriptionGift
   /** Presentation only: raw recipient notices remain in the room history. */
   giftRecipients?: GiftRecipient[]
+  communityNotice?: CommunityNotice
+  /** Presentation only; the original USERNOTICE body keeps its id for replies and moderation. */
+  noticeBody?: ChatMessage
   /** The `msg-id` of a Twitch NOTICE. Stable where its text is translated and reworded. */
   notice?: string
   emotes?: string

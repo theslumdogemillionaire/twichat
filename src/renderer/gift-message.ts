@@ -70,7 +70,10 @@ export function createGiftMessage(message: ChatMessage, options: GiftOptions): H
     if (!text) continue
     const tag = document.createElement('span'); tag.textContent = text; meta.append(tag)
   }
-  content.append(title, sender, meta); body.append(symbol, content)
+  // Plan and duration ride the sender line: two lines beside the icon instead of three.
+  const byline = document.createElement('div'); byline.className = 'gift-byline'
+  byline.append(sender, meta)
+  content.append(title, byline); body.append(symbol, content)
   card.append(header, body)
 
   const recipients = [...(gift.kind === 'single' && gift.recipient ? [gift.recipient] : message.giftRecipients ?? [])]
@@ -82,8 +85,8 @@ export function createGiftMessage(message: ChatMessage, options: GiftOptions): H
   const room = you ? 7 : 8
   if (recipients.length) {
     const footer = document.createElement('div'); footer.className = 'gift-recipients'
-    const heading = document.createElement('span'); heading.className = 'gift-recipients-label'
-    heading.textContent = gift.kind === 'single' ? m.chat.giftTo : m.chat.giftRecipients
+    footer.setAttribute('role', 'group')
+    footer.setAttribute('aria-label', m.chat.giftRecipients)
     const list = document.createElement('div'); list.className = 'gift-recipient-list'
     list.id = `gift-recipients-${message.id}`
     list.setAttribute('role', 'list')
@@ -123,7 +126,7 @@ export function createGiftMessage(message: ChatMessage, options: GiftOptions): H
       toggle.setAttribute('aria-expanded', String(state.expanded))
     }
     toggle.addEventListener('click', () => { state.expanded = !state.expanded; paintRecipients() })
-    paintRecipients(); footer.append(heading, list, toggle)
+    paintRecipients(); footer.append(list, toggle)
     if (you) {
       loadAvatars([you.login].filter(Boolean), options)
       const tag = document.createElement('p'); tag.className = 'gift-tag'
