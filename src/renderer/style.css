@@ -723,6 +723,7 @@ input,textarea{cursor:text;user-select:text;-webkit-user-select:text}
    wider gutter is pulled in: this window is 420px across. */
 .whisper-composer{padding:8px 14px 7px}
 .whisper-composer .emote-picker{left:14px;width:calc(100% - 28px);height:min(300px,48vh)}
+.whisper-composer .composer-suggest{left:14px;width:calc(100% - 28px)}
 .whisper-composer .form-error{min-height:0;margin:5px 0 0;font-size:10px;line-height:1.4}
 .whisper-composer .form-error:empty{margin:0}
 .user-card-actions{flex-wrap:wrap}

@@ -196,7 +196,7 @@ export const fr: Messages = {
     inputLabel: 'Votre message',
     placeholder: 'Répondre en privé',
     sending: 'Envoi…',
-    label: { conversation: 'Conversation privée', send: 'Envoyer le message' }
+    label: { conversation: 'Conversation privée', send: 'Envoyer le message', suggestions: 'Suggestions de saisie' }
   },
 
   /** Everything the app's HTML carries, hydrated at startup and on every language switch. */

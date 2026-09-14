@@ -22,12 +22,13 @@
     </div>
     <form id="whisper-form" class="composer-wrap whisper-composer">
       <label id="whisper-label" for="whisper-input" class="sr-only" data-i18n="whisperWindow.inputLabel">Votre message</label>
+      <div id="whisper-suggest" class="composer-suggest" role="listbox" aria-label="Suggestions de saisie" hidden data-i18n-attr="aria-label=whisperWindow.label.suggestions"></div>
       <div class="composer-box">
         <button id="emote-button" class="composer-tool" type="button" aria-haspopup="dialog" aria-expanded="false"><span data-icon="smile"></span></button>
         <!-- The room's own wrapper, and the reason it is here: `.composer-field textarea` is what
              strips the border and sets the type inside the pill. Without it the box draws twice. -->
         <div class="composer-field">
-          <textarea id="whisper-input" rows="1" maxlength="500" autocomplete="off" spellcheck="true" placeholder="Répondre en privé" data-i18n-attr="placeholder=whisperWindow.placeholder"></textarea>
+          <textarea id="whisper-input" rows="1" maxlength="500" autocomplete="off" spellcheck="true" aria-autocomplete="list" aria-controls="whisper-suggest" aria-expanded="false" placeholder="Répondre en privé" data-i18n-attr="placeholder=whisperWindow.placeholder"></textarea>
         </div>
         <button id="whisper-send" class="send-button" type="submit" disabled aria-label="Envoyer le message" data-i18n-attr="aria-label=whisperWindow.label.send"><span data-icon="arrow"></span></button>
       </div>

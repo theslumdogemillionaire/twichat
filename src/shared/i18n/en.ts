@@ -204,7 +204,7 @@ export const en = {
     inputLabel: 'Your message',
     placeholder: 'Reply privately',
     sending: 'Sending…',
-    label: { conversation: 'Private conversation', send: 'Send the message' }
+    label: { conversation: 'Private conversation', send: 'Send the message', suggestions: 'Input suggestions' }
   },
 
   app: {

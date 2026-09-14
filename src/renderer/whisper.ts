@@ -5,6 +5,8 @@ import { hydrateIcons } from './icons'
 import { hydrate } from './hydrate'
 import { createEmotePicker } from './emote-picker'
 import { replaceRange } from './composer-text'
+import { createSuggestions } from './composer-suggest'
+import { composing } from './keys'
 import { paintMessageBody } from './message-body'
 import { applyTheme } from './theme'
 import { adoptChatFont, applyChatFont } from './chat-font'
@@ -200,11 +202,40 @@ const picker = createEmotePicker({
   twitch: () => twitchEmotes,
   reload: loadEmotes
 })
-input.addEventListener('input', () => { refreshComposer(); autosize() })
-// A whisper is one line as far as Twitch is concerned: Enter sends it rather than breaking it.
+/** The room's completion shelf, less the mentions: a conversation has nobody to rank. */
+const suggest = createSuggestions({
+  input, list: $('#whisper-suggest'),
+  emotes: () => thirdParty,
+  twitch: () => twitchEmotes,
+  apply: (text, caret) => {
+    input.value = text
+    input.setSelectionRange(caret, caret)
+    refreshComposer(); autosize()
+  }
+})
+
+input.addEventListener('input', () => { refreshComposer(); autosize(); suggest.refresh() })
+input.addEventListener('click', () => suggest.refresh())
+input.addEventListener('blur', () => { window.setTimeout(suggest.close, 120) })
 input.addEventListener('keydown', event => {
-  if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
+  // An input method composes with the keys the shelf is walked with: while it does, none are ours.
+  if (composing(event)) return
+  const open = suggest.isOpen()
+  if (event.key === 'Escape') {
+    if (open) { event.preventDefault(); suggest.close(); return }
+    if (picker.isOpen()) { event.preventDefault(); picker.close(true) }
+    return
+  }
+  if (open && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) { event.preventDefault(); suggest.move(event.key === 'ArrowDown' ? 1 : -1); return }
+  if (event.key === 'Tab' && !event.shiftKey) {
+    if (open) { event.preventDefault(); suggest.accept(); return }
+    if (suggest.refresh(true)) { event.preventDefault(); if (suggest.size() === 1) suggest.accept(0) }
+    return
+  }
+  // A whisper is one line as far as Twitch is concerned: Enter sends it rather than breaking it.
+  if (event.key !== 'Enter' || event.shiftKey) return
   event.preventDefault()
+  if (open) { suggest.accept(); return }
   form.requestSubmit()
 })
 function autosize() {

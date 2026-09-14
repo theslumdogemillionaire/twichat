@@ -2,15 +2,15 @@ import { ComposerMemory } from './composer-memory'
 import { composing, sends } from './keys'
 import type { ChatMessage, ReplyReference, ThirdPartyEmote, TwitchEmote } from '../shared/types'
 import { inlineEmoteNodes } from './emotes'
-import { EMOJIS, searchEmojis } from './emoji'
-import { createEmotePicker, everyEmote as allEmotes } from './emote-picker'
+import { EMOJIS } from './emoji'
+import { createEmotePicker } from './emote-picker'
+import { createSuggestions, type Suggestion } from './composer-suggest'
 import { rememberRecent } from './recent-emotes'
 import { m } from '../shared/i18n'
 import { AppError } from '../shared/errors'
 
 import {
-  MESSAGE_BYTE_LIMIT, applyCompletion, byteLength, completionQuery, mergeCompletions, rankByTerm,
-  replaceRange, sanitizeOutgoing, tokenizeMessage, type CompletionQuery
+  MESSAGE_BYTE_LIMIT, byteLength, rankByTerm, replaceRange, sanitizeOutgoing, tokenizeMessage
 } from './composer-text'
 
 export interface ComposerHooks {
@@ -25,16 +25,7 @@ export interface ComposerHooks {
   ownEmotesGranted(): boolean
 }
 
-interface Suggestion {
-  value: string
-  label: string
-  detail: string
-  url?: string
-  char?: string
-  login?: string
-}
 const EMOJI_NAMES = new Set(EMOJIS.map(emoji => emoji.name))
-const SUGGESTION_ROWS = 8
 
 const $ = <T extends HTMLElement>(selector: string) => {
   const element = document.querySelector<T>(selector)
@@ -62,7 +53,14 @@ export function createComposer(hooks: ComposerHooks) {
     reload: () => hooks.reload(),
     ownEmotesGranted: () => hooks.ownEmotesGranted()
   })
-  const suggestList = $('#composer-suggest')
+  const suggest = createSuggestions({
+    input, list: $('#composer-suggest'),
+    emotes: () => hooks.emotes(),
+    twitch: () => hooks.twitch(),
+    mentions: term => chatters(term),
+    avatar: login => hooks.avatar(login),
+    apply: (text, caret) => setValue(text, caret)
+  })
   const replyBar = $('#composer-reply')
   const replyUser = $('#composer-reply-user')
   const replyText = $('#composer-reply-text')
@@ -71,9 +69,6 @@ export function createComposer(hooks: ComposerHooks) {
   const memory = new ComposerMemory()
   let channel = ''
   let account: string | null = null
-  let suggestions: Suggestion[] = []
-  let suggestQuery: CompletionQuery | null = null
-  let suggestIndex = 0
   let historyIndex = -1
   let historyDraft = ''
 
@@ -121,7 +116,7 @@ export function createComposer(hooks: ComposerHooks) {
   function setValue(text: string, caret = text.length) {
     input.value = text
     input.setSelectionRange(caret, caret)
-    resize(); paint(); refreshSuggestions()
+    resize(); paint(); suggest.refresh()
   }
 
   function insert(value: string) {
@@ -150,120 +145,6 @@ export function createComposer(hooks: ComposerHooks) {
       detail: m.composer.mention,
       login: candidate.login
     }))
-  }
-
-  function emojiSuggestions(term: string): Suggestion[] {
-    return searchEmojis(term, SUGGESTION_ROWS).map(emoji => ({ value: emoji.char, label: `:${emoji.name}:`, detail: m.composer.emoji, char: emoji.char }))
-  }
-
-  function emoteSuggestions(term: string): Suggestion[] {
-    return rankByTerm(allEmotes(hooks.emotes(), hooks.twitch()), term, entry => [entry.label], SUGGESTION_ROWS).map(entry => ({
-      value: entry.value, label: entry.label, detail: entry.source, url: entry.url
-    }))
-  }
-
-  /**
-   * A colon opens both shelves at once. An emote is written like a shortcode here, so `:kap` has to
-   * reach Kappa and `:joy` still has to reach 😂; the channel's emotes come first, because that is
-   * what a Twitch room is spoken in.
-   */
-  function shortcodeSuggestions(term: string): Suggestion[] {
-    const needle = term.trim().toLowerCase()
-    const named = (suggestion: Suggestion) => suggestion.label.toLowerCase().replace(/^:|:$/gu, '')
-    return mergeCompletions(
-      emoteSuggestions(term), emojiSuggestions(term), SUGGESTION_ROWS,
-      needle ? suggestion => named(suggestion) === needle : undefined
-    )
-  }
-
-  function buildSuggestions(query: CompletionQuery): Suggestion[] {
-    if (query.kind === 'mention') return chatters(query.term)
-    if (query.kind === 'emoji') return shortcodeSuggestions(query.term)
-    return emoteSuggestions(query.term)
-  }
-
-  function closeSuggestions() {
-    if (suggestList.hidden) return
-    suggestList.hidden = true
-    suggestList.replaceChildren()
-    suggestQuery = null
-    suggestions = []
-    input.setAttribute('aria-expanded', 'false')
-  }
-
-  function renderSuggestions() {
-    suggestList.replaceChildren()
-    suggestions.forEach((suggestion, index) => {
-      const row = document.createElement('button')
-      row.type = 'button'
-      row.className = 'suggest-row'
-      row.setAttribute('role', 'option')
-      row.setAttribute('aria-selected', String(index === suggestIndex))
-      if (suggestion.url) {
-        const image = document.createElement('img')
-        image.src = suggestion.url; image.alt = ''; image.loading = 'lazy'
-        image.addEventListener('error', () => image.remove(), { once: true })
-        row.append(image)
-      } else if (suggestion.char) {
-        const glyph = document.createElement('span')
-        glyph.className = 'suggest-emoji'; glyph.textContent = suggestion.char
-        row.append(glyph)
-      } else if (suggestion.login) {
-        const avatar = document.createElement('span')
-        avatar.className = 'suggest-avatar'
-        avatar.textContent = suggestion.label.slice(0, 1)
-        const url = hooks.avatar(suggestion.login)
-        if (url) {
-          const image = document.createElement('img')
-          image.src = url; image.alt = ''
-          image.addEventListener('error', () => image.remove(), { once: true })
-          avatar.replaceChildren(image)
-        }
-        row.append(avatar)
-      }
-      const label = document.createElement('strong')
-      label.textContent = suggestion.label
-      const detail = document.createElement('small')
-      detail.textContent = suggestion.detail
-      row.append(label, detail)
-      row.addEventListener('mousedown', event => event.preventDefault())
-      row.addEventListener('click', () => accept(index))
-      suggestList.append(row)
-    })
-    suggestList.hidden = false
-    input.setAttribute('aria-expanded', 'true')
-    suggestList.children.item(suggestIndex)?.scrollIntoView({ block: 'nearest' })
-  }
-
-  function refreshSuggestions(forced = false) {
-    const query = completionQuery(input.value, input.selectionStart ?? 0, forced)
-    if (!query || input.selectionStart !== input.selectionEnd) { closeSuggestions(); return false }
-    const found = buildSuggestions(query)
-    if (!found.length) { closeSuggestions(); return false }
-    suggestQuery = query
-    suggestions = found
-    suggestIndex = 0
-    renderSuggestions()
-    return true
-  }
-
-  function accept(index = suggestIndex) {
-    const suggestion = suggestions[index]
-    if (!suggestQuery || !suggestion) return
-    // What the shelf is answering is not what was asked for: a colon opens the emotes and the
-    // emojis at once, so the row that was taken says what it was, not the query. A mention is
-    // nobody's recent anything.
-    if (!suggestion.login) rememberRecent(suggestion.char ? 'emoji' : 'emote', suggestion.value)
-    const next = applyCompletion(input.value, suggestQuery, suggestion.value)
-    closeSuggestions()
-    input.focus()
-    setValue(next.text, next.caret)
-    closeSuggestions()
-  }
-
-  function move(step: number) {
-    suggestIndex = (suggestIndex + step + suggestions.length) % suggestions.length
-    renderSuggestions()
   }
 
   /* ----- history and drafts ----- */
@@ -337,7 +218,7 @@ export function createComposer(hooks: ComposerHooks) {
       if (room !== channel) return
       historyIndex = -1
       renderReply()
-      closeSuggestions(); picker.close()
+      suggest.close(); picker.close()
       setValue('')
     } catch (failure) {
       hooks.error(failure)
@@ -346,10 +227,10 @@ export function createComposer(hooks: ComposerHooks) {
 
   form.addEventListener('submit', event => { event.preventDefault(); void submit() })
 
-  input.addEventListener('input', () => { resize(); paint(); refreshSuggestions(); historyIndex = -1 })
+  input.addEventListener('input', () => { resize(); paint(); suggest.refresh(); historyIndex = -1 })
   input.addEventListener('scroll', () => { mirror.scrollTop = input.scrollTop })
-  input.addEventListener('blur', () => { window.setTimeout(closeSuggestions, 120) })
-  input.addEventListener('click', () => refreshSuggestions())
+  input.addEventListener('blur', () => { window.setTimeout(suggest.close, 120) })
+  input.addEventListener('click', () => suggest.refresh())
   input.addEventListener('paste', event => {
     const pasted = event.clipboardData?.getData('text')
     if (!pasted) return
@@ -365,23 +246,23 @@ export function createComposer(hooks: ComposerHooks) {
     // candidate, Tab and the arrows walk the candidate list. While it is composing, none of them
     // are ours — acting on them sends half a word to the channel, or swallows the choice.
     if (composing(event)) return
-    const open = !suggestList.hidden
+    const open = suggest.isOpen()
     if (event.key === 'Escape') {
-      if (open) { event.preventDefault(); closeSuggestions(); return }
+      if (open) { event.preventDefault(); suggest.close(); return }
       if (picker.isOpen()) { event.preventDefault(); picker.close(true); return }
       if (memory.reply(channel)) { event.preventDefault(); setReply(null) }
       return
     }
-    if (open && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) { event.preventDefault(); move(event.key === 'ArrowDown' ? 1 : -1); return }
+    if (open && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) { event.preventDefault(); suggest.move(event.key === 'ArrowDown' ? 1 : -1); return }
     if (event.key === 'Tab' && !event.shiftKey) {
-      if (open) { event.preventDefault(); accept(); return }
-      if (refreshSuggestions(true)) { event.preventDefault(); if (suggestions.length === 1) accept(0) }
+      if (open) { event.preventDefault(); suggest.accept(); return }
+      if (suggest.refresh(true)) { event.preventDefault(); if (suggest.size() === 1) suggest.accept(0) }
       return
     }
     if (sends(event)) {
       // Twitch refuses line breaks, so Enter always sends and Shift+Enter never inserts one.
       event.preventDefault()
-      if (open) { accept(); return }
+      if (open) { suggest.accept(); return }
       void submit()
       return
     }
@@ -417,7 +298,7 @@ export function createComposer(hooks: ComposerHooks) {
       memory.keepDraft(channel, input.value)
       channel = next
       historyIndex = -1
-      closeSuggestions(); picker.close()
+      suggest.close(); picker.close()
       renderReply()
       setValue(memory.draft(next))
       if (account) input.placeholder = m.composer.writeIn(next || m.composer.channelWord)
@@ -432,7 +313,7 @@ export function createComposer(hooks: ComposerHooks) {
       // not the drafts, not the histories, not the reply being composed, not the line in the
       // box. The rooms are named the same for everybody; the memory of them is not shared.
       if (memory.setAccount(login)) {
-        closeSuggestions(); picker.close()
+        suggest.close(); picker.close()
         historyIndex = -1; historyDraft = ''
         setValue('')
         renderReply()
