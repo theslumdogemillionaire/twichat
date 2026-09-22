@@ -132,6 +132,7 @@ function showView(view: View) {
     else if (view === 'discover') pageHistory.push(discoverPage())
     else pageHistory.push({ view, channel: view === 'room' ? active : undefined })
   }
+  hideDetachHint()
   renderPageNav()
   updateDockPresence()
   updateTitlebarNote()
@@ -432,6 +433,7 @@ const video = $<HTMLVideoElement>('#video')
 const resume = $<HTMLButtonElement>('#resume')
 const streamDock = $('#stream-dock')
 const playerResizer = $('#player-resizer')
+const detachHint = $('#detach-hint')
 const fullscreenButton = $<HTMLButtonElement>('#fullscreen-stream')
 const ownChannelBlock = $('#own-channel-block')
 const ownChannelButton = $<HTMLButtonElement>('#own-channel')
@@ -3079,35 +3081,123 @@ function resetPlayerWidth() {
   save()
 }
 
-let resizeStart: { x: number; width: number } | undefined
-playerResizer.addEventListener('pointerdown', event => {
-  if (event.button !== 0) return
-  resizeStart = { x: event.clientX, width: streamDock.getBoundingClientRect().width }
-  playerResizer.setPointerCapture(event.pointerId)
-  document.body.classList.add('resizing-player')
-})
-playerResizer.addEventListener('pointermove', event => {
-  if (!resizeStart || !playerResizer.hasPointerCapture(event.pointerId)) return
-  setPlayerWidth(resizeStart.width + resizeStart.x - event.clientX)
-})
-function finishPlayerResize(event: PointerEvent) {
-  if (!resizeStart) return
-  resizeStart = undefined
-  if (playerResizer.hasPointerCapture(event.pointerId)) playerResizer.releasePointerCapture(event.pointerId)
-  document.body.classList.remove('resizing-player')
-  setPlayerWidth(streamDock.getBoundingClientRect().width, true)
+/**
+ * The picture is resized the way anything else is: from an edge or from the corner. The dock is
+ * pinned to the top right of the room, so pulling on the top or the right edge would move that
+ * anchor rather than the frame — the left edge, the bottom edge and the corner between them are
+ * the three grips that can follow a pointer, and all three set the same single number.
+ */
+type ResizeAxis = 'x' | 'y' | 'xy'
+const resizeHandles: { element: HTMLElement; axis: ResizeAxis }[] = [
+  { element: playerResizer, axis: 'x' },
+  { element: $('#player-resizer-bottom'), axis: 'y' },
+  { element: $('#player-resizer-corner'), axis: 'xy' }
+]
+/**
+ * The width a drag asks for. The stage keeps a 16:9 frame and the rows under it a fixed height,
+ * so a pixel of height is 16/9 pixels of width — a vertical drag read as pixel for pixel would
+ * trail almost half the pointer's travel. Pulled from the corner, the axis that moved the most
+ * decides: a diagonal average makes a plainly horizontal drag feel like it is being resisted.
+ */
+function requestedPlayerWidth(axis: ResizeAxis, start: { x: number; y: number; width: number }, event: PointerEvent) {
+  const fromX = start.x - event.clientX
+  const fromY = (event.clientY - start.y) * 16 / 9
+  const delta = axis === 'x' ? fromX : axis === 'y' ? fromY : Math.abs(fromX) >= Math.abs(fromY) ? fromX : fromY
+  return start.width + delta
 }
-playerResizer.addEventListener('pointerup', finishPlayerResize)
-playerResizer.addEventListener('pointercancel', finishPlayerResize)
-playerResizer.addEventListener('dblclick', resetPlayerWidth)
+let resizeStart: { x: number; y: number; width: number; axis: ResizeAxis; moved: boolean } | undefined
+for (const { element, axis } of resizeHandles) {
+  element.addEventListener('pointerdown', event => {
+    if (event.button !== 0) return
+    hideDetachHint()
+    resizeStart = { x: event.clientX, y: event.clientY, width: streamDock.getBoundingClientRect().width, axis, moved: false }
+    element.setPointerCapture(event.pointerId)
+    document.body.classList.add('resizing-player', `resize-${axis}`)
+  })
+  element.addEventListener('pointermove', event => {
+    if (!resizeStart || !element.hasPointerCapture(event.pointerId)) return
+    // A press that never travelled is a click, not a drag — a double-click to reset is two of them.
+    if (Math.abs(event.clientX - resizeStart.x) > 2 || Math.abs(event.clientY - resizeStart.y) > 2) resizeStart.moved = true
+    setPlayerWidth(requestedPlayerWidth(resizeStart.axis, resizeStart, event))
+  })
+  const finish = (event: PointerEvent) => finishPlayerResize(element, event)
+  element.addEventListener('pointerup', finish)
+  element.addEventListener('pointercancel', finish)
+  // Capture can be taken back mid-drag, and then no release ever reaches the handle. Left alone,
+  // the width would stay where the last move put it and the whole page would stay dressed for
+  // dragging — one cursor everywhere, nothing selectable. After a normal release this runs too,
+  // on a gesture already finished, and finds nothing left to do.
+  element.addEventListener('lostpointercapture', finish)
+  element.addEventListener('dblclick', resetPlayerWidth)
+}
+function finishPlayerResize(element: HTMLElement, event: PointerEvent) {
+  if (!resizeStart) return
+  const start = resizeStart
+  resizeStart = undefined
+  if (element.hasPointerCapture(event.pointerId)) element.releasePointerCapture(event.pointerId)
+  document.body.classList.remove('resizing-player', `resize-${start.axis}`)
+  // A release carries where the pointer ended, which the moves may not have: a browser under load
+  // folds them together and the last one can be dropped, leaving the picture short of the gesture.
+  // Read from the release, the width is the one that was asked for either way. Capture taken back
+  // is not a release and says nothing about where the pointer is, so there the picture keeps the
+  // last width a move did apply rather than a distance measured from nowhere.
+  const released = event.type === 'pointerup' || event.type === 'pointercancel'
+  setPlayerWidth(start.moved && released ? requestedPlayerWidth(start.axis, start, event) : streamDock.getBoundingClientRect().width, true)
+  // Only a real drag is someone asking for a bigger picture; a stray click on a handle is not, and
+  // it would spend the single showing the hint has.
+  if (start.moved) offerDetachHint(streamDock.getBoundingClientRect().width)
+}
 playerResizer.addEventListener('keydown', event => {
   if (!['ArrowLeft', 'ArrowRight', 'Home'].includes(event.key)) return
   event.preventDefault()
   if (event.key === 'Home') { resetPlayerWidth(); return }
   const direction = event.key === 'ArrowLeft' ? 1 : -1
   setPlayerWidth(streamDock.getBoundingClientRect().width + direction * (event.shiftKey ? 60 : 20), true)
+  offerDetachHint(streamDock.getBoundingClientRect().width)
 })
-// A narrowed window tightens the dock without erasing the wanted width: it comes back as soon as there is room.
+
+/**
+ * The way out of the room's edges, offered at the one moment it answers something.
+ *
+ * Pulling the picture to the widest the room allows is the gesture of someone asking for more
+ * than the dock can give. The window next door is where that "more" lives, and the button
+ * carrying it says so only in a tooltip nobody has a reason to go looking for. So it is said
+ * once, over that button — and never again, whether it was read, dismissed, or acted on first.
+ */
+const DETACH_HINT_KEY = 'twichat.detachHintSeen'
+let detachHintSeen = readDetachHintSeen()
+let detachHintTimer = 0
+function readDetachHintSeen() {
+  // A store that refuses leaves the hint unsaid rather than said at every resize.
+  try { return localStorage.getItem(DETACH_HINT_KEY) === '1' } catch { return true }
+}
+function markDetachHintSeen() {
+  detachHintSeen = true
+  try { localStorage.setItem(DETACH_HINT_KEY, '1') } catch { /* an unwritten flag only costs the hint a second showing */ }
+}
+function offerDetachHint(width: number) {
+  if (detachHintSeen || detachedChannel || audioOnly() || currentView !== 'room') return
+  if ($('#room-body').classList.contains('chat-only')) return
+  // Widest the room allows, not widest there is: the bound follows the window.
+  if (width < playerWidthBounds().max) return
+  markDetachHintSeen()
+  const button = $('#detach-stream')
+  const anchor = button.getBoundingClientRect()
+  detachHint.hidden = false
+  const tip = detachHint.getBoundingClientRect()
+  // The bubble's arrow sits 24px from its right edge, which is where the button's middle has to be.
+  placeFloating(detachHint, anchor.right - anchor.width / 2 + 24 - tip.width, anchor.top - tip.height - 9)
+  clearTimeout(detachHintTimer)
+  detachHintTimer = window.setTimeout(hideDetachHint, 14_000)
+}
+function hideDetachHint() {
+  clearTimeout(detachHintTimer)
+  detachHintTimer = 0
+  detachHint.hidden = true
+}
+$('#detach-hint-dismiss').addEventListener('click', hideDetachHint)
+// Pinned to the window, the bubble would point at a button the resize has moved out from under it.
+window.addEventListener('resize', hideDetachHint)
 window.addEventListener('resize', () => setPlayerWidth(playerWidth > 0 ? playerWidth : streamDock.getBoundingClientRect().width))
 
 async function togglePlayerFullscreen() {
@@ -3162,6 +3252,8 @@ function setDetached(channel: string | null) {
   const wasPlaying = currentPlayerState !== 'stopped'
   detachedChannel = channel ?? ''
   streamDock.classList.toggle('detached', !!detachedChannel)
+  // The hint only points at this window: found on their own, it has nothing left to say.
+  if (detachedChannel) { markDetachHintSeen(); hideDetachHint() }
   $('#detached-panel').hidden = !detachedChannel
   $<HTMLButtonElement>('#detach-stream').disabled = !!detachedChannel
   paintDetachedAnchor()
@@ -3777,7 +3869,7 @@ window.addEventListener('keydown', event => {
     // Escape does not leave fullscreen on its own in this window: the key does reach the document,
     // but Chromium does not act on it. We hand control back ourselves.
     if (document.fullscreenElement) void document.exitFullscreen()
-    closeFloatingLayers(); if (joinDialog.open) joinDialog.close(); if (accountDialog.open) accountDialog.close(); if (linkDialog.open) linkDialog.close()
+    hideDetachHint(); closeFloatingLayers(); if (joinDialog.open) joinDialog.close(); if (accountDialog.open) accountDialog.close(); if (linkDialog.open) linkDialog.close()
   }
 })
 

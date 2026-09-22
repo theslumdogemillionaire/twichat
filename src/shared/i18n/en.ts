@@ -864,6 +864,8 @@ export const en = {
       quality: 'Preferred video quality',
       volume: 'Volume',
       detachedNote: 'The video is playing alongside',
+      detachHint: 'That’s as big as it gets here. This button moves the video to its own window, at whatever size you like.',
+      detachHintDismiss: 'Got it',
       title: {
         fullscreen: 'Fullscreen',
         stop: 'Stop the stream',

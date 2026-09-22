@@ -1099,6 +1099,8 @@ export const fr: Messages = {
       quality: 'Qualité vidéo privilégiée',
       volume: 'Volume',
       detachedNote: 'La vidéo joue à côté',
+      detachHint: 'C’est le maximum ici. Ce bouton sort la vidéo dans sa propre fenêtre, à la taille que vous voulez.',
+      detachHintDismiss: 'J’ai compris',
       title: {
         fullscreen: 'Plein écran',
         stop: 'Arrêter le stream',
