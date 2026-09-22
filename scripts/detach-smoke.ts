@@ -19,8 +19,11 @@ const rendererErrors: string[] = []
  * smokes pin TWICHAT_LOCALE=fr.
  */
 const channel = process.argv[2] ?? 'twitch'
-// A second channel, only to check the window follows the room from one to the other.
-const other = channel === 'twitch' ? 'zerator' : 'twitch'
+// A second channel, only to check the window follows the room from one to the other. A name nobody
+// broadcasts on, deliberately: a room off air leaves a picture playing where it is — see
+// `heldStreamChoice` — so a second live channel would make what the window does here depend on
+// Twitch's schedule. Nothing playing on it, the window follows the room as it always has.
+const other = 'twichat_detach_probe'
 const artifacts = resolve('artifacts')
 await mkdir(artifacts, { recursive: true })
 const data = resolve(tmpdir(), `twichat-detach-${process.pid}`)

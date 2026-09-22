@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { BUFFER_PROFILES, bufferProfile, CATCH_UP_CUE_DELAY, CATCH_UP_HINT_RUNS, CATCH_UP_RATE, isCatchingUp, isRecurringCatchUp, STREAM_STALL_TIMEOUT, streamRetryPlan } from '../src/renderer/stream-lifecycle'
+import { BUFFER_PROFILES, bufferProfile, CATCH_UP_CUE_DELAY, CATCH_UP_HINT_RUNS, CATCH_UP_RATE, heldStreamChoice, isCatchingUp, isRecurringCatchUp, STREAM_STALL_TIMEOUT, streamRetryPlan } from '../src/renderer/stream-lifecycle'
 import { AppError } from '../src/shared/errors'
 import { setLocale } from '../src/shared/i18n'
 
@@ -73,4 +73,31 @@ test('the buffering link waits for a delay that looks structural', () => {
   // Coming back a third time over one stream, the delay is the buffer, and the link shows at once.
   assert.equal(isRecurringCatchUp(CATCH_UP_HINT_RUNS), true)
   assert.equal(isRecurringCatchUp(12), true)
+})
+
+test('a room off air leaves the picture on the channel that had one', () => {
+  // The whole point: reading a quiet channel costs nothing of the stream being watched.
+  assert.equal(heldStreamChoice({ room: 'quiet', held: 'watched', picture: true, roomLive: false }), 'keep')
+  // On air, the room opened is the one being watched: the picture moves to it — whether the one
+  // held is on screen or working through its own retries.
+  assert.equal(heldStreamChoice({ room: 'awake', held: 'watched', picture: true, roomLive: true }), 'follow')
+  assert.equal(heldStreamChoice({ room: 'awake', held: 'watched', picture: false, roomLive: true }), 'follow')
+})
+
+test('a player with nothing on screen holds nothing back', () => {
+  // A stream being retried off air shows nothing, and keeping it would cost the room opened the
+  // retries of its own — which are how its return on air is noticed.
+  assert.equal(heldStreamChoice({ room: 'quiet', held: 'watched', picture: false, roomLive: false }), 'release')
+})
+
+test('nothing kept where there is nothing to keep', () => {
+  // Nothing playing: the room starts its own stream, or says it has none, as before.
+  assert.equal(heldStreamChoice({ room: 'quiet', held: '', picture: false, roomLive: false }), 'release')
+  // The picture is already this room's: opening it again changes nothing.
+  assert.equal(heldStreamChoice({ room: 'watched', held: 'watched', picture: true, roomLive: true }), 'release')
+  assert.equal(heldStreamChoice({ room: 'watched', held: 'watched', picture: true, roomLive: false }), 'release')
+  // A channel just joined, before Twitch has answered for it: the video starts as it always has,
+  // which is what the offline player — its retries and its countdown — is reached through.
+  assert.equal(heldStreamChoice({ room: 'unknown', held: 'watched', picture: true, roomLive: undefined }), 'release')
+  assert.equal(heldStreamChoice({ room: '', held: 'watched', picture: true, roomLive: false }), 'release')
 })

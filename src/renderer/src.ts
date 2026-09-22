@@ -10,6 +10,7 @@ import { createRaidMessage } from './raid-message'
 import { createGiftMessage } from './gift-message'
 import { createCommunityMessage, decorateCheer } from './community-message'
 import { StreamPlayer, type StreamPlayerState } from './player'
+import { heldStreamChoice } from './stream-lifecycle'
 import { cheermoteIndex } from './cheers'
 import { inlineEmoteNodes } from './emotes'
 import { paintMessageBody } from './message-body'
@@ -389,6 +390,9 @@ let uptimeTimer = 0
 let playerWidth = 0
 // The channel whose video plays in its own window, empty while it sits in the dock.
 let detachedChannel = ''
+// The channel the picture is on. It is the open room's, except where a room with nothing on air
+// left the stream that was already running where it was — see `heldStreamChoice`.
+let playingChannel = ''
 // What the account chose, which outlives the window: the next launch reopens it.
 let detachedWanted = false
 // A session going away closes the window without the account changing its mind.
@@ -396,9 +400,10 @@ let closingSession = false
 // Hiding the video closes that window too, and for the same reason: the account still wants the
 // picture on the side, it just wants the room's whole width for the chat right now.
 let hidingVideo = false
-// Whether showing the video back has a picture to pick up: what was running when it was hidden.
-// A player the account had stopped itself stays stopped, wherever it sits.
-let resumeOnShow = false
+// The channel showing the video back picks up, empty when there is nothing to pick up. It carries
+// the channel rather than a yes: the picture hidden is not always the open room's. A player the
+// account had stopped itself stays stopped, wherever it sits.
+let resumeOnShow = ''
 // Whether the addresses in a message read as links. Held here rather than read from the checkbox:
 // every row painted asks the question, and the virtualised log paints them by the hundred.
 let chatLinks = true
@@ -445,13 +450,26 @@ const streamPlayer = new StreamPlayer(video, window.twichat, updatePlayer)
  * keeps the promise of one active video stream at a time.
  */
 const player = {
-  play: (channel: string, quality: string, buffer: BufferMode) => detachedChannel
-    ? window.twichat.commandPlayer('play', channel, quality, buffer).catch(() => {})
-    : streamPlayer.play(channel, quality, buffer),
+  play: (channel: string, quality: string, buffer: BufferMode) => {
+    playingChannel = channel
+    return detachedChannel
+      ? window.twichat.commandPlayer('play', channel, quality, buffer).catch(() => {})
+      : streamPlayer.play(channel, quality, buffer)
+  },
   stop: () => {
+    playingChannel = ''
     if (detachedChannel) void window.twichat.commandPlayer('stop').catch(() => {})
     else streamPlayer.stop()
   }
+}
+/**
+ * The channel the picture is actually on, empty when there is none. The detached window is the
+ * one holding it while it is out: the room asks it to play and the answer comes back by event,
+ * so its channel is the reliable one, not the last one this window asked for.
+ */
+function heldChannel(): string {
+  if (currentPlayerState === 'stopped') return ''
+  return detachedChannel || playingChannel
 }
 const composer = createComposer({
   send: (text, reply) => window.twichat.send(active, text, reply),
@@ -934,8 +952,15 @@ function activate(channel: string) {
   const entering = currentView !== 'room' || active !== channel
   // Read before the stop below: detached, that stop is a command to the other window, and the
   // state only comes back once it has been carried out. Reading it afterwards races with the answer.
-  const alreadyPlaying = active === channel && currentPlayerState !== 'stopped'
-  if (active && active !== channel) player.stop()
+  const held = heldChannel()
+  const choice = heldStreamChoice({ room: channel, held, picture: currentPlayerState === 'playing', roomLive: roomProfiles.get(channel)?.live })
+  const alreadyPlaying = held === channel && currentPlayerState !== 'stopped'
+  // A room with nothing on air keeps the picture where it is: the stream being watched survives a
+  // visit to a quiet channel, as it survives the directory and the settings. A player retrying an
+  // offline stream has no picture to keep, and lets the room opened take its own course. Coming
+  // back to the room the picture never left is not a change of stream either: stopping it there
+  // would cut the very thing the visit was meant to preserve.
+  if (active && active !== channel && choice !== 'keep' && !alreadyPlaying) player.stop()
   active = channel
   state.preferences.active = channel
   unread.set(channel, 0); mentions.set(channel, 0)
@@ -962,8 +987,9 @@ function activate(channel: string) {
     // The account may have left the video in its own window: it reopens there rather than in the dock.
     if (detachedWanted && !detachedChannel) applyDetachedChoice(start)
     // Only a return to the same channel finds its stream still running: restarting it would cut
-    // the picture for a few seconds to land on the same one. A change of channel always starts.
-    else if (start && !alreadyPlaying) void player.play(channel, $<HTMLSelectElement>('#quality').value, playback().buffer)
+    // the picture for a few seconds to land on the same one. A change of channel starts, unless
+    // this one is off air and the picture stays on the channel that was already playing.
+    else if (start && !alreadyPlaying && choice !== 'keep') void player.play(channel, $<HTMLSelectElement>('#quality').value, playback().buffer)
   }
   composer.setRoom(channel)
   composer.focus()
@@ -1324,8 +1350,11 @@ async function leaveRoom(channel: string) {
   if (!state.preferences.channels.includes(channel)) return
   closeFloatingLayers()
   const wasActive = channel === active
+  // The picture is not always the open room's: a channel left takes its stream with it wherever it
+  // was playing, or the dock would go on showing a room the sidebar no longer has.
+  const wasPlaying = heldChannel() === channel
   try { await window.twichat.part(channel) } catch (error) { toast(displayError(error)); return }
-  if (wasActive) player.stop()
+  if (wasActive || wasPlaying) player.stop()
   store.remove(channel); state.preferences.channels = state.preferences.channels.filter(item => item !== channel)
   unread.delete(channel); mentions.delete(channel); joined.delete(channel); joinFailures.delete(channel); roomModes.delete(channel)
   thirdPartyEmotes.delete(channel); thirdPartyRoomKeys.delete(channel)
@@ -1335,7 +1364,8 @@ async function leaveRoom(channel: string) {
   // A room nothing can go back to is not a page any more; the rest of the trail stands.
   pageHistory.prune(page => page.view !== 'room' || page.channel !== channel)
   renderPageNav()
-  if (!wasActive) { renderRooms(); save(); return }
+  // The dock was naming the channel just left: it goes back to naming the room on screen.
+  if (!wasActive) { if (wasPlaying) applyPlayerMode(); renderRooms(); save(); return }
   const next = state.preferences.channels[0] ?? ''
   // The next room is not named in `active` before `activate` takes it: that is what tells a change
   // of channel from a return to the room already on screen, and pre-set it would read as the
@@ -1525,8 +1555,20 @@ async function refreshProfiles(channels: string[]) {
   try {
     const profiles = await window.twichat.profiles(channels)
     for (const profile of profiles) { roomProfiles.set(profile.channel, profile); if (profile.live) markActivity(profile.channel) }
-    renderRooms(); updateRoomLive()
+    renderRooms(); updateRoomLive(); followLiveRoom()
   } catch { /* The initials remain a complete, offline-safe fallback. */ }
+}
+
+/**
+ * The open room coming on air takes the picture back. It is the other half of keeping a stream
+ * through a quiet channel: what stayed, stayed for want of anything to show here, and the moment
+ * there is something this is the room being read. Twitch is asked for the room list every two
+ * minutes, so the switch lands within that — nothing announces a stream to us any sooner.
+ */
+function followLiveRoom() {
+  if (!active || $('#room-body').classList.contains('chat-only')) return
+  if (heldStreamChoice({ room: active, held: heldChannel(), picture: currentPlayerState === 'playing', roomLive: roomProfiles.get(active)?.live }) !== 'follow') return
+  void player.play(active, $<HTMLSelectElement>('#quality').value, playback().buffer)
 }
 
 // Asked apart from the room list: folding the own login into that call could push it past the 20-channel cap.
@@ -3039,10 +3081,22 @@ function updatePlayerToggleLabel() {
 function applyPlayerMode() {
   const audio = audioOnly()
   streamDock.classList.toggle('audio-only', audio)
-  streamDock.setAttribute('aria-label', audio ? m.app.audioPlayerLabel : m.app.videoPlayerLabel)
-  $('#player-channel').textContent = audio ? `AUDIO · # ${active}` : `# ${active}`
-  // Detached, the window is showing this room: it follows a channel change even when nothing plays.
-  if (detachedChannel && detachedChannel !== active && active) void window.twichat.commandPlayer('stop', active).catch(() => {})
+  // The name under the picture is the picture's, not the room's: they part company the moment a
+  // room off air leaves the stream where it was, and a dock naming the room would be naming
+  // something it is not showing.
+  const shown = heldChannel() || active
+  const elsewhere = Boolean(active) && shown !== active
+  const dockName = audio ? m.app.audioPlayerLabel : m.app.videoPlayerLabel
+  // A tooltip is for a pointer. The reason belongs to the dock's own name as well, which is what
+  // a reader arriving in this region is told.
+  streamDock.setAttribute('aria-label', elsewhere ? `${dockName} — ${m.app.videoStaysOn(shown)}` : dockName)
+  const label = $('#player-channel')
+  label.textContent = audio ? `AUDIO · # ${shown}` : `# ${shown}`
+  label.classList.toggle('elsewhere', elsewhere)
+  label.title = elsewhere ? m.app.videoStaysOn(shown) : ''
+  // Detached, the window is showing what the dock names: it follows a channel change even when
+  // nothing plays, and stays put on the stream a quiet room did not take.
+  if (detachedChannel && active && detachedChannel !== shown) void window.twichat.commandPlayer('stop', shown).catch(() => {})
   fullscreenButton.hidden = audio
   updatePlayerAction()
   updatePlayerToggleLabel()
@@ -3198,6 +3252,7 @@ function hideDetachHint() {
 $('#detach-hint-dismiss').addEventListener('click', hideDetachHint)
 // Pinned to the window, the bubble would point at a button the resize has moved out from under it.
 window.addEventListener('resize', hideDetachHint)
+// A narrowed window tightens the dock without erasing the wanted width: it comes back as soon as there is room.
 window.addEventListener('resize', () => setPlayerWidth(playerWidth > 0 ? playerWidth : streamDock.getBoundingClientRect().width))
 
 async function togglePlayerFullscreen() {
@@ -3251,6 +3306,9 @@ function setDetached(channel: string | null) {
   const previous = detachedChannel
   const wasPlaying = currentPlayerState !== 'stopped'
   detachedChannel = channel ?? ''
+  // Out of the room, the window is what holds the stream: it is the channel the dock names and
+  // the one the picture comes back on.
+  if (channel) playingChannel = channel
   streamDock.classList.toggle('detached', !!detachedChannel)
   // The hint only points at this window: found on their own, it has nothing left to say.
   if (detachedChannel) { markDetachHintSeen(); hideDetachHint() }
@@ -3262,19 +3320,19 @@ function setDetached(channel: string | null) {
   else if (hidingVideo) hidingVideo = false
   else if (detachedWanted) { detachedWanted = false; $<HTMLInputElement>('#detached-video').checked = false; save() }
   updatePlayer('stopped')
-  // Coming back picks the picture up where the window left it, in the room now open.
+  // Coming back picks the picture up where the window left it — on its channel, which is the
+  // room's unless a room off air left it on the one that was playing.
   if (wasPlaying && active && !$('#room-body').classList.contains('chat-only')) {
-    void player.play(active, $<HTMLSelectElement>('#quality').value, playback().buffer)
+    void player.play(previous || active, $<HTMLSelectElement>('#quality').value, playback().buffer)
   }
 }
-/** The anchor names the channel playing on the side — which is the room's, the window following it. */
+/** The anchor names the channel playing on the side — the room's, unless a room off air kept it. */
 function paintDetachedAnchor() {
   $('#detached-panel-channel').textContent = detachedChannel ? `# ${detachedChannel}` : ''
 }
 /** Takes the video out of the room, stopping the dock first: `StreamResolver` holds one stream. */
-async function detachVideo(play: boolean) {
+async function detachVideo(play: boolean, channel = heldChannel() || active) {
   if (!active || detachedChannel) return
-  const channel = active
   streamPlayer.stop()
   try {
     // Stopping the dock is asynchronous: we wait for it, otherwise it could cut the stream the
@@ -3354,10 +3412,13 @@ function finishAuthentication(login: string) {
  */
 function setChatOnly(value: boolean) {
   const running = currentPlayerState !== 'stopped'
+  // Read before the stop below clears it: what comes back is the channel that was playing, which
+  // is not always the open room's.
+  const held = heldChannel()
   $('#room-body').classList.toggle('chat-only', value)
   updatePlayerToggleLabel()
   if (value) {
-    resumeOnShow = running
+    resumeOnShow = running ? held || active : ''
     player.stop()
     if (detachedChannel) {
       hidingVideo = true
@@ -3366,10 +3427,10 @@ function setChatOnly(value: boolean) {
     return
   }
   const resume = resumeOnShow
-  resumeOnShow = false
+  resumeOnShow = ''
   // The window reopens whether or not it plays: the picture is what was hidden, not the frame.
-  if (detachedWanted && !detachedChannel && active) void detachVideo(resume)
-  else if (resume && active && !running) void player.play(active, $<HTMLSelectElement>('#quality').value, playback().buffer)
+  if (detachedWanted && !detachedChannel && active) void detachVideo(Boolean(resume), resume || active)
+  else if (resume && active && !running) void player.play(resume, $<HTMLSelectElement>('#quality').value, playback().buffer)
 }
 
 $('#add-room').addEventListener('click', () => addRoom())
@@ -3781,7 +3842,7 @@ $('#stop-stream').addEventListener('click', () => player.stop())
 $('#quality').addEventListener('change', () => {
   $<HTMLSelectElement>('#preferred-quality').value = $<HTMLSelectElement>('#quality').value
   applyPlayerMode(); save()
-  if (active && !$('#room-body').classList.contains('chat-only') && currentPlayerState !== 'stopped') void player.play(active, $<HTMLSelectElement>('#quality').value, playback().buffer)
+  if (active && !$('#room-body').classList.contains('chat-only') && currentPlayerState !== 'stopped') void player.play(heldChannel() || active, $<HTMLSelectElement>('#quality').value, playback().buffer)
 })
 // The same setting is made from both places: the player's picker stays the source, and the one in
 // Settings hands over to it rather than duplicating the store and the restart.

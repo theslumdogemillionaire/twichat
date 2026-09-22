@@ -318,6 +318,7 @@ export const en = {
     unpinWindow: 'Stop keeping it on top',
     detachedIdle: 'Press Play to start.',
     keepAnEye: 'Keep an eye on the channel',
+    videoStaysOn: (channel: string) => `The video stays on #${channel}: the open channel is not live.`,
     askingTwitch: 'Twichat is asking Twitch for the public stream.',
     resumeDetected: 'The restart will be detected<br>automatically.',
     retrying: 'Trying again…',

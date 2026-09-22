@@ -37,6 +37,7 @@
     "test:gifts": "npm run build && tsx scripts/gift-smoke.ts && tsx scripts/gift-smoke.ts en",
     "test:sidebar": "npm run build && tsx scripts/sidebar-smoke.ts",
     "test:lifecycle": "npm run build && tsx scripts/stream-lifecycle-smoke.ts",
+    "test:kept": "npm run build && tsx scripts/kept-stream-smoke.ts",
     "test:video": "npm run build && tsx scripts/video-smoke.ts",
     "test:layout": "npm run build && tsx scripts/layout-smoke.ts",
     "test:detach": "npm run build && tsx scripts/detach-smoke.ts",

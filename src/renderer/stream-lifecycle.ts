@@ -77,3 +77,33 @@ export const BUFFER_PROFILES: Record<BufferMode, BufferProfile> = {
 }
 
 export function bufferProfile(mode: BufferMode): BufferProfile { return BUFFER_PROFILES[mode] }
+
+/** Where a picture stands when a room is opened: the channel it plays, and what that room is. */
+export interface HeldStream {
+  /** The room concerned — the one being opened, or the one already open. */
+  room: string
+  /** The channel the picture is on, empty when nothing plays. */
+  held: string
+  /** Whether that channel is on screen. A player retrying an offline stream shows nothing. */
+  picture: boolean
+  /** What Twitch says of the room, `undefined` for as long as it has said nothing. */
+  roomLive: boolean | undefined
+}
+
+/**
+ * What a video on screen does about the room being opened. A room off air has no picture of its
+ * own to put there, and cutting the one playing to show it "the live stream is over" takes away
+ * the stream the viewer was watching for nothing: it stays where it is, the way the directory and
+ * the settings float over it rather than closing it. The moment that room goes on air it is the
+ * one being read, and the picture follows. Anything else is the ordinary course: nothing on
+ * screen, a picture already on this room, or a channel Twitch has not answered for yet — which is
+ * the state of a channel just joined, and there the video starts as it always has.
+ */
+export function heldStreamChoice({ room, held, picture, roomLive }: HeldStream): 'keep' | 'follow' | 'release' {
+  if (!room || !held || held === room || roomLive === undefined) return 'release'
+  if (roomLive) return 'follow'
+  // Only a picture is worth keeping. A player working through its offline retries has none, and
+  // holding on to it would cost the room opened its own — the retries are how a channel coming
+  // back on air is noticed, and the placeholder promises exactly that.
+  return picture ? 'keep' : 'release'
+}

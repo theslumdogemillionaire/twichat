@@ -1,4 +1,4 @@
-import type { ChatMessage, GiftRecipient } from '../shared/types'
+import type { ChatMessage, GiftRecipient, SubscriptionGift } from '../shared/types'
 
 const WINDOW_MS = 10_000
 const grouped = new WeakMap<ChatMessage, { key: string; message: ChatMessage }>()
@@ -9,20 +9,24 @@ export function giftIsForAccount(message: ChatMessage, account: string | null): 
   return message.gift?.recipient?.login === login || message.giftRecipients?.some(recipient => recipient.login === login) === true
 }
 
+/** Anonymous donors carry no login; they still bundle, with the ambiguity rule below keeping
+ * two overlapping anonymous batches apart. */
+function sender(gift: SubscriptionGift): string { return gift.anonymous ? '\0anonymous' : gift.login }
+
 /** Presentation only. IRC supplies no documented batch id: match one unambiguous, recent
  * announcement by channel, sender and tier, capped at its advertised count. Raw notices
  * stay in ChatStore, so moderation, history eviction and a later ambiguity lose no data. */
 export function groupGiftMessages(messages: ChatMessage[]): ChatMessage[] {
-  const batches = messages.filter(message => message.gift?.kind === 'community' && message.gift.login && message.gift.plan && message.gift.count)
+  const batches = messages.filter(message => message.gift?.kind === 'community' && sender(message.gift) && message.gift.plan && message.gift.count)
   if (!batches.length) return messages
   const members = new Map<ChatMessage, ChatMessage[]>()
   const hidden = new Set<ChatMessage>()
   for (const message of messages) {
     const gift = message.gift
-    if (gift?.kind !== 'single' || !gift.login || !gift.recipient?.login || (gift.months ?? 1) > 1) continue
+    if (gift?.kind !== 'single' || !sender(gift) || !gift.recipient?.login || (gift.months ?? 1) > 1) continue
     // Include full batches when checking ambiguity; a later direct gift must not spill into
     // a second overlapping batch just because the first one has reached its count.
-    const candidates = batches.filter(batch => batch.channel === message.channel && batch.gift!.login === gift.login && batch.gift!.plan === gift.plan && message.time >= batch.time && message.time - batch.time <= WINDOW_MS)
+    const candidates = batches.filter(batch => batch.channel === message.channel && sender(batch.gift!) === sender(gift) && batch.gift!.plan === gift.plan && message.time >= batch.time && message.time - batch.time <= WINDOW_MS)
     if (candidates.length !== 1) continue
     const batch = candidates[0]
     const recipients = members.get(batch) ?? []

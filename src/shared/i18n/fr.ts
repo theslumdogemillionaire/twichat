@@ -311,6 +311,7 @@ export const fr: Messages = {
     unpinWindow: 'Ne plus garder au premier plan',
     detachedIdle: 'Appuyez sur Lire pour démarrer.',
     keepAnEye: 'Gardez un œil sur la chaîne',
+    videoStaysOn: (channel: string) => `La vidéo reste sur #${channel} : la chaîne ouverte n’est pas en direct.`,
     askingTwitch: 'Twichat demande le flux public à Twitch.',
     resumeDetected: 'La reprise sera détectée<br>automatiquement.',
     retrying: 'Nouvelle tentative en cours…',

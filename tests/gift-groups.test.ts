@@ -58,7 +58,18 @@ test('only recent, matching, unambiguous gifts enter a bundle, up to its stated 
   assert.equal(shown[0].giftRecipients![0].login, 'first')
   const overlapping = notice('otherbundle', 'submysterygift')
   assert.equal(groupGiftMessages([bundle, overlapping, first]).length, 3)
-  assert.equal(groupGiftMessages([notice('anonbundle', 'anonsubmysterygift'), notice('anon', 'anonsubgift')]).length, 2)
+})
+
+test('an anonymous gift joins the anonymous bundle it belongs to, never a named one', () => {
+  const bundle = notice('anonbundle', 'anonsubmysterygift', ';msg-param-mass-gift-count=1')
+  const recipient = notice('anon', 'anonsubgift')
+  const shown = groupGiftMessages([bundle, recipient])
+  assert.equal(shown.length, 1)
+  assert.equal(shown[0].giftRecipients![0].login, 'anon')
+  assert.equal(groupGiftMessages([bundle, notice('named')]).length, 2, 'a named donor is not the anonymous one')
+  assert.equal(groupGiftMessages([notice('bundle', 'submysterygift'), recipient]).length, 2)
+  const twin = notice('twin', 'anonsubmysterygift', ';msg-param-mass-gift-count=1', 900)
+  assert.equal(groupGiftMessages([bundle, twin, recipient]).length, 3, 'two overlapping anonymous batches stay apart')
 })
 
 test('new recipient arrivals update the existing card and evicted summaries lose no recipients', () => {

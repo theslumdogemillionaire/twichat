@@ -139,6 +139,15 @@ allowlist, caps manifests at 2 MB, allows twelve concurrent requests, and rewrit
 inside a manifest so segments come back through the same proxy. The renderer therefore never talks
 to a Twitch CDN directly, and its CSP does not have to allow one.
 
+One picture at a time, and it belongs to a channel rather than to the room on screen. Opening a room
+Twitch says is off air leaves the stream that is playing where it is — the way the directory and the
+settings float over it rather than closing it — and the dock then names the channel it is really
+showing. `heldStreamChoice` (`stream-lifecycle.ts`) is the whole rule: it keeps a picture on screen
+and nothing else, a player working through its offline retries having none to keep, and it hands the
+picture to the open room the moment Twitch answers that this room is live. Nothing announces that
+sooner — there is no `stream.online` subscription — so the switch lands on the room list's
+two-minute refresh.
+
 ## Caches
 
 Everything the main process caches goes through `ExpiringCache` (`src/main/cache.ts`): a lifetime

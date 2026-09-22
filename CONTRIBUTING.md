@@ -61,6 +61,7 @@ They need a display and a channel that is actually live, so they run by hand, ne
 npm run test:desktop   # startup, joining a room, avatars, layout
 npm run test:settings  # playback settings, per-account scoping, saving on the way out
 npm run test:video     # HLS resolution, playback, fullscreen — needs a live channel
+npm run test:kept      # a room off air leaving the picture where it is — needs a live channel
 npm run test:chat      # rendering a busy room: messages, badges, emotes
 npm run test:avatars   # the room pictures cached on disk, from one launch to the next
 ```
