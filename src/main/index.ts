@@ -32,6 +32,7 @@ const here = fileURLToPath(new URL('.', import.meta.url))
 // Reachable both from the renderer and from the help menu, so the addresses live in one place.
 const externalDocs = {
   'auth-docs': 'https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/#implicit-grant-flow',
+  repo: 'https://github.com/theslumdogemillionaire/twichat',
 }
 app.setName('Twichat')
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
@@ -721,7 +722,7 @@ app.whenReady().then(async () => {
   handle('app:init', async () => {
     initialAccountRestore ??= account.restore()
     await initialAccountRestore
-    return { preferences, scope: activeScope, locale: activeLocale, commandKey: commandKey(), insetWindowControls: process.platform === 'darwin', status: irc.status, account: irc.login, savedAccounts: await accountStore.list(), savedAvatars: await avatarStore.all(), channelAvatars: await channelAvatarStore.all(), roomStates: Object.fromEntries(irc.roomStates), userBadges: Object.fromEntries(irc.userBadges), scopes: accountScopes() }
+    return { preferences, scope: activeScope, locale: activeLocale, commandKey: commandKey(), insetWindowControls: process.platform === 'darwin', status: irc.status, account: irc.login, savedAccounts: await accountStore.list(), savedAvatars: await avatarStore.all(), channelAvatars: await channelAvatarStore.all(), roomStates: Object.fromEntries(irc.roomStates), userBadges: Object.fromEntries(irc.userBadges), scopes: accountScopes(), starPrompt: store.starPromptDue() }
   })
   handle('account:avatars', () => avatarStore.all())
   handle('chat:join', (channel: string) => irc.join(channel))
@@ -1017,6 +1018,7 @@ app.whenReady().then(async () => {
   })
   // The renderer has no clipboard permission by design; copying stays an explicit, bounded request.
   handle('app:apply-update', () => applyUpdate())
+  handle('app:star-dismiss', () => store.dismissStarPrompt())
   handle('app:copy', (text: unknown) => {
     if (typeof text !== 'string' || !text || text.length > 4096) fail('copyTextInvalid')
     clipboard.writeText(text)

@@ -3694,6 +3694,15 @@ $('#scope-notice').addEventListener('click', () => {
   window.twichat.browserLogin().catch(error => toast(displayError(error)))
 })
 window.twichat.onUpdate(notice => { updateNotice = notice; renderUpdateNotice() })
+// Asked once, a week after the first launch: either button closes it for good on this device.
+function closeStarNotice(openRepo: boolean) {
+  $('#star-notice').hidden = true
+  if (openRepo) window.twichat.external('repo').catch(error => toast(displayError(error)))
+  window.twichat.dismissStarPrompt().catch(error => toast(displayError(error)))
+}
+$('#star-open').addEventListener('click', () => closeStarNotice(true))
+$('#star-close').addEventListener('click', () => closeStarNotice(false))
+$('#open-repo').addEventListener('click', () => { window.twichat.external('repo').catch(error => toast(displayError(error))) })
 $('#update-notice').addEventListener('click', () => void window.twichat.applyUpdate())
 window.twichat.onSettings(openSettings)
 /**
@@ -3973,6 +3982,7 @@ window.twichat.init().then(snapshot => {
   setCommandKey(snapshot.commandKey)
   // Where the window lays its own buttons over the title bar, ours start after them.
   document.body.dataset.windowControls = snapshot.insetWindowControls ? 'inset' : 'framed'
+  $('#star-notice').hidden = !snapshot.starPrompt
   hydrate()
   syncDiscoveryLanguage()
   // A renderer reload keeps the IRC session alive, so the retained ROOMSTATE replaces the missing events.

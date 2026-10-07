@@ -732,6 +732,8 @@ input,textarea{cursor:text;user-select:text;-webkit-user-select:text}
 .update-notice[hidden]{display:none}
 /* Amber rather than the update line's lime: nothing is ready here, something is short. */
 .scope-notice{color:var(--amber)}
+.statusbar>.star-notice{gap:6px}.star-notice[hidden]{display:none!important}
+.star-close{display:inline-flex;border:0;background:transparent;padding:0;color:var(--n57b);cursor:pointer}.star-close:hover{color:var(--paper)}.star-close svg{width:11px;height:11px}
 
 /* The picture is not the room's: the dock hangs from `main`, so the explorer and the settings
    float over the video instead of closing it. The page it stands on decides where it sits — top

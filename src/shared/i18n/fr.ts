@@ -768,6 +768,9 @@ export const fr: Messages = {
         forward: 'Page suivante (⌘ →)',
       },
       statusbar: 'Emotes Twitch, 7TV, BTTV et FFZ · client indépendant · alpha',
+      starAsk: 'Twichat vous sert ? Une étoile sur GitHub aide à le faire connaître',
+      starTitle: 'Ouvrir le dépôt sur GitHub',
+      starClose: 'Ne plus demander',
     },
     sessionGate: {
       twichat: 'Twichat',
@@ -971,6 +974,8 @@ export const fr: Messages = {
       connecting: 'Connexion…',
       reconnect: 'Reconnecter le chat',
       connectionNote: 'Le chat passe par IRC en TLS. Une seule connexion sert toutes vos chaînes.',
+      aboutTitle: 'À propos',
+      sourceLink: 'Code source sur GitHub',
       languageTitle: 'Langue',
       languageNote: 'Par défaut, l’application suit la langue de votre système.',
       languageLabel: 'Langue de l’interface',

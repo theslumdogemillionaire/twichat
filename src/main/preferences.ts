@@ -9,6 +9,9 @@ import { fail } from '../shared/errors'
 
 export { ANONYMOUS_SCOPE } from './database'
 
+/** A week of use before the star question: long enough to know whether the app is worth one. */
+export const STAR_PROMPT_DELAY = 7 * 24 * 60 * 60 * 1000
+
 export const defaultPreferences: Preferences = {
   channels: [], active: '', quality: '480p,best', theme: 'system', language: '',
   layout: { playerWidth: 0, sidebarCollapsed: false, hideIdleChannels: true, idleChannelHours: DEFAULT_IDLE_HOURS },
@@ -259,6 +262,24 @@ export class PreferencesStore {
   rememberScope(scope: string): void {
     this.database.prepare(`INSERT INTO app (key, value) VALUES ('lastScope', ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(scope)
+  }
+
+  /**
+   * Whether to ask, once, for a star on the repository. The first call dates this device's first
+   * use; the question comes a week later and never again once answered or closed. Both values
+   * stay in this file: nothing about it is sent anywhere.
+   */
+  starPromptDue(now = Date.now()): boolean {
+    this.database.prepare(`INSERT INTO app (key, value) VALUES ('firstSeen', ?) ON CONFLICT(key) DO NOTHING`).run(String(now))
+    const rows = this.database.prepare(`SELECT key, value FROM app WHERE key IN ('firstSeen', 'starPromptDone')`).all() as { key: string; value: string }[]
+    const values = Object.fromEntries(rows.map(row => [row.key, row.value]))
+    if (values.starPromptDone) return false
+    const firstSeen = Number(values.firstSeen)
+    return Number.isFinite(firstSeen) && now - firstSeen >= STAR_PROMPT_DELAY
+  }
+
+  dismissStarPrompt(): void {
+    this.database.prepare(`INSERT INTO app (key, value) VALUES ('starPromptDone', '1') ON CONFLICT(key) DO NOTHING`).run()
   }
 
   /**

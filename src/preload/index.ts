@@ -86,6 +86,7 @@ const api: TwichatAPI = {
   copy: text => invoke('app:copy', text),
   notifyMention: mention => invoke('app:notify-mention', mention),
   applyUpdate: () => invoke('app:apply-update'),
+  dismissStarPrompt: () => invoke('app:star-dismiss'),
   onUpdate: callback => {
     const listener = (_event: unknown, notice: UpdateNotice) => callback(notice)
     ipcRenderer.on('app:update', listener)

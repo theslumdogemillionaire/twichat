@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { DatabaseTooNew, openDatabase } from '../src/main/database'
-import { ANONYMOUS_SCOPE, PreferencesStore, scopeName, validatePreferences } from '../src/main/preferences'
+import { ANONYMOUS_SCOPE, PreferencesStore, scopeName, STAR_PROMPT_DELAY, validatePreferences } from '../src/main/preferences'
 import { layoutPreferences, windowBounds } from '../src/shared/validation'
 
 const base = { channels: [], active: '', quality: 'best' }
@@ -327,4 +327,24 @@ test('forgetting an account takes its rooms, its activity and the pointer to it'
   // Left behind, the pointer would make the next launch load a scope that no longer exists and
   // build it again: an account asked to be forgotten, back as an empty one.
   assert.equal(preferences.lastScope(), null)
+})
+
+test('the star question waits a week after the first launch, then never comes back once closed', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'twichat-prefs-'))
+  const start = 1_700_000_000_000
+  const first = new PreferencesStore(join(directory, 'twichat.db'))
+  assert.equal(first.starPromptDue(start), false)
+  assert.equal(first.starPromptDue(start + STAR_PROMPT_DELAY - 1), false)
+  first.close()
+
+  // The first launch is dated once: a later start does not push the question back.
+  const second = new PreferencesStore(join(directory, 'twichat.db'))
+  assert.equal(second.starPromptDue(start + STAR_PROMPT_DELAY), true)
+  second.dismissStarPrompt()
+  assert.equal(second.starPromptDue(start + 2 * STAR_PROMPT_DELAY), false)
+  second.close()
+
+  const third = new PreferencesStore(join(directory, 'twichat.db'))
+  assert.equal(third.starPromptDue(start + 3 * STAR_PROMPT_DELAY), false)
+  third.close()
 })

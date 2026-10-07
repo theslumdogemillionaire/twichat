@@ -555,6 +555,9 @@ export const en = {
         forward: 'Next page (⌘ →)',
       },
       statusbar: 'Twitch, 7TV, BTTV and FFZ emotes · independent client · alpha',
+      starAsk: 'Finding Twichat useful? A star on GitHub helps others find it',
+      starTitle: 'Open the repository on GitHub',
+      starClose: 'Don’t ask again',
     },
     sessionGate: {
       twichat: 'Twichat',
@@ -763,6 +766,8 @@ export const en = {
       connecting: 'Connecting…',
       reconnect: 'Reconnect chat',
       connectionNote: 'Chat runs over IRC on TLS. A single connection serves all your channels.',
+      aboutTitle: 'About',
+      sourceLink: 'Source code on GitHub',
     },
     blockForm: {
       kicker: 'ON YOUR TWITCH ACCOUNT',

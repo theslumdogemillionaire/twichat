@@ -37,6 +37,9 @@ Preferences are scoped per account: each account has its own rooms, sizes, quali
 signing out does not carry anything into the next account's session. The composer's drafts and
 history are dropped at the same boundary.
 
+The same database keeps the date of the first launch and whether the one-time GitHub star
+question was answered. It is asked a week after that date, and nothing about it is sent anywhere.
+
 **To erase everything**, delete that directory. There is nothing to erase anywhere else, and no
 account to close.
 

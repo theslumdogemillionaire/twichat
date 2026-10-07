@@ -215,6 +215,8 @@ export interface Snapshot {
   userBadges: Record<string, string[]>
   /** What this token was granted beyond chat. Sent again, on its own channel, at every account change. */
   scopes: AccountScopes
+  /** Whether to ask, once, for a star on the repository: a week after this device's first use. */
+  starPrompt: boolean
 }
 export interface RoomProfile {
   channel: string
@@ -535,7 +537,9 @@ export interface TwichatAPI {
   channelActivity(): Promise<Record<string, number>>
   /** Redates the rooms that have just come alive: a live stream starting, a message arriving. */
   markChannelActivity(channels: string[]): Promise<void>
-  external(target: 'twitch' | 'auth-docs', channel?: string): Promise<void>
+  external(target: 'twitch' | 'auth-docs' | 'repo', channel?: string): Promise<void>
+  /** The star question, answered or closed: it is not asked again on this device. */
+  dismissStarPrompt(): Promise<void>
   /** Opens a link read in a message. The main process checks it again: only HTTP and HTTPS leave the application. */
   openLink(url: string): Promise<void>
   copy(text: string): Promise<void>
