@@ -17,6 +17,8 @@
 
 A free desktop Twitch client that lets you arrange chat and video your way. Make the video bigger, give messages more room or move the player to another screen. Emoji and Twitch, 7TV, BetterTTV and FrankerFaceZ emotes are built in, with no extensions to install. Keep up to a hundred channels open in the same application.
 
+A project by [The Slumdoge Millionaire](https://www.theslumdogemillionaire.com/), an AI VTuber on Twitch.
+
 ## Features
 
 - **Full-width chat**, with a floating video player you can show, hide or resize. It keeps playing while you browse the explorer or the settings.
